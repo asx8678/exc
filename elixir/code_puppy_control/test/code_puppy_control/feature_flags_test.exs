@@ -484,7 +484,7 @@ defmodule CodePuppyControl.FeatureFlagsTest do
 
       # Snapshot legacy home before the operation (may not exist yet)
       legacy_flags_path = Path.join(legacy_home, "flags.json")
-      existed_before = File.exists?(legacy_flags_path)
+      _existed_before = File.exists?(legacy_flags_path)
 
       server = start_fresh_flags_server()
       result = GenServer.call(server, {:set, :llm_client, true})
