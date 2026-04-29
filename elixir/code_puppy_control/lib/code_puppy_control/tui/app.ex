@@ -157,17 +157,17 @@ defmodule CodePuppyControl.TUI.App do
 
   @impl true
   def handle_call({:switch_screen, mod, opts}, _from, %{screen_stack: stack} = s) do
-    # Cleanup current screen, preserve the rest of the stack
     {rest, cur_mod, cur_state} =
       case stack do
         [{cm, _, cs} | r] -> {r, cm, cs}
         [] -> {[], nil, nil}
       end
 
-    if cur_mod, do: maybe_cleanup(cur_mod, cur_state)
-
+    # Init the new screen BEFORE cleaning up the old one.
+    # If init fails, the old screen stays intact — no zombie state.
     case safe_init(mod, opts) do
       {:ok, new_state} ->
+        if cur_mod, do: maybe_cleanup(cur_mod, cur_state)
         new_stack = [{mod, opts, new_state} | rest]
         new_s = %{s | screen_stack: new_stack}
         render_active(new_s)
@@ -235,10 +235,11 @@ defmodule CodePuppyControl.TUI.App do
         {:noreply, new_s}
 
       {:switch, next_mod, next_opts} ->
-        maybe_cleanup(mod, state)
-
+        # Init the new screen BEFORE cleaning up the old one.
+        # If init fails, the current screen stays intact.
         case safe_init(next_mod, next_opts) do
           {:ok, next_state} ->
+            maybe_cleanup(mod, state)
             new_stack = [{next_mod, next_opts, next_state} | rest]
             new_s = %{s | screen_stack: new_stack}
             render_active(new_s)
@@ -331,7 +332,11 @@ defmodule CodePuppyControl.TUI.App do
   # crashing the entire TUI GenServer.
 
   defp safe_init(mod, opts) do
-    mod.init(opts)
+    case mod.init(opts) do
+      {:ok, state} -> {:ok, state}
+      {:error, reason} -> {:error, reason}
+      other -> {:error, {:bad_init_return, other}}
+    end
   catch
     kind, reason -> {:error, {kind, reason}}
   end
@@ -347,7 +352,13 @@ defmodule CodePuppyControl.TUI.App do
   end
 
   defp safe_handle_input(mod, input, state) do
-    mod.handle_input(input, state)
+    case mod.handle_input(input, state) do
+      {:ok, new_state} -> {:ok, new_state}
+      {:switch, next_mod, next_opts} -> {:switch, next_mod, next_opts}
+      :quit -> :quit
+      {:error, reason} -> {:error, reason}
+      other -> {:error, {:bad_input_return, other}}
+    end
   catch
     kind, reason -> {:error, {kind, reason}}
   end
