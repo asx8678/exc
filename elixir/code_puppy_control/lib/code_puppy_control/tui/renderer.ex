@@ -402,8 +402,14 @@ defmodule CodePuppyControl.TUI.Renderer do
   # ── EventBus Map Handlers ─────────────────────────────────────────────────
 
   # EventBus events that can't be converted to canonical Stream.Events
+  defp handle_eventbus_event(%{type: "text", content: content}, state) do
+    # EventBus.broadcast_text/4 emits these — render as plain text
+    owl_puts(Markdown.render(content))
+    state
+  end
+
   defp handle_eventbus_event(%{type: "agent_run_failed", error: error}, state) do
-    owl_puts(Owl.Data.tag("✖ Error: #{error}", :red))
+    owl_puts(Owl.Data.tag("\u2716 Error: #{error}", :red))
     state
   end
 
@@ -421,21 +427,38 @@ defmodule CodePuppyControl.TUI.Renderer do
 
   # ── Event Conversion ──────────────────────────────────────────────────────
 
-  defp event_to_canonical(%{type: "agent_llm_stream", chunk: chunk}) do
+  # Try canonical wire format first (string-keyed maps matching
+  # Stream.Event.to_wire/1), then fall back to legacy EventBus maps.
+  defp event_to_canonical(%{"type" => _} = wire_event) do
+    case Event.from_wire(wire_event) do
+      {:ok, canonical} -> {:ok, canonical}
+      {:error, :unknown_type} -> legacy_event_to_canonical(wire_event)
+    end
+  end
+
+  defp event_to_canonical(%{type: _} = event) do
+    # Legacy atom-keyed EventBus maps
+    legacy_event_to_canonical(event)
+  end
+
+  defp event_to_canonical(_), do: :skip
+
+  # Legacy EventBus event conversion (atom-keyed maps)
+  defp legacy_event_to_canonical(%{type: "agent_llm_stream", chunk: chunk}) do
     {:ok, %Event.TextDelta{index: 0, text: chunk}}
   end
 
-  defp event_to_canonical(%{type: "agent_tool_call_start", tool_name: name, tool_call_id: id}) do
+  defp legacy_event_to_canonical(%{type: "agent_tool_call_start", tool_name: name, tool_call_id: id}) do
     {:ok, %Event.ToolCallStart{index: 0, id: id, name: name}}
   end
 
-  defp event_to_canonical(%{type: "agent_tool_call_end", tool_name: name, tool_call_id: id}) do
+  defp legacy_event_to_canonical(%{type: "agent_tool_call_end", tool_name: name, tool_call_id: id}) do
     {:ok, %Event.ToolCallEnd{index: 0, id: id || "", name: name, arguments: ""}}
   end
 
-  defp event_to_canonical(%{type: "agent_run_completed"}), do: {:ok, %Event.Done{}}
+  defp legacy_event_to_canonical(%{type: "agent_run_completed"}), do: {:ok, %Event.Done{}}
 
-  defp event_to_canonical(_), do: :skip
+  defp legacy_event_to_canonical(_), do: :skip
 
   # ── Buffer Management ─────────────────────────────────────────────────────
 
