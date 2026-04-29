@@ -91,11 +91,12 @@ defmodule CodePuppyControl.Plugins.Scheduler do
   end
 
   defp handle_start do
-    try do
-      Scheduler.force_check()
-      "Scheduler check triggered - enabled tasks will execute on schedule"
-    rescue
-      e -> "Failed to start scheduler: #{Exception.message(e)}"
+    case Scheduler.force_check() do
+      :ok ->
+        "Scheduler check triggered - enabled tasks will execute on schedule"
+
+      {:error, :not_running} ->
+        "Scheduler is not running - check skipped. Scheduled tasks are persisted but will not execute until the scheduler starts."
     end
   end
 

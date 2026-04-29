@@ -23,7 +23,7 @@ defmodule CodePuppyControl.Runtime.CronSchedulerTest do
     test "global CronScheduler is not started in test supervision tree" do
       # The global CronScheduler (registered under __MODULE__) must NOT
       # be part of the application supervisor in test env. If it were,
-      # it would hold the single sandbox DB connection and starve other
+      # it would hold a sandbox DB connection and starve other
       # DB-dependent tests.
       assert Process.whereis(CronScheduler) == nil
     end
