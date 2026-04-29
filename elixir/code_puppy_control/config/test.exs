@@ -70,7 +70,7 @@ test_db_path =
 
 config :code_puppy_control, CodePuppyControl.Repo,
   database: test_db_path,
-  pool_size: 1,
+  pool_size: 2,
   pool: Ecto.Adapters.SQL.Sandbox,
   # SQLite pragmas tuned for test speed (safe for single-connection sandbox)
   journal_mode: :wal,
