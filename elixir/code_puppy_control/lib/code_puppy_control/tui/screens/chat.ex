@@ -103,7 +103,7 @@ defmodule CodePuppyControl.TUI.Screens.Chat do
     user_msg = %{role: :user, content: input}
     new_messages = state.messages ++ [user_msg]
 
-    # TODO: Wire to Agent.Loop.run_turn/1 for real agent invocation.
+    # TODO(prg-3): Wire to Agent.Loop.run_turn/1 for real agent invocation.
     # For now, record the message and echo a placeholder assistant response.
     assistant_msg = %{role: :assistant, content: "(agent not yet wired — you said: #{input})"}
     final_messages = new_messages ++ [assistant_msg]

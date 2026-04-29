@@ -572,7 +572,7 @@ defmodule CodePuppyControl.TUI.Renderer do
 
       if elapsed > 0 do
         _rate = state.token_count / (elapsed / 1000)
-        # TODO: Phase 2 — wire rate to a status bar / Owl.LiveScreen block
+        # TODO(prg-3): Phase 2 — wire rate to a status bar / Owl.LiveScreen block
       end
 
       %{state | last_rate_update: now}
