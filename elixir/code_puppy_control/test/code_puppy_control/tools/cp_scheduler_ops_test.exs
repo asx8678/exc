@@ -229,7 +229,7 @@ defmodule CodePuppyControl.Tools.CpSchedulerOpsTest do
       assert result.output =~ "Task not found"
     end
 
-    test "CpSchedulerStatus returns running status" do
+    test "CpSchedulerStatus returns scheduler status" do
       {:ok, result} = CpSchedulerOps.CpSchedulerStatus.invoke(%{}, %{})
       assert Map.has_key?(result, :output)
       assert result.output =~ "Scheduler"
@@ -245,7 +245,18 @@ defmodule CodePuppyControl.Tools.CpSchedulerOpsTest do
       assert result.output =~ "Task not found"
     end
 
-    test "CpSchedulerForceCheck triggers check" do
+    test "CpSchedulerForceCheck returns not-running message when CronScheduler absent" do
+      {:ok, result} = CpSchedulerOps.CpSchedulerForceCheck.invoke(%{}, %{})
+      assert Map.has_key?(result, :output)
+      assert result.output =~ "Schedule check skipped"
+      assert result.output =~ "CronScheduler is not running"
+    end
+
+    test "CpSchedulerForceCheck triggers check when CronScheduler is running" do
+      # Start a supervised CronScheduler for the success path
+      {:ok, _pid} =
+        start_supervised({CodePuppyControl.Scheduler.CronScheduler, check_interval: 60_000})
+
       {:ok, result} = CpSchedulerOps.CpSchedulerForceCheck.invoke(%{}, %{})
       assert Map.has_key?(result, :output)
       assert result.output =~ "Schedule check triggered"

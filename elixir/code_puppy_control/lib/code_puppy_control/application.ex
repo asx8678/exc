@@ -45,7 +45,13 @@ defmodule CodePuppyControl.Application do
 
   use Application
 
-  @test_supervisor_opts if Mix.env() == :test, do: [max_restarts: 100, max_seconds: 1], else: []
+  # Compile-time env check — safe for releases (Mix.env() is evaluated at
+  # compile time when used in module attributes). Runtime Mix.env() calls
+  # are forbidden in application startup because Mix may not be available
+  # in a Burrito release. (code_puppy-5xd.6)
+  @env Mix.env()
+  @test_supervisor_opts if @env == :test, do: [max_restarts: 100, max_seconds: 1], else: []
+  @exclude_cron_scheduler @env == :test
 
   @impl true
   def start(_type, _args) do
@@ -157,7 +163,7 @@ defmodule CodePuppyControl.Application do
       # Oban job processing with SQLite engine
       {Oban, Application.fetch_env!(:code_puppy_control, Oban)}
       # Periodic scheduler for cron tasks — excluded in test to avoid
-      # Ecto-sandbox contention (pool_size:1). CronScheduler tests start
+      # Ecto-sandbox contention. CronScheduler tests start
       # their own supervised instance instead. (code_puppy-5xd.6)
       | cron_scheduler_child() ++ [CodePuppyControlWeb.Endpoint]
     ]
@@ -250,12 +256,14 @@ defmodule CodePuppyControl.Application do
   # ── Burrito CLI dispatch helpers ────────────────────────────────
 
   # CronScheduler is excluded from the supervision tree in test env to
-  # prevent Ecto-sandbox contention. With pool_size: 1, the global
-  # CronScheduler holds the only DB connection and starves test processes.
-  # CronScheduler unit tests start their own isolated instance via
-  # start_supervised/1. (code_puppy-5xd.6)
+  # prevent Ecto-sandbox contention. Even with pool_size: 2, the global
+  # CronScheduler would hold one connection indefinitely, reducing
+  # available connections for test processes. CronScheduler unit tests
+  # start their own isolated instance via start_supervised/1 instead.
+  # Uses compile-time @exclude_cron_scheduler attribute (not runtime
+  # Mix.env()) for release safety. (code_puppy-5xd.6)
   defp cron_scheduler_child do
-    if Mix.env() == :test, do: [], else: [{CodePuppyControl.Scheduler.CronScheduler, []}]
+    if @exclude_cron_scheduler, do: [], else: [{CodePuppyControl.Scheduler.CronScheduler, []}]
   end
 
   # Detect Burrito runtime context. Burrito sets `__BURRITO` at launch.

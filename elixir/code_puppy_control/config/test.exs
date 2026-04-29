@@ -71,6 +71,11 @@ test_db_path =
 config :code_puppy_control, CodePuppyControl.Repo,
   database: test_db_path,
   pool_size: 2,
+  # pool_size: 2 required because CronScheduler tests start their own
+  # supervised instance via start_supervised/1, which holds one DB
+  # connection. With pool_size: 1, that connection is monopolized and
+  # test processes starve. pool_size: 2 ensures one connection remains
+  # for test assertions. (code_puppy-5xd.6)
   pool: Ecto.Adapters.SQL.Sandbox,
   # SQLite pragmas tuned for test speed (safe for single-connection sandbox)
   journal_mode: :wal,

@@ -286,8 +286,7 @@ defmodule CodePuppyControl.Scheduler do
 
   This causes the CronScheduler to evaluate all enabled tasks
   and enqueue any that are due. No-op when CronScheduler is not
-  running (e.g. in test environment where it is excluded from
-  the supervision tree to avoid Ecto-sandbox contention).
+  running (e.g. when it is excluded from the supervision tree).
   """
   @spec force_check() :: :ok | {:error, :not_running}
   def force_check do
@@ -302,7 +301,7 @@ defmodule CodePuppyControl.Scheduler do
   Gets the current status of the CronScheduler.
 
   Returns a map with `:running` set to `false` when the
-  CronScheduler is not started (e.g. in test environment).
+  CronScheduler is not started.
   """
   @spec scheduler_status() :: map()
   def scheduler_status do
