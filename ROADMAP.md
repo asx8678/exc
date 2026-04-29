@@ -1,8 +1,9 @@
 # Code Puppy Roadmap
 
-> Local tracker for planned work. Replaces bd (beads) tracker after its removal in commit `b94b6222`.
+> Historical/high-level phase summary. Active work is tracked in **bd** (beads) — see `bd ready` for available tasks.
 >
-> Use this file for multi-session work items. For single-session todos, use a scratch file or just remember.
+> This file documents phase completion status and follow-ups. Do not add new active work items here;
+> file them in bd instead. ROADMAP is not a replacement for bd — bd is the canonical tracker for in-progress work.
 
 ## Format
 
@@ -146,12 +147,19 @@ Prerequisites before launching the Python-to-Elixir port.
 
 ### Phase H: Cutover
 
-> Tracking: epic `code_puppy-3f9` (filed 2026-04-25), 7 child tasks: <H.1: `code_puppy-3f9.1`>, <H.2: `code_puppy-3f9.7`>, <H.3: `code_puppy-3f9.6`>, <H.4: `code_puppy-3f9.2`>, <H.5: `code_puppy-3f9.5`>, <H.6: `code_puppy-3f9.4`>, <H.7: `code_puppy-3f9.3`>
+> Tracking: epic `code_puppy-djs` (filed 2026-04-29), 8 child tasks: <H.1: `code_puppy-djs.1`>, <H.2: `code_puppy-djs.2`>, <H.3: `code_puppy-djs.3`>, <H.4: `code_puppy-djs.4`>, <H.5: `code_puppy-djs.5`>, <H.6: `code_puppy-djs.6`>, <H.7: `code_puppy-djs.7`>, <H.RT: `code_puppy-bwt`>
+> Historical: epic `code_puppy-3f9` (filed 2026-04-25, 7 child tasks)
+> Phase H reality audit: [docs/triage/phase-h-reality-audit-2026-04-29.md](docs/triage/phase-h-reality-audit-2026-04-29.md)
 
+- [ ] Feature-flag Elixir code paths (code_puppy-djs.4) — audit djs.1 is complete; djs.4 implementation is NOT started
+- [ ] Gradual rollout per capability — spec needed (code_puppy-djs.6)
+- [ ] Delete Python tree when Elixir is at parity (code_puppy-djs.2)
+- [ ] Runtime selector + dual-run router (code_puppy-bwt) — child of code_puppy-djs
+- [ ] Implement --continue session restore (code_puppy-djs.5)
+- [ ] Implement --bridge-mode runtime effect (code_puppy-djs.3)
+- [ ] Update CONTRIBUTING.md (code_puppy-djs.7)
 
-- [ ] Feature-flag Elixir code paths
-- [ ] Gradual rollout per capability
-- [ ] Delete Python tree when Elixir is at parity
+> **Phase H reality audit (code_puppy-djs.1) is ✅ COMPLETE.** See [audit document](docs/triage/phase-h-reality-audit-2026-04-29.md). The audit is separate from djs.4 implementation.
 
 ## Deferred / ideas
 
