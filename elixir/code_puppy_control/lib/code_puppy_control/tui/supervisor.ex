@@ -29,9 +29,10 @@ defmodule CodePuppyControl.TUI.Supervisor do
 
   ## Environment Gating
 
-  The supervisor is a no-op unless `CODE_PUPPY_TUI=1` is set (matching
-  the Python-side gating convention from `app_runner.py`). When the
-  env var is unset, `start_link/1` returns `{:error, :tui_disabled}`.
+  The supervisor is a no-op unless `PUP_TUI=1` is set (per project
+  env var convention). The legacy `CODE_PUPPY_TUI` is supported as a
+  compatibility alias with deprecation. When neither is set,
+  `start_link/1` returns `{:error, :tui_disabled}`.
 
   This is the **only** entry point for starting the TUI. All other
   modules (App, Renderer) should be started via this supervisor, not
@@ -53,9 +54,9 @@ defmodule CodePuppyControl.TUI.Supervisor do
     * `:screen_opts` — options for the initial screen (default: `%{}`)
     * `:session_id` — session ID for the Renderer's PubSub subscription
     * `:name` — supervisor name registration (default: `__MODULE__`)
-    * `:force` — start even without `CODE_PUPPY_TUI` env var (for testing)
+    * `:force` — start even without `PUP_TUI` env var (for testing)
 
-  Returns `{:error, :tui_disabled}` when `CODE_PUPPY_TUI` is not set
+  Returns `{:error, :tui_disabled}` when `PUP_TUI` is not set
   and `:force` is not `true`.
   """
   @spec start_link(keyword()) :: Supervisor.on_start() | {:error, :tui_disabled}
@@ -66,7 +67,7 @@ defmodule CodePuppyControl.TUI.Supervisor do
       name = Keyword.get(opts, :name, __MODULE__)
       Supervisor.start_link(__MODULE__, opts, name: name)
     else
-      Logger.debug("TUI.Supervisor: CODE_PUPPY_TUI not set, skipping TUI startup")
+      Logger.debug("TUI.Supervisor: PUP_TUI not set, skipping TUI startup")
       {:error, :tui_disabled}
     end
   end
@@ -143,12 +144,23 @@ defmodule CodePuppyControl.TUI.Supervisor do
     }
   end
 
-  # Match the Python-side gating convention: CODE_PUPPY_TUI=1
+  # Primary env var is PUP_TUI (per project convention).
+  # CODE_PUPPY_TUI is a legacy alias — supported with deprecation.
   defp tui_enabled? do
-    case System.get_env("CODE_PUPPY_TUI") do
-      "1" -> true
-      "true" -> true
-      _ -> false
+    case System.get_env("PUP_TUI") do
+      v when v in ["1", "true"] ->
+        true
+
+      _ ->
+        # Fallback to legacy CODE_PUPPY_TUI with deprecation warning
+        case System.get_env("CODE_PUPPY_TUI") do
+          v when v in ["1", "true"] ->
+            Logger.warning("TUI.Supervisor: CODE_PUPPY_TUI is deprecated, use PUP_TUI instead")
+            true
+
+          _ ->
+            false
+        end
     end
   end
 end

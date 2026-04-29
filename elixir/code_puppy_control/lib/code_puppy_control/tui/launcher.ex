@@ -7,10 +7,10 @@ defmodule CodePuppyControl.TUI.Launcher do
 
   ## Gating Convention
 
-  The TUI is **opt-in** via `CODE_PUPPY_TUI=1`, matching the Python
-  side's convention (see `TUI_CLI_AUDIT.md`). When unset, the
-  default is the CLI REPL mode (`interactive_loop.py` or
-  `CodePuppyControl.REPL.Loop`).
+  The TUI is **opt-in** via `PUP_TUI=1` (env var convention per
+  CONTRIBUTING.md). The legacy `CODE_PUPPY_TUI` is supported as a
+  compatibility alias with a deprecation warning. When neither is
+  set, the default is the CLI REPL mode.
 
   ## Usage
 
@@ -25,7 +25,7 @@ defmodule CodePuppyControl.TUI.Launcher do
 
   ## Startup Sequence
 
-  1. Check `CODE_PUPPY_TUI=1` env var
+  1. Check `PUP_TUI=1` env var
   2. Print the Code Puppy banner
   3. Start `TUI.Supervisor` with the initial screen
   4. Return `{:ok, supervisor_pid}` or `{:error, reason}`
@@ -46,7 +46,7 @@ defmodule CodePuppyControl.TUI.Launcher do
     * `:screen` — initial screen module (default: `Screens.Chat`)
     * `:screen_opts` — initial screen options (default: `%{}`)
     * `:session_id` — session ID for Renderer PubSub subscription
-    * `:force` — launch even without `CODE_PUPPY_TUI` (for testing)
+    * `:force` — launch even without `PUP_TUI` (for testing)
 
   ## Returns
 
@@ -135,10 +135,23 @@ defmodule CodePuppyControl.TUI.Launcher do
     end
   end
 
+  # Primary env var is PUP_TUI (per project convention).
+  # CODE_PUPPY_TUI is a legacy alias — supported with deprecation.
   defp tui_enabled? do
-    case System.get_env("CODE_PUPPY_TUI") do
-      v when v in ["1", "true"] -> true
-      _ -> false
+    case System.get_env("PUP_TUI") do
+      v when v in ["1", "true"] ->
+        true
+
+      _ ->
+        # Fallback to legacy CODE_PUPPY_TUI with deprecation warning
+        case System.get_env("CODE_PUPPY_TUI") do
+          v when v in ["1", "true"] ->
+            Logger.warning("TUI.Launcher: CODE_PUPPY_TUI is deprecated, use PUP_TUI instead")
+            true
+
+          _ ->
+            false
+        end
     end
   end
 
