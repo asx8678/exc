@@ -40,6 +40,7 @@ defmodule CodePuppyControl.FeatureFlags do
   require Logger
 
   alias CodePuppyControl.FeatureFlags.Flags
+  alias CodePuppyControl.Config.Isolation
   alias CodePuppyControl.Config.Paths
 
   # ── Client API ──────────────────────────────────────────────────────────
@@ -166,7 +167,7 @@ defmodule CodePuppyControl.FeatureFlags do
   end
 
   @impl true
-  def handle_call(:reset, _from, _state) do
+  def handle_call(:reset, _from, state) do
     fresh = default_flags()
 
     case persist_to_disk(fresh) do
@@ -175,7 +176,8 @@ defmodule CodePuppyControl.FeatureFlags do
         {:reply, :ok, %{flags: fresh}}
 
       {:error, reason} ->
-        {:reply, {:error, reason}, %{flags: fresh}}
+        # Do NOT mutate in-memory state on persistence failure (matches set behavior)
+        {:reply, {:error, reason}, state}
     end
   end
 
@@ -255,12 +257,28 @@ defmodule CodePuppyControl.FeatureFlags do
     path = flags_file()
     dir = Path.dirname(path)
 
-    with :ok <- File.mkdir_p(dir),
-         {:ok, encoded} <- Jason.encode(serialize_flags(flags), pretty: true) do
-      File.write(path, encoded <> "\n")
+    with {:ok, :ok} <- safe_check(dir, :mkdir),
+         :ok <- File.mkdir_p(dir),
+         {:ok, :ok} <- safe_check(path, :write),
+         {:ok, encoded} <- Jason.encode(serialize_flags(flags), pretty: true),
+         :ok <- File.write(path, encoded <> "\n") do
+      :ok
     else
+      {:error, %Isolation.IsolationViolation{} = violation} ->
+        {:error, "Isolation violation: #{violation.message}"}
+
       {:error, reason} ->
         {:error, "Failed to persist flags: #{inspect(reason)}"}
+    end
+  end
+
+  # Route persistence through the Isolation guard (ADR-003 §6.3).
+  # Returns {:ok, :ok} when the path is allowed, or
+  # {:error, %IsolationViolation{}} when blocked.
+  defp safe_check(path, action) do
+    case Isolation.check_allowed(path, action) do
+      :ok -> {:ok, :ok}
+      {:error, %Isolation.IsolationViolation{} = violation} -> {:error, violation}
     end
   end
 
