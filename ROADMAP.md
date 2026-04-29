@@ -111,7 +111,32 @@ Prerequisites before launching the Python-to-Elixir port.
 
 - [ ] Port interactive loop
 - [ ] Port command line / slash commands
-- [ ] TUI in Elixir (Owl? Ratatouille?)
+- [x] TUI in Elixir (Owl chosen — see ADR-007) — code_puppy-prg.3, merged 54e44fb6
+
+
+#### Phase G follow-ups (post-prg.3)
+
+**Renderer / TUI robustness:**
+- [ ] Replace O(n²) `++` in `Renderer.Buffer` text accumulation with a reversed-list pattern (`[text | acc]` + reverse on flush) — `renderer/buffer.ex`
+- [ ] Mirror `TUI.App.owl_puts/1` defensive logging pattern in `Renderer.OwlOutput.owl_puts/1` (currently only catches `:terminated`)
+- [ ] Add a `TUI.Output` / `TUI.RenderTarget` adapter to reduce Owl coupling per ADR-007's "make Owl swappable" intent
+- [ ] Replace `Task.shutdown(:brutal_kill)` in `Input.terminate/2` with monitor-aware graceful shutdown + bounded fallback
+- [ ] Handle string-keyed legacy events in `Renderer.EventMapper.legacy_event_to_canonical/1` (currently atom-keyed only)
+- [ ] Make `@flush_threshold` configurable in `Renderer` (currently hardcoded at 20 — likely too low for streaming)
+- [ ] Align `Input` module docs with implementation OR implement advertised line-editing/history/Ctrl+W/tab-completion features
+
+**Test quality / drift prevention:**
+- [ ] Reduce `:sys.get_state/1` reliance in `renderer_test.exs` (drift risk — should test boundary behavior)
+- [ ] Strengthen `markdown_test.exs` beyond `assert is_list(result)` smoke checks
+- [ ] Make `model_selector_test.exs` deterministic — currently passes vacuously when no models configured
+- [ ] Tighten config screen test boundaries — currently accepts both success and `write_error` outcomes
+
+**Coverage gaps (no CI gate, but flag for future):**
+- [ ] `TUI.Widgets.ModelSelector` — 7.23% coverage
+- [ ] `TUI.Widgets.SessionBrowser` — 18.75% coverage
+- [ ] `TUI.Widgets.AgentSelector` — 21.05% coverage
+- [ ] `TUI.Input` — 36.59% coverage
+- [ ] `TUI.Renderer.EventMapper` — 45.45% coverage
 
 ### Phase H: Cutover
 
