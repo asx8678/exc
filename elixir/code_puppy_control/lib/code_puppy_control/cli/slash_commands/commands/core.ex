@@ -6,22 +6,34 @@ defmodule CodePuppyControl.CLI.SlashCommands.Commands.Core do
   `(raw_line :: String.t(), repl_state) :: {:continue, state} | {:halt, state}`
   """
 
+  alias CodePuppyControl.Callbacks.Triggers
   alias CodePuppyControl.CLI.SlashCommands.Registry
   alias CodePuppyControl.REPL.History
 
   @doc """
   Handles `/help` — prints a table of all registered commands.
+
+  Lists built-in commands from the Registry, then appends any
+  plugin-registered help entries from `:custom_command_help` callbacks.
   """
   @spec handle_help(String.t(), any()) :: {:continue, any()}
   def handle_help(_line, state) do
     commands = Registry.list_all()
+    plugin_help = Triggers.on_custom_command_help() || []
 
-    if commands == [] do
+    if commands == [] and plugin_help == [] do
       IO.puts("(no commands registered)")
     else
-      # Compute column widths
-      max_name = commands |> Enum.map(&String.length(&1.name)) |> Enum.max()
-      max_usage = commands |> Enum.map(&String.length(&1.usage || "")) |> Enum.max()
+      # Compute column widths across built-in commands
+      max_name =
+        commands
+        |> Enum.map(&String.length(&1.name))
+        |> Enum.max(fn -> 0 end)
+
+      max_usage =
+        commands
+        |> Enum.map(&String.length(&1.usage || ""))
+        |> Enum.max(fn -> 0 end)
 
       IO.puts("")
 
@@ -49,6 +61,35 @@ defmodule CodePuppyControl.CLI.SlashCommands.Commands.Core do
             "#{cmd.description}#{aliases_str}"
         )
       end)
+
+      # Append plugin-registered help entries
+      if plugin_help != [] do
+        # Widen column widths to include plugin entries
+        plugin_max_name =
+          plugin_help
+          |> Enum.map(fn {name, _desc} -> String.length(to_string(name)) end)
+          |> Enum.max(fn -> 0 end)
+
+        effective_max_name = max(max_name, plugin_max_name)
+
+        IO.puts("")
+
+        IO.puts(IO.ANSI.bright() <> "    Plugin commands:" <> IO.ANSI.reset())
+
+        IO.puts("")
+
+        plugin_help
+        |> Enum.sort_by(fn {name, _desc} -> to_string(name) end)
+        |> Enum.each(fn {name, desc} ->
+          name_str = to_string(name)
+          name_pad = String.duplicate(" ", effective_max_name - String.length(name_str) + 2)
+
+          IO.puts(
+            "    #{IO.ANSI.green()}#{name_str}#{IO.ANSI.reset()}#{name_pad}" <>
+              "#{desc}"
+          )
+        end)
+      end
 
       IO.puts("")
 

@@ -196,4 +196,63 @@ defmodule CodePuppyControl.CLI.SlashCommands.Commands.CoreTest do
       assert output =~ cwd
     end
   end
+
+  # ── Plugin Help Integration ──────────────────────────────────────
+
+  describe "/help with plugin :custom_command_help entries" do
+    setup context do
+      # Ensure the Callbacks.Registry is running
+      case Process.whereis(CodePuppyControl.Callbacks.Registry) do
+        nil -> start_supervised!({CodePuppyControl.Callbacks.Registry, []})
+        _pid -> :ok
+      end
+
+      # Clear any leftover plugin help callbacks
+      CodePuppyControl.Callbacks.clear(:custom_command_help)
+
+      :ok
+    end
+
+    test "includes plugin help entries in help output", %{state: state} do
+      help_cb = fn -> [{"foo", "Foo command"}, {"bar", "Bar command"}] end
+      CodePuppyControl.Callbacks.register(:custom_command_help, help_cb)
+
+      on_exit(fn ->
+        CodePuppyControl.Callbacks.unregister(:custom_command_help, help_cb)
+      end)
+
+      output =
+        ExUnit.CaptureIO.capture_io(fn ->
+          assert {:continue, ^state} = Core.handle_help("/help", state)
+        end)
+
+      # Plugin entries should appear in the output
+      assert output =~ "foo"
+      assert output =~ "Foo command"
+      assert output =~ "bar"
+      assert output =~ "Bar command"
+      # Plugin commands section header should appear
+      assert output =~ "Plugin commands"
+    end
+
+    test "works when only plugin help exists (no built-in commands)", %{state: state} do
+      # Clear all registered commands
+      Registry.clear()
+
+      help_cb = fn -> [{"plugin-cmd", "A plugin command"}] end
+      CodePuppyControl.Callbacks.register(:custom_command_help, help_cb)
+
+      on_exit(fn ->
+        CodePuppyControl.Callbacks.unregister(:custom_command_help, help_cb)
+      end)
+
+      output =
+        ExUnit.CaptureIO.capture_io(fn ->
+          assert {:continue, ^state} = Core.handle_help("/help", state)
+        end)
+
+      assert output =~ "plugin-cmd"
+      assert output =~ "A plugin command"
+    end
+  end
 end
