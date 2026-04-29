@@ -106,12 +106,14 @@ Prerequisites before launching the Python-to-Elixir port.
 
 ### Phase G: CLI + UI
 
-> Tracking: epic `code_puppy-prg` (filed 2026-04-25), 6 child tasks: <G.1: `code_puppy-prg.1`>, <G.2: `code_puppy-prg.2`>, <G.3: `code_puppy-prg.3`>, <G.4: `code_puppy-prg.5`>, <G.5: `code_puppy-prg.6`>, <G.6: `code_puppy-prg.4`>
+> Tracking: epic `code_puppy-prg` (filed 2026-04-25), 3 active tasks: <G.1: `code_puppy-prg.1`>, <G.2: `code_puppy-prg.2`>, <G.3: `code_puppy-prg.3`> (prg.4/5/6 unallocated — phantom bd IDs, no scope or commits)
 
 
-- [ ] Port interactive loop
-- [ ] Port command line / slash commands
+- [x] Port interactive loop (REPL.Loop + Dispatch + History + Completion + Input + OneShot, 1681 LoC) — code_puppy-prg.1, landed via bd-160/bd-250/bd-252 (merge SHAs 3a131602, 1eced0ed, b47e54f6)
+- [x] Port command line / slash commands (16 built-ins + Dispatcher + Registry + plugin bridge, 865 LoC) — code_puppy-prg.2, landed via bd-163/bd-259–bd-273 + plugin bridge (merged ca984ff5)
 - [x] TUI in Elixir (Owl chosen — see ADR-007) — code_puppy-prg.3, merged 54e44fb6
+
+> **Phase G is now complete.** All three sub-items (interactive loop, slash commands + plugin bridge, Elixir TUI) are merged. The only remaining phase is H (cutover). Tier 3 polish items moved to "Phase G follow-ups (post-prg.3)" below.
 
 
 #### Phase G follow-ups (post-prg.3)
@@ -130,6 +132,10 @@ Prerequisites before launching the Python-to-Elixir port.
 - [ ] Strengthen `markdown_test.exs` beyond `assert is_list(result)` smoke checks
 - [ ] Make `model_selector_test.exs` deterministic — currently passes vacuously when no models configured
 - [ ] Tighten config screen test boundaries — currently accepts both success and `write_error` outcomes
+
+**Plugin / CLI integration (post-prg.1+2 audit):**
+- [ ] Implement `--continue` session restore — currently parsed but routes to plain interactive mode (`cli.ex` docstring acknowledges)
+- [ ] Implement `--bridge-mode` runtime effect — currently parsed and reserved (no spec yet; defer until requirements clarify)
 
 **Coverage gaps (no CI gate, but flag for future):**
 - [ ] `TUI.Widgets.ModelSelector` — 7.23% coverage
