@@ -43,6 +43,20 @@ defmodule CodePuppyControl.TUI.AppTest do
     def handle_input(_input, state), do: {:ok, state}
   end
 
+  # Does NOT implement @behaviour — returns non-conforming values
+  # to test defensive handling of bad callback returns.
+  defmodule BadInitScreen do
+    def init(_opts), do: :bork
+    def render(_state), do: Owl.Data.tag("[bad]", :red)
+    def handle_input(_input, state), do: {:ok, state}
+  end
+
+  defmodule FailingInitScreen do
+    def init(_opts), do: {:error, :nope}
+    def render(_state), do: Owl.Data.tag("[failing]", :red)
+    def handle_input(_input, state), do: {:ok, state}
+  end
+
   # ── Setup ─────────────────────────────────────────────────────────────────
 
   setup do
@@ -170,6 +184,61 @@ defmodule CodePuppyControl.TUI.AppTest do
       Process.sleep(50)
       # The GenServer should have stopped
       refute Process.whereis(name)
+    end
+  end
+
+  # ── Defensive Handling ──────────────────────────────────────────────────
+
+  # ── Defensive Handling ──────────────────────────────────────────────────
+
+  # These tests manage their own App lifecycle (no shared setup)
+  # because they test error-recovery paths where the App must survive
+  # bad callback returns.
+
+  describe "defensive error handling" do
+    setup do
+      name = :"app_defensive_#{System.unique_integer([:positive, :monotonic])}"
+
+      {:ok, _pid} =
+        App.start_link(
+          screen: MockScreen,
+          screen_opts: %{cleanup_pid: self()},
+          name: name
+        )
+
+      on_exit(fn ->
+        if pid = Process.whereis(name) do
+          try do
+            GenServer.stop(pid, :normal)
+          catch
+            :exit, _ -> :ok
+          end
+        end
+      end)
+
+      {:ok, app_name: name}
+    end
+
+    test "switch_screen returns error and preserves old screen on bad init return", %{
+      app_name: name
+    } do
+      result = App.switch_screen(BadInitScreen, %{}, name)
+
+      assert {:error, {:bad_init_return, :bork}} = result
+      # Old screen should still be active — not cleaned up
+      assert App.current_screen(name) == MockScreen
+      refute_received {:cleaned, _}
+    end
+
+    test "switch_screen preserves old screen on explicit {:error, _} init return", %{
+      app_name: name
+    } do
+      result = App.switch_screen(FailingInitScreen, %{}, name)
+
+      assert {:error, :nope} = result
+      # Old screen should still be active — cleanup was NOT called
+      assert App.current_screen(name) == MockScreen
+      refute_received {:cleaned, _}
     end
   end
 end
