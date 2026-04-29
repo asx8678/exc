@@ -50,10 +50,13 @@ Prerequisites before launching the Python-to-Elixir port.
 > Tracking: epic `code_puppy-4s8` (filed 2026-04-25), 7 child tasks: <C.1: `code_puppy-4s8.1`>, <C.2: `code_puppy-4s8.4`>, <C.3: `code_puppy-4s8.6`>, <C.4: `code_puppy-4s8.5`>, <C.5: `code_puppy-4s8.2`>, <C.6: `code_puppy-4s8.3`>, <C.7: `code_puppy-4s8.7`>
 
 
-- [ ] Port `code_puppy/agents/base_agent.py`
-- [ ] Port `code_puppy/agents/agent_manager.py`
-- [ ] Agent registry in Elixir
-- [ ] Behaviour/protocol definitions
+- [x] Port base_agent.py to Elixir behaviour + concern modules — code_puppy-4s8.1, merged e82cde9d
+- [x] Port agent_prompt_mixin.py + resolve UNK3 (load_prompt scope) — code_puppy-4s8.2, merged 53f803d3
+- [x] Port event/subagent stream handlers — code_puppy-4s8.3, merged d549ddf3
+- [x] Port agent_manager.py to GenServer-backed registry — code_puppy-4s8.4, merged caa42809
+- [x] Port agent_state.py to RuntimeState GenServer — code_puppy-4s8.5, merged 6cd78399
+- [x] Define agent behaviour callbacks and runtime protocol — code_puppy-4s8.6, merged d83cccfe
+- [x] Port CodePuppyAgent end-to-end as Phase C CI gate — code_puppy-4s8.7, merged e7f98f85
 
 ### Phase D: Session + state
 
@@ -81,17 +84,25 @@ Prerequisites before launching the Python-to-Elixir port.
 > Tracking: epic `code_puppy-mmk` (filed 2026-04-25), 7 child tasks: <E.1: `code_puppy-mmk.1`>, <E.2: `code_puppy-mmk.5`>, <E.3: `code_puppy-mmk.6`>, <E.4: `code_puppy-mmk.4`>, <E.5: `code_puppy-mmk.3`>, <E.6: `code_puppy-mmk.7`>, <E.7: `code_puppy-mmk.2`>
 
 
-- [ ] Port `code_puppy/tools/*` (file ops, command runner, grep)
-- [ ] Port tool permission callbacks
+- [x] Port file_operations.py to FileOps with permission gating — code_puppy-mmk.1, merged 878bc586
+- [x] Port skills, scheduler, and universal constructor tools — code_puppy-mmk.2, merged e5195282
+- [x] Port permission callback chain — code_puppy-mmk.3, merged 9fec97d1
+- [x] Port agent_tools.py sub-agent invocation — code_puppy-mmk.4, merged 4d3d7339
+- [x] Port FileModifications — code_puppy-mmk.5, merged 13d350ce
+- [x] Port command_runner.py with PTY support — code_puppy-mmk.6, merged b88e0de6
+- [x] Port cp_ask_user_question tool — code_puppy-mmk.7, merged 72dcf76e
 
 ### Phase F: Plugins
 
 > Tracking: epic `code_puppy-154` (filed 2026-04-25), 6 child tasks: <F.1: `code_puppy-154.1`>, <F.2: `code_puppy-154.6`>, <F.3: `code_puppy-154.4`>, <F.4: `code_puppy-154.3`>, <F.5: `code_puppy-154.2`>, <F.6: `code_puppy-154.5`>
 
 
-- [ ] Design Elixir plugin loader equivalent
-- [ ] Port callback system (`code_puppy/callbacks.py`)
-- [ ] Port pack-parallelism plugin
+- [x] Plugin loader ADR + symlink escape fix + crash isolation — code_puppy-154.1, merged 5484f5a4
+- [x] Port OAuth plugins to Elixir with builtin discovery — code_puppy-154.2, merged 05f29ef0
+- [x] Elixir GenServer pack parallelism — code_puppy-154.3, merged c2524324
+- [x] Port hook_engine to CodePuppyControl.HookEngine — code_puppy-154.4, merged 2cb01a92
+- [x] Add PLUGIN_MIGRATION.md for community plugin authors — code_puppy-154.5, merged 61beaf72
+- [x] Port callbacks.py to full hook surface — code_puppy-154.6, merged b097eb5b
 
 ### Phase G: CLI + UI
 
