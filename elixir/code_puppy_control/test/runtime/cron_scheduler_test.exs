@@ -15,6 +15,30 @@ defmodule CodePuppyControl.Runtime.CronSchedulerTest do
   alias CodePuppyControl.Scheduler.CronScheduler
   alias CodePuppyControl.Repo
 
+  # ---------------------------------------------------------------------------
+  # Sandbox contention fix (code_puppy-5xd.6)
+  # ---------------------------------------------------------------------------
+
+  describe "test-env exclusion (code_puppy-5xd.6)" do
+    test "global CronScheduler is not started in test supervision tree" do
+      # The global CronScheduler (registered under __MODULE__) must NOT
+      # be part of the application supervisor in test env. If it were,
+      # it would hold the single sandbox DB connection and starve other
+      # DB-dependent tests.
+      assert Process.whereis(CronScheduler) == nil
+    end
+
+    test "Scheduler.scheduler_status reports not_running when global absent" do
+      status = Scheduler.scheduler_status()
+      assert status.running == false
+      assert status.check_interval == 0
+    end
+
+    test "Scheduler.force_check returns not_running when global absent" do
+      assert {:error, :not_running} = Scheduler.force_check()
+    end
+  end
+
   setup do
     :ok = Ecto.Adapters.SQL.Sandbox.checkout(Repo)
     :ok = Ecto.Adapters.SQL.Sandbox.mode(Repo, {:shared, self()})

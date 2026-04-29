@@ -48,13 +48,14 @@ defmodule CodePuppyControl.Tools.SchedulerTools do
     tasks = Scheduler.list_tasks()
     enabled_count = Enum.count(tasks, & &1.enabled)
 
-    # Get CronScheduler state
-    scheduler_state = CronScheduler.get_state()
+    # Get CronScheduler state (may be :not_running in test env)
+    scheduler_state = safe_scheduler_state()
     last_check = scheduler_state[:last_check_at]
+    scheduler_line = scheduler_status_line(scheduler_state)
 
     lines = [
       "## Scheduler Status",
-      "**CronScheduler:** 🟢 Running (checks every #{div(scheduler_state[:check_interval], 1000)}s)",
+      scheduler_line,
       if(last_check,
         do: "**Last Check:** #{format_datetime(last_check)}",
         else: "**Last Check:** Never"
@@ -155,7 +156,8 @@ defmodule CodePuppyControl.Tools.SchedulerTools do
 
     case Scheduler.create_task(attrs) do
       {:ok, task} ->
-        scheduler_state = CronScheduler.get_state()
+        scheduler_state = safe_scheduler_state()
+        schedule_note = scheduler_schedule_note(scheduler_state)
 
         result = """
         ✅ **Task Created Successfully!**
@@ -174,8 +176,7 @@ defmodule CodePuppyControl.Tools.SchedulerTools do
         ```
         """
 
-        result <>
-          "\n🟢 Scheduler is running (checks every #{div(scheduler_state[:check_interval], 1000)}s). Task will execute according to schedule."
+        result <> "\n" <> schedule_note
 
       {:error, changeset} ->
         errors = format_changeset_errors(changeset)
@@ -285,29 +286,41 @@ defmodule CodePuppyControl.Tools.SchedulerTools do
   def scheduler_status do
     tasks = Scheduler.list_tasks()
     enabled_count = Enum.count(tasks, & &1.enabled)
-    scheduler_state = CronScheduler.get_state()
+    scheduler_state = safe_scheduler_state()
 
-    last_check_str =
-      if scheduler_state[:last_check_at] do
-        format_datetime(scheduler_state[:last_check_at])
-      else
-        "Never"
-      end
+    if scheduler_state[:running] do
+      last_check_str =
+        if scheduler_state[:last_check_at] do
+          format_datetime(scheduler_state[:last_check_at])
+        else
+          "Never"
+        end
 
-    """
-    🟢 **Scheduler is RUNNING**
+      """
+      🟢 **Scheduler is RUNNING**
 
-    **CronScheduler PID:** #{inspect(Process.whereis(CronScheduler))}
-    **Check Interval:** #{div(scheduler_state[:check_interval], 1000)} seconds
-    **Last Check:** #{last_check_str}
-    **Tasks Enqueued (lifetime):** #{scheduler_state[:tasks_enqueued]}
+      **CronScheduler PID:** #{inspect(Process.whereis(CronScheduler))}
+      **Check Interval:** #{div(scheduler_state[:check_interval], 1000)} seconds
+      **Last Check:** #{last_check_str}
+      **Tasks Enqueued (lifetime):** #{scheduler_state[:tasks_enqueued]}
 
-    **Total Tasks:** #{length(tasks)}
-    **Enabled Tasks:** #{enabled_count}
-    **Disabled Tasks:** #{length(tasks) - enabled_count}
+      **Total Tasks:** #{length(tasks)}
+      **Enabled Tasks:** #{enabled_count}
+      **Disabled Tasks:** #{length(tasks) - enabled_count}
 
-    The scheduler is actively monitoring and running tasks according to their schedules.
-    """
+      The scheduler is actively monitoring and running tasks according to their schedules.
+      """
+    else
+      """
+      ⏸️ **Scheduler is NOT RUNNING**
+
+      The CronScheduler process is not started. Scheduled tasks are persisted
+      but will not execute automatically. This is normal in test environments.
+
+      **Total Tasks:** #{length(tasks)}
+      **Enabled Tasks:** #{enabled_count}
+      """
+    end
   end
 
   @doc """
@@ -479,31 +492,63 @@ defmodule CodePuppyControl.Tools.SchedulerTools do
   """
   @spec force_check() :: String.t()
   def force_check do
-    Scheduler.force_check()
+    case Scheduler.force_check() do
+      :ok ->
+        scheduler_state = safe_scheduler_state()
+        last_check = scheduler_state[:last_check_at]
 
-    scheduler_state = CronScheduler.get_state()
-    last_check = scheduler_state[:last_check_at]
+        last_check_str =
+          if last_check do
+            "Last check: #{format_datetime(last_check)}"
+          else
+            "Check in progress..."
+          end
 
-    last_check_str =
-      if last_check do
-        "Last check: #{format_datetime(last_check)}"
-      else
-        "Check in progress..."
-      end
+        """
+        🔄 **Schedule check triggered**
 
-    """
-    🔄 **Schedule check triggered**
+        #{last_check_str}
+        Tasks enqueued (lifetime): #{scheduler_state[:tasks_enqueued]}
 
-    #{last_check_str}
-    Tasks enqueued (lifetime): #{scheduler_state[:tasks_enqueued]}
+        The scheduler will evaluate all enabled tasks and enqueue any that are due.
+        """
 
-    The scheduler will evaluate all enabled tasks and enqueue any that are due.
-    """
+      {:error, :not_running} ->
+        "⚠️ **Schedule check skipped** — CronScheduler is not running. " <>
+          "This is normal in test environments."
+    end
   end
 
   # ============================================================================
   # Private Helper Functions
   # ============================================================================
+
+  # Safe access to global CronScheduler state — returns a default map
+  # when CronScheduler is not running (e.g. test env excluded from
+  # supervision tree). (code_puppy-5xd.6)
+  defp safe_scheduler_state do
+    if Process.whereis(CronScheduler) do
+      CronScheduler.get_state() |> Map.put(:running, true)
+    else
+      %{check_interval: 0, last_check_at: nil, tasks_enqueued: 0, running: false}
+    end
+  end
+
+  defp scheduler_status_line(%{running: true, check_interval: interval}) do
+    "**CronScheduler:** 🟢 Running (checks every #{div(interval, 1000)}s)"
+  end
+
+  defp scheduler_status_line(%{running: false}) do
+    "**CronScheduler:** ⏸️ Not running (test mode)"
+  end
+
+  defp scheduler_schedule_note(%{running: true, check_interval: interval}) do
+    "🟢 Scheduler is running (checks every #{div(interval, 1000)}s). Task will execute according to schedule."
+  end
+
+  defp scheduler_schedule_note(%{running: false}) do
+    "⏸️ Scheduler is not running. Task is persisted but will not execute automatically until the scheduler starts."
+  end
 
   defp format_schedule(%Task{schedule_type: "cron", schedule: schedule})
        when not is_nil(schedule) do
