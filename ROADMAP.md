@@ -146,12 +146,17 @@ Prerequisites before launching the Python-to-Elixir port.
 
 ### Phase H: Cutover
 
-> Tracking: epic `code_puppy-3f9` (filed 2026-04-25), 7 child tasks: <H.1: `code_puppy-3f9.1`>, <H.2: `code_puppy-3f9.7`>, <H.3: `code_puppy-3f9.6`>, <H.4: `code_puppy-3f9.2`>, <H.5: `code_puppy-3f9.5`>, <H.6: `code_puppy-3f9.4`>, <H.7: `code_puppy-3f9.3`>
+> Tracking: epic `code_puppy-djs` (filed 2026-04-29), 7 child tasks: <H.1: `code_puppy-djs.1`>, <H.2: `code_puppy-djs.2`>, <H.3: `code_puppy-djs.3`>, <H.4: `code_puppy-djs.4`>, <H.5: `code_puppy-djs.5`>, <H.6: `code_puppy-djs.6`>, <H.7: `code_puppy-djs.7`>
+> Historical: epic `code_puppy-3f9` (filed 2026-04-25, 7 child tasks)
+> Phase H reality audit: [docs/triage/phase-h-reality-audit-2026-04-29.md](docs/triage/phase-h-reality-audit-2026-04-29.md)
 
-
-- [ ] Feature-flag Elixir code paths
-- [ ] Gradual rollout per capability
-- [ ] Delete Python tree when Elixir is at parity
+- [~] Feature-flag Elixir code paths — audit complete; implementation not started (code_puppy-djs.4)
+- [ ] Gradual rollout per capability — spec needed (code_puppy-djs.6)
+- [ ] Delete Python tree when Elixir is at parity (code_puppy-djs.2)
+- [ ] Runtime selector + dual-run router — new issue needed (code_puppy-djs.8 proposed)
+- [ ] Implement --continue session restore (code_puppy-djs.5)
+- [ ] Implement --bridge-mode runtime effect (code_puppy-djs.3)
+- [ ] Update CONTRIBUTING.md (code_puppy-djs.7)
 
 ## Deferred / ideas
 
