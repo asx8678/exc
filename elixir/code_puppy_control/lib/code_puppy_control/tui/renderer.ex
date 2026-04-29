@@ -222,6 +222,7 @@ defmodule CodePuppyControl.TUI.Renderer do
   def init(opts) do
     session_id = Keyword.get(opts, :session_id)
     run_id = Keyword.get(opts, :run_id)
+    subscribe_global = Keyword.get(opts, :subscribe_global, false)
 
     state = %__MODULE__{
       session_id: session_id,
@@ -235,6 +236,7 @@ defmodule CodePuppyControl.TUI.Renderer do
       state
       |> maybe_subscribe_session(session_id)
       |> maybe_subscribe_run(run_id)
+      |> maybe_subscribe_global(subscribe_global, session_id, run_id)
 
     {:ok, state}
   end
@@ -626,6 +628,16 @@ defmodule CodePuppyControl.TUI.Renderer do
     :ok = EventBus.subscribe_run(run_id)
     %{state | topics: [topic | state.topics]}
   end
+
+  # When no session_id or run_id is provided but subscribe_global is true,
+  # subscribe to the global EventBus topic so the renderer isn't dead.
+  defp maybe_subscribe_global(state, true, nil, nil) do
+    topic = EventBus.global_topic()
+    :ok = EventBus.subscribe_global()
+    %{state | topics: [topic | state.topics]}
+  end
+
+  defp maybe_subscribe_global(state, _subscribe_global, _session_id, _run_id), do: state
 
   # ── Helpers ────────────────────────────────────────────────────────────────
 

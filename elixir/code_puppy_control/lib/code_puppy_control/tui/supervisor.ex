@@ -126,10 +126,18 @@ defmodule CodePuppyControl.TUI.Supervisor do
 
   # ── Private ────────────────────────────────────────────────────────────
 
+  # When no session_id is provided, start the Renderer subscribed to
+  # EventBus.global_topic/0 so it still receives system-wide events
+  # (status, agent_run_completed, etc). This avoids a dead renderer
+  # that is started but subscribed to nothing.
+  # Decision: option (b) — subscribe to global topic. Option (a) skip
+  # Renderer entirely was rejected because the Renderer also handles
+  # UI concerns like finalization; option (c) require explicit topic
+  # was rejected as too rigid for the default case.
   defp renderer_spec(nil) do
     %{
       id: CodePuppyControl.TUI.Renderer,
-      start: {CodePuppyControl.TUI.Renderer, :start_link, [[]]},
+      start: {CodePuppyControl.TUI.Renderer, :start_link, [[subscribe_global: true]]},
       restart: :transient,
       type: :worker
     }
