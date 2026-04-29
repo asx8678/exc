@@ -1,16 +1,28 @@
 defmodule CodePuppyControl.CLI.SlashCommands.DispatcherTest do
   use ExUnit.Case, async: false
 
+  alias CodePuppyControl.Callbacks
   alias CodePuppyControl.CLI.SlashCommands.{CommandInfo, Dispatcher, Registry}
 
   setup do
-    # Start the Registry GenServer if not already running
+    # Start the slash-command Registry GenServer if not already running
     case Process.whereis(Registry) do
       nil -> start_supervised!({Registry, []})
       _pid -> :ok
     end
 
     Registry.clear()
+
+    # Ensure the Callbacks.Registry is running
+    case Process.whereis(CodePuppyControl.Callbacks.Registry) do
+      nil -> start_supervised!({CodePuppyControl.Callbacks.Registry, []})
+      _pid -> :ok
+    end
+
+    # Clean up any leftover custom_command callbacks from prior tests
+    Callbacks.clear(:custom_command)
+    Callbacks.clear(:custom_command_help)
+
     :ok
   end
 
@@ -135,6 +147,67 @@ defmodule CodePuppyControl.CLI.SlashCommands.DispatcherTest do
       assert :ok = Registry.register(cmd)
 
       assert {:ok, {:halt, %{running: false}}} = Dispatcher.dispatch("/quit", %{running: true})
+    end
+  end
+
+  # ── Plugin Fallback ──────────────────────────────────────────────
+
+  describe "dispatch/2 plugin :custom_command fallback" do
+    test "plugin callback returning string handles the command" do
+      handler = fn _command, name -> "handled #{name}" end
+      Callbacks.register(:custom_command, handler)
+
+      on_exit(fn ->
+        Callbacks.unregister(:custom_command, handler)
+      end)
+
+      assert {:ok, "handled foo"} = Dispatcher.dispatch("/foo", nil)
+    end
+
+    test "plugin callback returning nil falls through to unknown_command" do
+      handler = fn _command, _name -> nil end
+      Callbacks.register(:custom_command, handler)
+
+      on_exit(fn ->
+        Callbacks.unregister(:custom_command, handler)
+      end)
+
+      assert {:error, :unknown_command} = Dispatcher.dispatch("/unknown", nil)
+    end
+
+    test "first non-nil responder wins when multiple callbacks registered" do
+      pass_handler = fn _command, _name -> nil end
+      handle_handler = fn _command, _name -> true end
+
+      Callbacks.register(:custom_command, pass_handler)
+      Callbacks.register(:custom_command, handle_handler)
+
+      on_exit(fn ->
+        Callbacks.unregister(:custom_command, pass_handler)
+        Callbacks.unregister(:custom_command, handle_handler)
+      end)
+
+      assert {:ok, :handled} = Dispatcher.dispatch("/multi", nil)
+    end
+
+    test "built-in Registry commands take precedence over plugin callbacks" do
+      # Register a built-in command
+      builtin_handler = fn _line, state -> {:continue, state} end
+
+      cmd = CommandInfo.new(name: "builtin", description: "Built-in", handler: builtin_handler)
+
+      assert :ok = Registry.register(cmd)
+
+      # Also register a plugin callback that would handle "/builtin"
+      plugin_handler = fn _command, _name -> "plugin handled" end
+      Callbacks.register(:custom_command, plugin_handler)
+
+      on_exit(fn ->
+        Callbacks.unregister(:custom_command, plugin_handler)
+      end)
+
+      # Built-in should win
+      assert {:ok, {:continue, nil}} = Dispatcher.dispatch("/builtin", nil)
     end
   end
 end
