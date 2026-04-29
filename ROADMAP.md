@@ -22,7 +22,7 @@ Update in the same commit that advances the work. Close an item only when merged
 
 Prerequisites before launching the Python-to-Elixir port.
 
-- [x] Remove bd tracker (done — commit `b94b6222`)
+- [x] Remove bd tracker (HISTORICAL: done in commit `b94b6222`; bd was later restored as canonical tracker in `147cfa2b` — see `bd ready` for current workflow)
 - [x] Add local test gates to lefthook (this commit)
 - [x] Create ROADMAP.md (this commit)
 - [x] Triage 121 pre-existing Elixir test failures (delete / fix / skip-with-reason) — baseline now passes: 5184 tests, 0 failures

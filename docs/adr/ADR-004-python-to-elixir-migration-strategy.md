@@ -62,7 +62,7 @@ The migration proceeds in 8 phases (0 → H), with Python remaining functional t
 
 | Item | Status |
 |------|--------|
-| Remove bd tracker | ✅ Done |
+| Remove bd tracker (HISTORICAL: removed in `b94b6222`; restored in `147cfa2b`) | ✅ Done (post-dated by restoration) |
 | Add local test gates to lefthook | ✅ Done |
 | Create ROADMAP.md | ✅ Done |
 | Triage 121 pre-existing Elixir test failures | ✅ Done (5184 tests pass) |
