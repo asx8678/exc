@@ -61,8 +61,11 @@ Prerequisites before launching the Python-to-Elixir port.
 
 
 - [x] Port session storage (Phoenix PubSub + ETS + disk) — code_puppy-ctj.1, merged 51a32908
-- [ ] Port config system (dual-home isolation, see ADR-003)
-- [ ] Port runtime state
+- [x] Port config system (dual-home isolation, see ADR-003) — code_puppy-ctj.2, merged e0899a82
+- [x] Port runtime state parity — code_puppy-ctj.4, merged 5c02374d
+- [x] Port persistence + workflow_state — code_puppy-ctj.3, merged 63459657
+- [x] Port staged changes system — code_puppy-ctj.5, merged bdfcbc1f
+- [x] Add state migration tool — code_puppy-ctj.6, merged fb935a11
 
 #### Phase D follow-ups (post-ctj.1)
 
@@ -71,6 +74,7 @@ Prerequisites before launching the Python-to-Elixir port.
 - [ ] Correct `load_session_full/2` type/spec — `@type session_data` uses atom keys but Store returns string-keyed maps (`session_storage.ex:54-62` vs `:149-163`)
 - [ ] Harden Store operation error returns — `Store.Operations.do_delete_session/1` and `do_recover_from_disk/0` pattern-match `:ok`/`{:ok, _}` and could crash on persistence errors
 - [ ] Clarify `application.ex` supervision tree comment — currently says "Session storage ETS cache + PubSub" which echoes the removed dual-cache; reword to "SessionStorage.Store — ETS-backed session store + PubSub"
+- [ ] Resolve CronScheduler Ecto-sandbox contention — `pool_size: 1` causes ~15 DB-dependent workflow test failures because CronScheduler holds the only connection. Either exclude scheduler in test env or raise pool_size. Pre-existing, not a regression.
 
 ### Phase E: Tools
 
