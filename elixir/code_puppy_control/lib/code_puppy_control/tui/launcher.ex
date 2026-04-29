@@ -59,7 +59,7 @@ defmodule CodePuppyControl.TUI.Launcher do
     force = Keyword.get(opts, :force, false)
 
     if force or tui_enabled?() do
-      do_launch(opts)
+      do_launch(opts, force)
     else
       {:error, :tui_disabled}
     end
@@ -106,7 +106,7 @@ defmodule CodePuppyControl.TUI.Launcher do
 
   # ── Private ────────────────────────────────────────────────────────────
 
-  defp do_launch(opts) do
+  defp do_launch(opts, force) do
     screen = Keyword.get(opts, :screen, CodePuppyControl.TUI.Screens.Chat)
     screen_opts = Keyword.get(opts, :screen_opts, %{})
     session_id = Keyword.get(opts, :session_id)
