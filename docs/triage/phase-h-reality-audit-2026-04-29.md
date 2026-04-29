@@ -12,7 +12,7 @@
 
 1. **No feature-flag system** — ADR-004 specifies `flags.json` with per-capability toggles; neither Python nor Elixir implements this. Only `PUP_RUNTIME` env var and `enable_elixir_message_shadow_mode` config toggle exist.
 2. **No runtime selector / dual-run router** — ADR-004 requires a runtime selection layer (`PUP_RUNTIME=python|elixir|auto`); only binary `is_pup_ex()` detection exists. No `auto-fallback` mode.
-3. **Significant plugin parity gap** — 32 of 46 Python plugins in scope (70%) have no Elixir equivalent. Core plugins are ported; many secondary plugins are Python-only. This is a rollout risk and blocker for 100% Elixir-only cutover, but not a blocker for Phase H infra work.
+3. **Significant plugin parity gap** — 33 of 46 Python plugins in scope (72%) have no Elixir equivalent. Core plugins are ported; many secondary plugins are Python-only. This is a rollout risk and blocker for 100% Elixir-only cutover, but not a blocker for Phase H infra work.
 
 **Secondary concerns (non-blocking but should be tracked):**
 - 13 of 19 specialized Python agents lack Elixir equivalents (but the base_agent behaviour + core agents are ported; many are prompt-only variants)
@@ -107,7 +107,7 @@
 | Process runner | `process_runner_protocol.py` | `ProcessRunner` | ✅ Full |
 | **Browser tools** | `browser/` (4,750 LoC) | — | ❌ **Not ported** (DROP-V1 per THIN_SHELL_CONTRACT — accepted deferral) |
 
-### Phase F: Plugins — ✅ SCOPED COMPLETE (core infra), ⚠️ PARTIAL (long tail — 14/46 ported)
+### Phase F: Plugins — ✅ SCOPED COMPLETE (core infra), ⚠️ PARTIAL (long tail — 13/46 ported)
 
 | Capability | Python | Elixir | Parity |
 |------------|--------|--------|--------|
@@ -127,7 +127,7 @@ Methodology:
 - Excluded `state_migration` (1): ported to core as `SessionStorage.Migrator`, not as a plugin
 - Effective Python plugin count for parity: **46**
 - Checked for Elixir equivalents under `elixir/code_puppy_control/lib/code_puppy_control/plugins/` (29 .ex files across 14 plugin directories + 2 infrastructure modules: `loader`, `plugin_behaviour`)
-- A plugin is "ported" if it has a corresponding Elixir module or directory implementing equivalent functionality
+- A plugin is "ported" only if a corresponding Python plugin directory exists under `code_puppy/plugins/` AND an Elixir equivalent exists. Elixir-only modules with no Python plugin dir (e.g. `motd`) are classified as Elixir-native, not ported.
 
 | Category | Count | Percentage |
 |----------|-------|------------|
@@ -135,13 +135,15 @@ Methodology:
 | Excluded (infrastructure) | 1 (`elixir_bridge`) | — |
 | Excluded (ported to core) | 1 (`state_migration` → `SessionStorage.Migrator`) | — |
 | Effective parity scope | **46** | — |
-| Ported as Elixir plugin | **14** | 30% (14/46) |
-| Not ported | **32** | 70% (32/46) |
+| Ported as Elixir plugin | **13** | 28% (13/46) |
+| Not ported | **33** | 72% (33/46) |
 
-**Ported (14/46):**
-agent_memory, agent_trace, chatgpt_oauth, claude_code_oauth, cost_estimator, error_classifier, fast_puppy, file_mentions, git_auto_commit, loop_detection, motd, pack_parallelism, scheduler, turbo_executor
+**Ported (13/46):**
+agent_memory, agent_trace, chatgpt_oauth, claude_code_oauth, cost_estimator, error_classifier, fast_puppy, file_mentions, git_auto_commit, loop_detection, pack_parallelism, scheduler, turbo_executor
 
-**Not ported (32/46):**
+> **Note:** `motd` exists as Elixir-only (`CodePuppyControl.Plugins.Motd`) with no corresponding `code_puppy/plugins/motd/` Python directory. It is Elixir-native, not ported.
+
+**Not ported (33/46):**
 agent_shortcuts, agent_skills, auto_test_control, claude_code_hooks, clean_command, code_explorer, code_skeleton, completion_notifier, customizable_commands, dual_home, error_logger, example_custom_command, file_permission_handler, frontend_emitter, hook_creator, hook_manager, ollama_setup, pop_command, proactive_guidance, prompt_store, remember_last_agent, render_check, repo_compass, session_logger, shell_safety, supervisor_review, synthetic_status, theme_switcher, tool_allowlist, tracing_langfuse, tracing_langsmith, ttsr, universal_constructor
 
 > **Assessment:** Most unported plugins are secondary/convenience plugins. The bridge allows _some_ callback/custom-command/help functionality to be reached from Elixir, but does not provide full lifecycle/state/hook parity for arbitrary Python plugins. Plugin parity is a **rollout risk** and a **blocker for 100% Elixir-only cutover** — unless accepted as DROP/DEFER/BRIDGE — but is **not a blocker for Phase H infra work** (feature flags, runtime selector, gradual rollout controller). The critical-path plugins (callbacks, hook engine, loader, OAuth, pack parallelism) are all ported.
@@ -181,7 +183,7 @@ agent_shortcuts, agent_skills, auto_test_control, claude_code_hooks, clean_comma
 | Gradual rollout | Canary → 100% per capability | No rollout infrastructure | ❌ **BLOCKER** | 100% Elixir default |
 | Rollout-specific observability | Metrics on which runtime handled each request | No rollout-specific observability (general telemetry exists) | ⚠️ **GAP** | 100% Elixir default |
 | Python tree deletion | When Elixir at parity | Deferred — 32 unported plugins | ⚠️ Deferrable | Python deletion |
-| Plugin parity resolution | Each unported plugin: DROP/DEFER/BRIDGE | No per-plugin decisions made | ⚠️ Deferrable | Python deletion |
+| Plugin parity resolution | Each of 33 unported plugins: DROP/DEFER/BRIDGE | No per-plugin decisions made | ⚠️ Deferrable | Python deletion |
 | `--continue` session restore | Roadmap item | Parsed but no-op | ⚠️ Low priority | — |
 | `--bridge-mode` effect | Roadmap item | Parsed, reserved, no spec | ⚠️ Low priority | — |
 | CONTRIBUTING.md update | code_puppy-djs.7 | Not started | ⚠️ Trivial | — |
@@ -266,7 +268,7 @@ Each flag enables a phase's capabilities. Flags are independent; partial enablem
 
 | Concern | Severity | Notes |
 |---------|----------|-------|
-| 32 unported Python plugins (70%) | Medium | Bridge allows some callback/custom-command/help to be reached; not a blocker for Phase H infra work, but a rollout risk and blocker for 100% Elixir-only cutover unless accepted as DROP/DEFER/BRIDGE |
+| 33 unported Python plugins (72%) | Medium | Bridge allows some callback/custom-command/help to be reached; not a blocker for Phase H infra work, but a rollout risk and blocker for 100% Elixir-only cutover unless accepted as DROP/DEFER/BRIDGE |
 | Browser tools (4,750 LoC) | Low | Declared DROP-V1 (accepted deferral); no Elixir browser automation ecosystem |
 | 13 unported specialized agents | Low | Most are prompt-only variants; base behaviour is ported |
 | TUI screen parity (3 vs 17) | Low | TUI is opt-in/accepted deferral (see docs/TUI_CLI_AUDIT.md); CLI parity is scoped complete |
@@ -326,7 +328,7 @@ Each flag enables a phase's capabilities. Flags are independent; partial enablem
 | Test functions (est.) | ~136 | ~5,500+ |
 | Plugin dirs | 48 | 14 (plugin) + 2 (infra: loader, behaviour) |
 | Plugin .ex files | — | 29 |
-| Ported plugins (of 46 in scope) | — | 14 (30%) |
+| Ported plugins (of 46 in scope) | — | 13 (28%) |
 | Agents (core) | 8 | 8 |
 | Agents (specialized) | 13 | 0 |
 | CLI command files | 58 | 10 + 16 slash commands |
@@ -364,7 +366,7 @@ Phases A–G are **complete against their scoped roadmap/ADR exit criteria** —
 Additionally:
 - Rollout-specific observability — **needed before 100% Elixir default**
 - Plugin parity resolution (DROP/DEFER/BRIDGE per plugin) — **needed before Python tree deletion**
-- 32 unported Python plugins — **rollout risk and blocker for 100% Elixir-only cutover** unless accepted as DROP/DEFER/BRIDGE
+- 33 unported Python plugins — **rollout risk and blocker for 100% Elixir-only cutover** unless accepted as DROP/DEFER/BRIDGE
 
 The good news: the Phase H blockers are self-contained, buildable features, not deep architectural gaps. The bridge already provides bidirectional Python↔Elixir communication. The bad news: until the infra blockers are resolved, Phase H is blocked on infrastructure, not parity.
 
