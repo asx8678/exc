@@ -182,7 +182,7 @@ agent_shortcuts, agent_skills, auto_test_control, claude_code_hooks, clean_comma
 | Runtime selector | `PUP_RUNTIME=python\|elixir\|auto` with fallback | Only `is_pup_ex()` binary detection + `PUP_RUNTIME=elixir` | ❌ **BLOCKER** | Gradual rollout |
 | Gradual rollout | Canary → 100% per capability | No rollout infrastructure | ❌ **BLOCKER** | 100% Elixir default |
 | Rollout-specific observability | Metrics on which runtime handled each request | No rollout-specific observability (general telemetry exists) | ⚠️ **GAP** | 100% Elixir default |
-| Python tree deletion | When Elixir at parity | Deferred — 32 unported plugins | ⚠️ Deferrable | Python deletion |
+| Python tree deletion | When Elixir at parity | Deferred — 33 unported plugins | ⚠️ Deferrable | Python deletion |
 | Plugin parity resolution | Each of 33 unported plugins: DROP/DEFER/BRIDGE | No per-plugin decisions made | ⚠️ Deferrable | Python deletion |
 | `--continue` session restore | Roadmap item | Parsed but no-op | ⚠️ Low priority | — |
 | `--bridge-mode` effect | Roadmap item | Parsed, reserved, no spec | ⚠️ Low priority | — |
