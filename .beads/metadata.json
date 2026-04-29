@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "code_puppy",
+  "project_id": "37a534b3-b1a0-4737-9a3f-c0e9c36c8a48"
+}
