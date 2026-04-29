@@ -14,7 +14,10 @@ defmodule CodePuppyControl.TUI.SupervisorTest do
       fun.()
     after
       if pup, do: System.put_env("PUP_TUI", pup), else: System.delete_env("PUP_TUI")
-      if legacy, do: System.put_env("CODE_PUPPY_TUI", legacy), else: System.delete_env("CODE_PUPPY_TUI")
+
+      if legacy,
+        do: System.put_env("CODE_PUPPY_TUI", legacy),
+        else: System.delete_env("CODE_PUPPY_TUI")
     end
   end
 

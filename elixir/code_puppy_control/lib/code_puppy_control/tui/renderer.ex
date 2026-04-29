@@ -319,7 +319,11 @@ defmodule CodePuppyControl.TUI.Renderer do
 
     case OwlOutput.start_tool_spinner(state.loading_index, idx) do
       {ref, new_loading_index} ->
-        %{state | spinner_ids: Map.put(state.spinner_ids, idx, ref), loading_index: new_loading_index}
+        %{
+          state
+          | spinner_ids: Map.put(state.spinner_ids, idx, ref),
+            loading_index: new_loading_index
+        }
 
       nil ->
         state
@@ -410,7 +414,12 @@ defmodule CodePuppyControl.TUI.Renderer do
     thinking_buffer = Buffer.flush_all_thinking_buffers(state.thinking_buffer)
     spinner_ids = OwlOutput.stop_all_spinners(state.spinner_ids)
 
-    state = %{state | text_buffer: text_buffer, thinking_buffer: thinking_buffer, spinner_ids: spinner_ids}
+    state = %{
+      state
+      | text_buffer: text_buffer,
+        thinking_buffer: thinking_buffer,
+        spinner_ids: spinner_ids
+    }
 
     elapsed = System.monotonic_time(:millisecond) - (state.start_time || 0)
 

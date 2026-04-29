@@ -134,8 +134,12 @@ defmodule CodePuppyControl.TUI.Renderer.OwlOutput do
           %{non_neg_integer() => reference()}
   def stop_tool_spinner(spinner_ids, idx) do
     case Map.get(spinner_ids, idx) do
-      nil -> spinner_ids
-      ref -> stop_spinner(ref); Map.delete(spinner_ids, idx)
+      nil ->
+        spinner_ids
+
+      ref ->
+        stop_spinner(ref)
+        Map.delete(spinner_ids, idx)
     end
   end
 

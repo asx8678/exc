@@ -356,8 +356,12 @@ defmodule CodePuppyControl.TUI.App do
     try do
       Owl.IO.puts(data)
     catch
-      :error, :terminated -> :ok
-      :exit, :terminated -> :ok
+      :error, :terminated ->
+        :ok
+
+      :exit, :terminated ->
+        :ok
+
       kind, reason ->
         Logger.error("TUI.App: Owl.IO.puts failed: #{kind} #{inspect(reason)}")
         :ok

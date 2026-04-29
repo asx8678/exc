@@ -37,11 +37,19 @@ defmodule CodePuppyControl.TUI.Renderer.EventMapper do
     {:ok, %Event.TextDelta{index: 0, text: chunk}}
   end
 
-  defp legacy_event_to_canonical(%{type: "agent_tool_call_start", tool_name: name, tool_call_id: id}) do
+  defp legacy_event_to_canonical(%{
+         type: "agent_tool_call_start",
+         tool_name: name,
+         tool_call_id: id
+       }) do
     {:ok, %Event.ToolCallStart{index: 0, id: id, name: name}}
   end
 
-  defp legacy_event_to_canonical(%{type: "agent_tool_call_end", tool_name: name, tool_call_id: id}) do
+  defp legacy_event_to_canonical(%{
+         type: "agent_tool_call_end",
+         tool_name: name,
+         tool_call_id: id
+       }) do
     {:ok, %Event.ToolCallEnd{index: 0, id: id || "", name: name, arguments: ""}}
   end
 
