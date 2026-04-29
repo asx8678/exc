@@ -224,7 +224,7 @@ defmodule CodePuppyControl.Sessions do
         {:error, :not_found}
 
       session ->
-      session
+        session
         |> ChatSession.changeset(%{
           has_terminal: has_terminal,
           terminal_meta: normalize_terminal_meta(terminal_meta)
@@ -280,7 +280,7 @@ defmodule CodePuppyControl.Sessions do
       has_terminal =
         if has_terminal_explicit?,
           do: Keyword.get(opts, :has_terminal),
-          else: (if terminal_meta_explicit?, do: true, else: elem(existing, 0))
+          else: if(terminal_meta_explicit?, do: true, else: elem(existing, 0))
 
       terminal_meta =
         if terminal_meta_explicit?,
@@ -313,6 +313,7 @@ defmodule CodePuppyControl.Sessions do
     Map.new(meta, fn
       {k, v} when is_binary(k) ->
         {Map.get(@terminal_meta_whitelist, k, k), v}
+
       {k, v} when is_atom(k) ->
         {k, v}
     end)

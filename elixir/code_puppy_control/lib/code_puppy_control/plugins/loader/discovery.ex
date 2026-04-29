@@ -182,8 +182,11 @@ defmodule CodePuppyControl.Plugins.Loader.Discovery do
   def ensure_app_modules_loaded(app) do
     case Application.spec(app, :modules) do
       nil ->
-        Logger.debug("Application spec for #{app} returned no modules; " <>
-          "falling back to :code.all_loaded/0")
+        Logger.debug(
+          "Application spec for #{app} returned no modules; " <>
+            "falling back to :code.all_loaded/0"
+        )
+
         loaded_modules()
 
       modules when is_list(modules) ->

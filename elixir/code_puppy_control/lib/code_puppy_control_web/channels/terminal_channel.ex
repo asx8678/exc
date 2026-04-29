@@ -142,7 +142,9 @@ defmodule CodePuppyControlWeb.TerminalChannel do
           # session row if absent, so this should rarely fail.  Log warning
           # visibly on error rather than silently discarding the result.
           case Store.register_terminal(session_id, terminal_meta) do
-            :ok -> :ok
+            :ok ->
+              :ok
+
             {:error, reason} ->
               Logger.warning(
                 "TerminalChannel: register_terminal failed for " <>
@@ -283,7 +285,9 @@ defmodule CodePuppyControlWeb.TerminalChannel do
       # Log warning on error rather than silently discarding the result.
       if Process.whereis(Store) do
         case Store.unregister_terminal(pty_session_id) do
-          :ok -> :ok
+          :ok ->
+            :ok
+
           {:error, reason} ->
             Logger.warning(
               "TerminalChannel: unregister_terminal failed for #{pty_session_id}: #{inspect(reason)}"

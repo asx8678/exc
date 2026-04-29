@@ -359,21 +359,35 @@ defmodule CodePuppyControl.SessionStorage.Store do
     # 1. Persist to SQLite (durable). Always pass resolved values so
     # Sessions.save_session/3 receives the correct terminal state.
     case Sessions.save_session(name, history,
-           compacted_hashes: compacted_hashes, total_tokens: total_tokens,
-           auto_saved: auto_saved, timestamp: timestamp,
-           has_terminal: has_terminal, terminal_meta: terminal_meta
+           compacted_hashes: compacted_hashes,
+           total_tokens: total_tokens,
+           auto_saved: auto_saved,
+           timestamp: timestamp,
+           has_terminal: has_terminal,
+           terminal_meta: terminal_meta
          ) do
       {:ok, session} ->
         # 2. Update ETS cache (only after durable write succeeds)
-        entry = StoreHelpers.build_entry(
-          name, history, compacted_hashes, total_tokens,
-          auto_saved, timestamp, has_terminal, terminal_meta
-        )
+        entry =
+          StoreHelpers.build_entry(
+            name,
+            history,
+            compacted_hashes,
+            total_tokens,
+            auto_saved,
+            timestamp,
+            has_terminal,
+            terminal_meta
+          )
+
         :ets.insert(@session_table, {name, entry})
 
         # 3. Broadcast via PubSub
-        Phoenix.PubSub.broadcast(@pubsub, @sessions_topic,
-          {:session_saved, name, Map.drop(entry, [:history])})
+        Phoenix.PubSub.broadcast(
+          @pubsub,
+          @sessions_topic,
+          {:session_saved, name, Map.drop(entry, [:history])}
+        )
 
         # 4. Terminal ETS table consistency:
         #    - insert/update when has_terminal true + meta present
@@ -459,11 +473,20 @@ defmodule CodePuppyControl.SessionStorage.Store do
             :ets.insert(@terminal_table, {session_name, meta})
             updated = %{entry | has_terminal: true, terminal_meta: meta}
             :ets.insert(@session_table, {session_name, updated})
-            Phoenix.PubSub.broadcast(@pubsub, @terminal_topic, {:terminal_registered, session_name})
+
+            Phoenix.PubSub.broadcast(
+              @pubsub,
+              @terminal_topic,
+              {:terminal_registered, session_name}
+            )
+
             {:reply, :ok, state}
 
           {:error, reason} ->
-            Logger.error("Store: durable register_terminal failed for #{session_name}: #{inspect(reason)}")
+            Logger.error(
+              "Store: durable register_terminal failed for #{session_name}: #{inspect(reason)}"
+            )
+
             {:reply, {:error, reason}, state}
         end
 
@@ -473,21 +496,40 @@ defmodule CodePuppyControl.SessionStorage.Store do
         # This handles the common path where TerminalChannel.join fires before
         # any chat message has been saved.  The next save_session call will
         # update this row with full history.
-        case Sessions.save_session(session_name, [],
-               has_terminal: true, terminal_meta: meta) do
+        case Sessions.save_session(session_name, [], has_terminal: true, terminal_meta: meta) do
           {:ok, _session} ->
-            entry = StoreHelpers.build_entry(
-              session_name, [], [], 0, false,
-              StoreHelpers.now_iso(), true, meta
-            )
+            entry =
+              StoreHelpers.build_entry(
+                session_name,
+                [],
+                [],
+                0,
+                false,
+                StoreHelpers.now_iso(),
+                true,
+                meta
+              )
+
             :ets.insert(@session_table, {session_name, entry})
             :ets.insert(@terminal_table, {session_name, meta})
-            Phoenix.PubSub.broadcast(@pubsub, @terminal_topic, {:terminal_registered, session_name})
-            Logger.info("Store: register_terminal created minimal session row for #{session_name}")
+
+            Phoenix.PubSub.broadcast(
+              @pubsub,
+              @terminal_topic,
+              {:terminal_registered, session_name}
+            )
+
+            Logger.info(
+              "Store: register_terminal created minimal session row for #{session_name}"
+            )
+
             {:reply, :ok, state}
 
           {:error, reason} ->
-            Logger.error("Store: register_terminal failed to create session for #{session_name}: #{inspect(reason)}")
+            Logger.error(
+              "Store: register_terminal failed to create session for #{session_name}: #{inspect(reason)}"
+            )
+
             {:reply, {:error, reason}, state}
         end
     end
@@ -503,11 +545,20 @@ defmodule CodePuppyControl.SessionStorage.Store do
             :ets.delete(@terminal_table, session_name)
             updated = %{entry | has_terminal: false, terminal_meta: nil}
             :ets.insert(@session_table, {session_name, updated})
-            Phoenix.PubSub.broadcast(@pubsub, @terminal_topic, {:terminal_unregistered, session_name})
+
+            Phoenix.PubSub.broadcast(
+              @pubsub,
+              @terminal_topic,
+              {:terminal_unregistered, session_name}
+            )
+
             {:reply, :ok, state}
 
           {:error, reason} ->
-            Logger.error("Store: durable unregister_terminal failed for #{session_name}: #{inspect(reason)}")
+            Logger.error(
+              "Store: durable unregister_terminal failed for #{session_name}: #{inspect(reason)}"
+            )
+
             {:reply, {:error, reason}, state}
         end
 
@@ -522,7 +573,9 @@ defmodule CodePuppyControl.SessionStorage.Store do
   # ---------------------------------------------------------------------------
 
   @impl true
-  def handle_continue(:recover_terminals, %{pending_terminal_recovery: false} = state), do: {:noreply, state}
+  def handle_continue(:recover_terminals, %{pending_terminal_recovery: false} = state),
+    do: {:noreply, state}
+
   def handle_continue(:recover_terminals, state) do
     TerminalRecovery.deferred_recover_from_store()
     {:noreply, state}
@@ -533,6 +586,7 @@ defmodule CodePuppyControl.SessionStorage.Store do
     TerminalRecovery.attempt_recovery_from_store(attempt)
     {:noreply, state}
   end
+
   @impl true
   def handle_info(_msg, state), do: {:noreply, state}
 
@@ -544,13 +598,16 @@ defmodule CodePuppyControl.SessionStorage.Store do
   defp recover_from_disk do
     case Sessions.list_sessions_with_metadata() do
       {:ok, sessions} ->
-        count = Enum.reduce(sessions, 0, fn session, acc ->
-          entry = StoreHelpers.chat_session_to_entry(session)
-          :ets.insert(@session_table, {session.name, entry})
-          acc + 1
-        end)
+        count =
+          Enum.reduce(sessions, 0, fn session, acc ->
+            entry = StoreHelpers.chat_session_to_entry(session)
+            :ets.insert(@session_table, {session.name, entry})
+            acc + 1
+          end)
+
         Logger.info("SessionStorage.Store: recovered #{count} sessions from SQLite")
         count
+
       {:error, reason} ->
         Logger.warning("SessionStorage.Store: failed to recover from SQLite: #{inspect(reason)}")
         0
@@ -570,5 +627,4 @@ defmodule CodePuppyControl.SessionStorage.Store do
       type: :worker
     }
   end
-
 end

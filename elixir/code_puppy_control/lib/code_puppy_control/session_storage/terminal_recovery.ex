@@ -196,7 +196,7 @@ defmodule CodePuppyControl.SessionStorage.TerminalRecovery do
       end
     else
       # PtyManager not up yet — schedule retry with exponential backoff
-      delay = @recovery_base_delay_ms * :math.pow(2, attempt - 1) |> round()
+      delay = (@recovery_base_delay_ms * :math.pow(2, attempt - 1)) |> round()
 
       Logger.debug(
         "TerminalRecovery: PtyManager not up, retry #{attempt}/#{@max_recovery_retries} in #{delay}ms"

@@ -15,6 +15,7 @@ defmodule CodePuppyControl.Plugins.PackParallelismTest do
 
     # Start fresh
     {:ok, pid} = PackParallelism.start_link([])
+
     on_exit(fn ->
       try do
         GenServer.stop(pid, :normal, 5000)

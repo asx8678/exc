@@ -435,6 +435,7 @@ defmodule CodePuppyControl.Plugins.PackParallelism do
   defp call_timeout(timeout), do: timeout + 5_000
 
   defp maybe_start_timeout_timer(_ref, :infinity), do: nil
+
   defp maybe_start_timeout_timer(ref, timeout) do
     Process.send_after(self(), {:acquire_timeout, ref}, timeout)
   end
@@ -499,6 +500,7 @@ defmodule CodePuppyControl.Plugins.PackParallelism do
   end
 
   defp cancel_timeout_timer(nil), do: :ok
+
   defp cancel_timeout_timer(timer_ref) do
     Process.cancel_timer(timer_ref)
     :ok

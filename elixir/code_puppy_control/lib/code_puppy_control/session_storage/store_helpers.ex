@@ -35,8 +35,16 @@ defmodule CodePuppyControl.SessionStorage.StoreHelpers do
           boolean(),
           map() | nil
         ) :: map()
-  def build_entry(name, history, compacted_hashes, total_tokens,
-                  auto_saved, timestamp, has_terminal, terminal_meta) do
+  def build_entry(
+        name,
+        history,
+        compacted_hashes,
+        total_tokens,
+        auto_saved,
+        timestamp,
+        has_terminal,
+        terminal_meta
+      ) do
     %{
       name: name,
       history: history,
@@ -73,14 +81,17 @@ defmodule CodePuppyControl.SessionStorage.StoreHelpers do
   """
   @spec normalize_meta_keys(nil | map() | term()) :: nil | map() | term()
   def normalize_meta_keys(nil), do: nil
+
   def normalize_meta_keys(meta) when is_map(meta) do
     Map.new(meta, fn
       {k, v} when is_binary(k) ->
         {Map.get(@terminal_meta_whitelist, k, k), v}
+
       {k, v} when is_atom(k) ->
         {k, v}
     end)
   end
+
   def normalize_meta_keys(meta), do: meta
 
   @doc """
@@ -108,6 +119,7 @@ defmodule CodePuppyControl.SessionStorage.StoreHelpers do
   @spec chat_session_to_entry(map()) :: map()
   def chat_session_to_entry(session) when is_map(session) do
     raw_meta = get_key(session, :terminal_meta, "terminal_meta")
+
     %{
       name: get_key(session, :name, "name", ""),
       history: get_key(session, :history, "history", []),
@@ -129,6 +141,7 @@ defmodule CodePuppyControl.SessionStorage.StoreHelpers do
   @spec session_data_to_entry(String.t(), map()) :: map()
   def session_data_to_entry(name, data) do
     history = Map.get(data, :history, [])
+
     %{
       name: name,
       history: history,
@@ -198,7 +211,7 @@ defmodule CodePuppyControl.SessionStorage.StoreHelpers do
         ht =
           if has_terminal_explicit?,
             do: Keyword.get(opts, :has_terminal),
-            else: (if terminal_meta_explicit?, do: true, else: existing_ht)
+            else: if(terminal_meta_explicit?, do: true, else: existing_ht)
 
         tm =
           if terminal_meta_explicit?,
