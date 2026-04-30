@@ -48,7 +48,7 @@ def _log_bridge(message: str, level: str = "info") -> None:
             with open(BRIDGE_LOG_FILE, "a") as f:
                 f.write(f"[{level}] {message}\n")
         except Exception:
-            pass # Best effort logging
+            pass  # Best effort logging
 
 
 def _write_framed_message(msg: dict) -> None:
@@ -70,7 +70,7 @@ def _write_framed_message(msg: dict) -> None:
         _log_bridge(f"Failed to write framed message: {e}", "error")
 
 
-def _read_framed_message(reader: asyncio.StreamReader) -> dict | None:
+async def _read_framed_message(reader: asyncio.StreamReader) -> dict | None:
     """Read a JSON-RPC message with Content-Length framing from reader.
 
     Per BRIDGE_PROTOCOL_V1, only Content-Length framing is supported.
@@ -79,15 +79,18 @@ def _read_framed_message(reader: asyncio.StreamReader) -> dict | None:
     Returns None on EOF or parse error.
     """
     try:
-        # Read header line (Content-Length: N\r\n)
-        header = b""
-        while True:
-            byte = reader.read(1)
-            if not byte:
-                return None # EOF
-            header += byte
-            if header.endswith(b"\r\n"):
-                break
+        # Read header line (Content-Length: N\r\n).
+        # StreamReader methods are async; treating their coroutine return values
+        # like bytes breaks Content-Length framing, so always await them.
+        try:
+            header = await reader.readuntil(b"\r\n")
+        except asyncio.IncompleteReadError as e:
+            if e.partial:
+                _log_bridge(f"Incomplete header read: {e.partial!r}", "error")
+            return None
+        except asyncio.LimitOverrunError as e:
+            _log_bridge(f"Header too long while reading frame: {e}", "error")
+            return None
 
         # Parse Content-Length
         header_str = header.decode("utf-8").strip()
@@ -97,21 +100,34 @@ def _read_framed_message(reader: asyncio.StreamReader) -> dict | None:
 
         try:
             content_length = int(header_str.split(":", 1)[1].strip())
-        except (ValueError, IndexError):
+        except ValueError, IndexError:
             _log_bridge(f"Failed to parse Content-Length from: {header_str}", "error")
             return None
 
-        # Read separator \r\n
-        separator = reader.read(2)
+        if content_length < 0:
+            _log_bridge(f"Invalid negative Content-Length: {content_length}", "error")
+            return None
+
+        # Read separator \r\n.
+        try:
+            separator = await reader.readexactly(2)
+        except asyncio.IncompleteReadError as e:
+            _log_bridge(
+                f"Incomplete separator read: got {len(e.partial)} bytes, expected 2",
+                "error",
+            )
+            return None
+
         if separator != b"\r\n":
             _log_bridge(f"Invalid separator: {separator!r}", "error")
             return None
 
-        # Read exactly content_length bytes
-        body_bytes = reader.read(content_length)
-        if len(body_bytes) != content_length:
+        # Read exactly content_length bytes.
+        try:
+            body_bytes = await reader.readexactly(content_length)
+        except asyncio.IncompleteReadError as e:
             _log_bridge(
-                f"Incomplete read: got {len(body_bytes)} bytes, expected {content_length}",
+                f"Incomplete read: got {len(e.partial)} bytes, expected {content_length}",
                 "error",
             )
             return None
@@ -119,6 +135,9 @@ def _read_framed_message(reader: asyncio.StreamReader) -> dict | None:
         return json.loads(body_bytes.decode("utf-8"))
     except json.JSONDecodeError as e:
         _log_bridge(f"JSON parse error: {e}", "error")
+        return None
+    except UnicodeDecodeError as e:
+        _log_bridge(f"UTF-8 decode error: {e}", "error")
         return None
     except Exception as e:
         _log_bridge(f"Read error: {e}", "error")
@@ -272,8 +291,8 @@ async def _stdin_reader_loop() -> None:
 
     while BRIDGE_ENABLED and _bridge_controller is not None:
         try:
-            # Read framed message (Content-Length or newline based on protocol)
-            request = _read_framed_message(reader)
+            # Read framed message using BRIDGE_PROTOCOL_V1 Content-Length framing.
+            request = await _read_framed_message(reader)
 
             if request is None:
                 # EOF or parse error - reader is exhausted
