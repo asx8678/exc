@@ -20,6 +20,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
+import stat
 import sys
 from typing import Any
 
@@ -78,6 +80,37 @@ def _request_bridge_stop(reason: str) -> None:
 
     _bridge_controller.request_stop()
     _log_bridge(f"Bridge controller stop requested: {reason}", "info")
+
+
+def _stdin_read_pipe_attach_status(stdin: Any) -> tuple[bool, str]:
+    """Return whether stdin can safely be attached with connect_read_pipe().
+
+    On Unix, asyncio's read-pipe transport registers the fd with the event-loop
+    selector asynchronously. Some fd types, notably regular files and character
+    devices such as /dev/null, can make that deferred registration raise outside
+    the local ``connect_read_pipe`` try/except. Preflight the fd type so bridge
+    mode treats those inputs as immediate EOF instead of waiting forever.
+    """
+    try:
+        fileno = stdin.fileno()
+    except (AttributeError, OSError, ValueError) as e:
+        return False, f"stdin fileno unavailable: {e}"
+
+    try:
+        mode = os.fstat(fileno).st_mode
+    except OSError as e:
+        return False, f"stdin fstat failed: {e}"
+
+    if stat.S_ISFIFO(mode):
+        return True, "stdin is a pipe"
+    if stat.S_ISSOCK(mode):
+        return True, "stdin is a socket"
+    if stat.S_ISREG(mode):
+        return False, "stdin is a regular file"
+    if stat.S_ISCHR(mode):
+        return False, "stdin is a character device"
+
+    return False, f"stdin fd mode {stat.filemode(mode)} is not a pipe or socket"
 
 
 async def _read_framed_message(reader: asyncio.StreamReader) -> dict | None:
@@ -315,6 +348,15 @@ async def _stdin_reader_loop() -> None:
         loop = asyncio.get_running_loop()
         reader = asyncio.StreamReader()
         protocol = asyncio.StreamReaderProtocol(reader)
+
+        can_attach_stdin, attach_status = _stdin_read_pipe_attach_status(sys.stdin)
+        if not can_attach_stdin:
+            stop_reason = "stdin pipe unavailable"
+            _log_bridge(
+                f"Stdin cannot be attached as an asyncio read pipe: {attach_status}",
+                "info",
+            )
+            return
 
         try:
             await loop.connect_read_pipe(lambda: protocol, sys.stdin)

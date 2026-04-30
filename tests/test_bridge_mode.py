@@ -45,6 +45,15 @@ def _decode_bridge_frames(data: bytes) -> list[dict[str, Any]]:
     return messages
 
 
+def _bridge_subprocess_context(tmp_path: Path) -> tuple[Path, dict[str, str]]:
+    """Return cwd/env for bridge-mode subprocess lifecycle tests."""
+    repo_root = Path(__file__).resolve().parents[1]
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(repo_root) + os.pathsep + env.get("PYTHONPATH", "")
+    env["PUP_EX_HOME"] = str(tmp_path / "pup-home")
+    return repo_root, env
+
+
 @contextmanager
 def _without_modules(module_names: tuple[str, ...]) -> Iterator[None]:
     """Temporarily remove modules from ``sys.modules`` and restore them later."""
@@ -133,10 +142,7 @@ class TestBridgeModeSubprocessLifecycle:
 
     def test_bridge_mode_exits_when_stdin_is_closed(self, tmp_path: Path) -> None:
         """Closed stdin must behave like shutdown, not infinite bridge purgatory."""
-        repo_root = Path(__file__).resolve().parents[1]
-        env = os.environ.copy()
-        env["PYTHONPATH"] = str(repo_root) + os.pathsep + env.get("PYTHONPATH", "")
-        env["PUP_EX_HOME"] = str(tmp_path / "pup-home")
+        repo_root, env = _bridge_subprocess_context(tmp_path)
 
         proc = subprocess.Popen(
             [sys.executable, "-m", "code_puppy", "--bridge-mode"],
@@ -158,6 +164,40 @@ class TestBridgeModeSubprocessLifecycle:
             )
 
         assert proc.returncode == 0, stderr.decode("utf-8", "replace")
+
+        messages = _decode_bridge_frames(stdout)
+        methods = [message.get("method") for message in messages]
+        assert methods in (["bridge.ready"], ["bridge.ready", "bridge.closing"])
+
+    def test_bridge_mode_exits_when_stdin_is_devnull(self, tmp_path: Path) -> None:
+        """DEVNULL stdin must not hang on deferred read-pipe registration errors."""
+        repo_root, env = _bridge_subprocess_context(tmp_path)
+
+        proc = subprocess.Popen(
+            [sys.executable, "-m", "code_puppy", "--bridge-mode"],
+            cwd=repo_root,
+            env=env,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+        try:
+            stdout, stderr = proc.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            stdout, stderr = proc.communicate(timeout=2)
+            pytest.fail(
+                "bridge mode did not exit with DEVNULL stdin\n"
+                f"stdout={stdout!r}\nstderr={stderr.decode('utf-8', 'replace')}"
+            )
+
+        stderr_text = stderr.decode("utf-8", "replace")
+        assert proc.returncode == 0, stderr_text
+        assert (
+            "Exception in callback _UnixReadPipeTransport._add_reader"
+            not in stderr_text
+        )
 
         messages = _decode_bridge_frames(stdout)
         methods = [message.get("method") for message in messages]
