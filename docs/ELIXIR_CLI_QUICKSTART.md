@@ -245,6 +245,8 @@ Requires Zig on PATH. See [docs/burrito-release.md](../elixir/code_puppy_control
 
 ### `pup` command reference
 
+This section describes the **Elixir escript** built as `./pup` from `elixir/code_puppy_control`. If your shell resolves `pup` to the installed Python `codepp` console script instead, `--bridge-mode` has a real Python bridge-worker effect; see [Python bridge-worker mode](#python-bridge-worker-mode) below.
+
 ```
 Usage: pup [OPTIONS] [PROMPT]
 
@@ -258,6 +260,28 @@ Options:
   -i, --interactive     Run in interactive mode
   --bridge-mode         Parsed; reserved flag with no runtime effect in current Elixir CLI
 ```
+
+### Python bridge-worker mode
+
+The Python CLI now implements bridge-worker mode for Elixir orchestration. This is separate from the Elixir escript flag above:
+
+```bash
+# Python console entry point installed by the codepp package
+pup --bridge-mode
+
+# Equivalent explicit module invocation
+python -m code_puppy --bridge-mode
+
+# Equivalent environment-driven activation
+CODE_PUPPY_BRIDGE=1 pup
+```
+
+In Python bridge-worker mode:
+
+- `cli_runner.main_entry()` sets `CODE_PUPPY_BRIDGE=1` before importing the full app runtime, so the bridge plugin sees `BRIDGE_ENABLED=True` during import-time callback registration.
+- stdout is reserved for Content-Length-framed JSON-RPC messages only. Logos, Rich/Owl/Textual renderers, first-run config onboarding, version-status chatter, GIL status, REPL startup, and DBOS startup are skipped to keep the wire protocol clean.
+- startup callbacks create the bridge controller and emit a `bridge.ready` notification; `AppRunner._run_bridge_mode()` then keeps the asyncio loop alive until the controller handles an `exit` request and marks itself stopped.
+- Current Python bridge control methods include `initialize`, `run.start`, `run.cancel`, `ping`, and `exit` (plus file/tool/concurrency methods exposed by the bridge controller). The older `worker.ping`/`worker.shutdown` names are not aliases in the Python bridge plugin.
 
 ### One-shot prompt (non-interactive)
 
@@ -341,7 +365,7 @@ Start a REPL with slash commands, model/agent switching, and session management:
 - **`mix pup_ex.auth.login` is scaffolding only.** Full OAuth PKCE flow (ChatGPT, Claude) is not yet implemented.
 - **SQLite lock warnings in smoke.** The smoke task starts the full OTP app briefly; multiple SQLite pool connections may log `database is locked` errors. These are cosmetic and do not affect smoke results.
 - **~8 hardcoded path references** still resolve outside `Paths.*` — tracked in ADR-003, scheduled for Phase 2 cleanup. No new hardcoded paths should be added.
-- **`--bridge-mode`** is parsed by the Elixir CLI as a reserved flag but has **no runtime effect** in the current Elixir CLI — it does not set `CODE_PUPPY_BRIDGE` or delegate to Python. (In the Python CLI, `--bridge-mode` does set `CODE_PUPPY_BRIDGE=1`; the Elixir flag is reserved for future bridge-mode support.)
+- **`--bridge-mode` in the Elixir CLI** is parsed as a reserved flag but has **no runtime effect** in the current Elixir CLI — it does not set `CODE_PUPPY_BRIDGE` or delegate to Python. The Python CLI does implement `--bridge-mode` as a JSON-RPC bridge worker over stdio.
 - **First-run marker.** After setup, `mix pup_ex.doctor` may note "First-run marker — not initialized yet." This is informational and does not block usage.
 
 ### Running `mix pup_ex.smoke` in CI

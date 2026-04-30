@@ -20,6 +20,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
+import stat
 import sys
 from typing import Any
 
@@ -37,8 +39,9 @@ from .wire_protocol import (
 # Module-level logger
 logger = logging.getLogger(__name__)
 
-# Module-level state - bridge controller instance
+# Module-level state - bridge controller instance and stdin reader task
 _bridge_controller: BridgeController | None = None
+_stdin_reader_task: asyncio.Task[None] | None = None
 
 
 def _log_bridge(message: str, level: str = "info") -> None:
@@ -68,6 +71,46 @@ def _write_framed_message(msg: dict) -> None:
         sys.stdout.buffer.flush()
     except Exception as e:
         _log_bridge(f"Failed to write framed message: {e}", "error")
+
+
+def _request_bridge_stop(reason: str) -> None:
+    """Mark the active bridge controller stopped so bridge mode can exit."""
+    if _bridge_controller is None:
+        return
+
+    _bridge_controller.request_stop()
+    _log_bridge(f"Bridge controller stop requested: {reason}", "info")
+
+
+def _stdin_read_pipe_attach_status(stdin: Any) -> tuple[bool, str]:
+    """Return whether stdin can safely be attached with connect_read_pipe().
+
+    On Unix, asyncio's read-pipe transport registers the fd with the event-loop
+    selector asynchronously. Some fd types, notably regular files and character
+    devices such as /dev/null, can make that deferred registration raise outside
+    the local ``connect_read_pipe`` try/except. Preflight the fd type so bridge
+    mode treats those inputs as immediate EOF instead of waiting forever.
+    """
+    try:
+        fileno = stdin.fileno()
+    except (AttributeError, OSError, ValueError) as e:
+        return False, f"stdin fileno unavailable: {e}"
+
+    try:
+        mode = os.fstat(fileno).st_mode
+    except OSError as e:
+        return False, f"stdin fstat failed: {e}"
+
+    if stat.S_ISFIFO(mode):
+        return True, "stdin is a pipe"
+    if stat.S_ISSOCK(mode):
+        return True, "stdin is a socket"
+    if stat.S_ISREG(mode):
+        return False, "stdin is a regular file"
+    if stat.S_ISCHR(mode):
+        return False, "stdin is a character device"
+
+    return False, f"stdin fd mode {stat.filemode(mode)} is not a pipe or socket"
 
 
 async def _read_framed_message(reader: asyncio.StreamReader) -> dict | None:
@@ -154,7 +197,7 @@ async def _on_startup() -> None:
 
     Async-safe: Uses non-blocking I/O only (asyncio, not blocking stdin).
     """
-    global _bridge_controller
+    global _bridge_controller, _stdin_reader_task
 
     if not BRIDGE_ENABLED:
         return
@@ -174,7 +217,9 @@ async def _on_startup() -> None:
 
         # Start stdin reader in background task
         # Async-safe: Uses asyncio.StreamReader, not blocking stdlib input()
-        asyncio.create_task(_stdin_reader_loop())
+        _stdin_reader_task = asyncio.create_task(
+            _stdin_reader_loop(), name="code-puppy-bridge-stdin-reader"
+        )
 
         _log_bridge("Bridge ready - awaiting commands from stdin", "info")
 
@@ -189,21 +234,42 @@ async def _on_shutdown() -> None:
 
     Async-safe: Cancels pending tasks, closes resources without blocking.
     """
-    global _bridge_controller
+    global _bridge_controller, _stdin_reader_task
 
-    if not BRIDGE_ENABLED or _bridge_controller is None:
+    if not BRIDGE_ENABLED:
+        return
+
+    controller = _bridge_controller
+    reader_task = _stdin_reader_task
+    if controller is None and reader_task is None:
         return
 
     _log_bridge("Shutting down Elixir bridge", "info")
 
     try:
         # Emit bridge.closing notification (canonical V1 method name)
-        notification = emit_bridge_closing(reason="shutdown")
-        _write_framed_message(notification)
+        if controller is not None:
+            notification = emit_bridge_closing(reason="shutdown")
+            _write_framed_message(notification)
+
+        # Stop the background stdin reader before dropping controller state.
+        if reader_task is not None:
+            if not reader_task.done():
+                reader_task.cancel()
+            try:
+                await reader_task
+            except asyncio.CancelledError:
+                pass
+            except Exception as e:
+                _log_bridge(f"Stdin reader shutdown error: {e}", "error")
+            finally:
+                _stdin_reader_task = None
 
         # Cleanup bridge controller
-        await _bridge_controller.shutdown()
-        _bridge_controller = None
+        if controller is not None:
+            await controller.shutdown()
+            if _bridge_controller is controller:
+                _bridge_controller = None
 
         _log_bridge("Bridge shutdown complete", "info")
 
@@ -270,68 +336,96 @@ async def _stdin_reader_loop() -> None:
     Async-safe: Uses asyncio.StreamReader for non-blocking I/O.
     See: docs/rules/async-io.md for callback implementation rules.
     """
-    global _bridge_controller
-
     if _bridge_controller is None:
         return
 
     _log_bridge("Starting stdin reader loop", "info")
-
-    # Get asyncio-compatible stdin reader
-    # Async-safe: Uses asyncio.StreamReader, not blocking sys.stdin
-    loop = asyncio.get_event_loop()
-    reader = asyncio.StreamReader()
-    protocol = asyncio.StreamReaderProtocol(reader)
+    stop_reason = "stdin reader stopped"
 
     try:
-        await loop.connect_read_pipe(lambda: protocol, sys.stdin)
-    except Exception as e:
-        _log_bridge(f"Failed to connect stdin pipe: {e}", "error")
-        return
+        # Get asyncio-compatible stdin reader
+        # Async-safe: Uses asyncio.StreamReader, not blocking sys.stdin
+        loop = asyncio.get_running_loop()
+        reader = asyncio.StreamReader()
+        protocol = asyncio.StreamReaderProtocol(reader)
 
-    while BRIDGE_ENABLED and _bridge_controller is not None:
+        can_attach_stdin, attach_status = _stdin_read_pipe_attach_status(sys.stdin)
+        if not can_attach_stdin:
+            stop_reason = "stdin pipe unavailable"
+            _log_bridge(
+                f"Stdin cannot be attached as an asyncio read pipe: {attach_status}",
+                "info",
+            )
+            return
+
         try:
-            # Read framed message using BRIDGE_PROTOCOL_V1 Content-Length framing.
-            request = await _read_framed_message(reader)
-
-            if request is None:
-                # EOF or parse error - reader is exhausted
-                _log_bridge("Stdin EOF reached", "info")
-                break
-
-            _log_bridge(f"Received: {str(request)[:200]}...", "debug")
-
-            # Validate basic JSON-RPC structure
-            if request.get("jsonrpc") != "2.0":
-                _send_jsonrpc_error(
-                    request.get("id"), -32600, "Invalid Request: expected jsonrpc 2.0"
-                )
-                continue
-
-            # Detect responses to OUR requests (reverse channel)
-            # Responses have "result" or "error" but no "method"
-            if ("result" in request or "error" in request) and "method" not in request:
-                from code_puppy.plugins.elixir_bridge import handle_response
-
-                handle_response(request)
-                _log_bridge(
-                    f"Handled reverse-channel response id={request.get('id')}", "debug"
-                )
-                continue
-
-            # Dispatch command
-            response = await _bridge_controller.dispatch(request)
-
-            # Send response if request has an id (not a notification)
-            if "id" in request and response is not None:
-                _send_jsonrpc_response(request["id"], response)
-
-        except asyncio.CancelledError:
-            _log_bridge("Stdin reader cancelled", "info")
-            break
+            await loop.connect_read_pipe(lambda: protocol, sys.stdin)
         except Exception as e:
-            _log_bridge(f"Stdin reader error: {e}", "error")
-            _send_jsonrpc_error(None, -32603, f"Internal error: {e}")
+            stop_reason = "stdin pipe attach failed"
+            _log_bridge(f"Failed to connect stdin pipe: {e}", "error")
+            return
+
+        while (
+            BRIDGE_ENABLED
+            and _bridge_controller is not None
+            and _bridge_controller.running
+        ):
+            try:
+                # Read framed message using BRIDGE_PROTOCOL_V1 Content-Length framing.
+                request = await _read_framed_message(reader)
+
+                if request is None:
+                    # EOF or parse error - reader is exhausted
+                    stop_reason = "stdin EOF"
+                    _log_bridge("Stdin EOF reached", "info")
+                    break
+
+                _log_bridge(f"Received: {str(request)[:200]}...", "debug")
+
+                # Validate basic JSON-RPC structure
+                if request.get("jsonrpc") != "2.0":
+                    _send_jsonrpc_error(
+                        request.get("id"),
+                        -32600,
+                        "Invalid Request: expected jsonrpc 2.0",
+                    )
+                    continue
+
+                # Detect responses to OUR requests (reverse channel)
+                # Responses have "result" or "error" but no "method"
+                if (
+                    "result" in request or "error" in request
+                ) and "method" not in request:
+                    from code_puppy.plugins.elixir_bridge import handle_response
+
+                    handle_response(request)
+                    _log_bridge(
+                        f"Handled reverse-channel response id={request.get('id')}",
+                        "debug",
+                    )
+                    continue
+
+                controller = _bridge_controller
+                if controller is None:
+                    stop_reason = "bridge controller removed"
+                    break
+
+                # Dispatch command
+                response = await controller.dispatch(request)
+
+                # Send response if request has an id (not a notification)
+                if "id" in request and response is not None:
+                    _send_jsonrpc_response(request["id"], response)
+
+            except asyncio.CancelledError:
+                stop_reason = "stdin reader cancelled"
+                _log_bridge("Stdin reader cancelled", "info")
+                break
+            except Exception as e:
+                _log_bridge(f"Stdin reader error: {e}", "error")
+                _send_jsonrpc_error(None, -32603, f"Internal error: {e}")
+    finally:
+        _request_bridge_stop(stop_reason)
 
 
 def _send_jsonrpc_response(request_id: Any, result: Any) -> None:

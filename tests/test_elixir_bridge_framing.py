@@ -123,6 +123,121 @@ async def test_read_framed_message_logs_truncated_body(
 
 
 @pytest.mark.asyncio
+async def test_stdin_reader_loop_stops_controller_on_eof(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """EOF from the framed reader must stop bridge mode's controller poll."""
+    controller = BridgeController()
+    transport = _FakeReadTransport()
+
+    async def fake_connect_read_pipe(protocol_factory: Any, pipe: Any) -> Any:
+        protocol = protocol_factory()
+        protocol.connection_made(transport)
+        return transport, protocol
+
+    async def fake_read_framed_message(reader: asyncio.StreamReader) -> None:
+        return None
+
+    loop = asyncio.get_running_loop()
+    monkeypatch.setattr(bridge_callbacks, "BRIDGE_ENABLED", True)
+    monkeypatch.setattr(bridge_callbacks, "_bridge_controller", controller)
+    monkeypatch.setattr(bridge_callbacks, "_log_bridge", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        bridge_callbacks,
+        "_stdin_read_pipe_attach_status",
+        lambda _stdin: (True, "test pipe"),
+    )
+    monkeypatch.setattr(loop, "connect_read_pipe", fake_connect_read_pipe)
+    monkeypatch.setattr(
+        bridge_callbacks, "_read_framed_message", fake_read_framed_message
+    )
+
+    await asyncio.wait_for(bridge_callbacks._stdin_reader_loop(), timeout=1)
+
+    assert not controller.running
+
+
+@pytest.mark.asyncio
+async def test_stdin_reader_loop_stops_controller_when_stdin_pipe_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A fatal stdin attach failure must not leave bridge mode polling forever."""
+    controller = BridgeController()
+
+    async def fake_connect_read_pipe(protocol_factory: Any, pipe: Any) -> Any:
+        raise RuntimeError("stdin is gone, buddy")
+
+    loop = asyncio.get_running_loop()
+    monkeypatch.setattr(bridge_callbacks, "BRIDGE_ENABLED", True)
+    monkeypatch.setattr(bridge_callbacks, "_bridge_controller", controller)
+    monkeypatch.setattr(bridge_callbacks, "_log_bridge", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        bridge_callbacks,
+        "_stdin_read_pipe_attach_status",
+        lambda _stdin: (True, "test pipe"),
+    )
+    monkeypatch.setattr(loop, "connect_read_pipe", fake_connect_read_pipe)
+
+    await asyncio.wait_for(bridge_callbacks._stdin_reader_loop(), timeout=1)
+
+    assert not controller.running
+
+
+@pytest.mark.asyncio
+async def test_stdin_reader_loop_stops_controller_when_stdin_is_not_pipe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Non-pipe stdin must stop bridge mode before scheduling pipe readers."""
+    controller = BridgeController()
+    connect_attempted = False
+
+    async def fake_connect_read_pipe(protocol_factory: Any, pipe: Any) -> Any:
+        nonlocal connect_attempted
+        connect_attempted = True
+        raise AssertionError("connect_read_pipe must not run for non-pipe stdin")
+
+    loop = asyncio.get_running_loop()
+    monkeypatch.setattr(bridge_callbacks, "BRIDGE_ENABLED", True)
+    monkeypatch.setattr(bridge_callbacks, "_bridge_controller", controller)
+    monkeypatch.setattr(bridge_callbacks, "_log_bridge", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        bridge_callbacks,
+        "_stdin_read_pipe_attach_status",
+        lambda _stdin: (False, "stdin is a character device"),
+    )
+    monkeypatch.setattr(loop, "connect_read_pipe", fake_connect_read_pipe)
+
+    await asyncio.wait_for(bridge_callbacks._stdin_reader_loop(), timeout=1)
+
+    assert not controller.running
+    assert not connect_attempted
+
+
+@pytest.mark.asyncio
+async def test_on_shutdown_cancels_and_awaits_stdin_reader_task(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Shutdown owns the stdin task instead of leaving it as fire-and-forget confetti."""
+    controller = BridgeController()
+    stdout = _FakeStdout()
+    reader_task = asyncio.create_task(asyncio.sleep(60))
+
+    monkeypatch.setattr(bridge_callbacks, "BRIDGE_ENABLED", True)
+    monkeypatch.setattr(bridge_callbacks, "_bridge_controller", controller)
+    monkeypatch.setattr(bridge_callbacks, "_stdin_reader_task", reader_task)
+    monkeypatch.setattr(bridge_callbacks, "_log_bridge", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(bridge_callbacks.sys, "stdout", stdout)
+
+    await asyncio.wait_for(bridge_callbacks._on_shutdown(), timeout=1)
+
+    assert reader_task.cancelled()
+    assert bridge_callbacks._stdin_reader_task is None
+    assert bridge_callbacks._bridge_controller is None
+    assert not controller.running
+    assert _decode_frames(stdout.buffer.getvalue())[0]["method"] == "bridge.closing"
+
+
+@pytest.mark.asyncio
 async def test_stdin_reader_loop_smoke_ping_and_exit_content_length(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -156,6 +271,11 @@ async def test_stdin_reader_loop_smoke_ping_and_exit_content_length(
     monkeypatch.setattr(bridge_callbacks, "_bridge_controller", controller)
     monkeypatch.setattr(bridge_callbacks, "_log_bridge", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(bridge_callbacks.sys, "stdout", stdout)
+    monkeypatch.setattr(
+        bridge_callbacks,
+        "_stdin_read_pipe_attach_status",
+        lambda _stdin: (True, "test pipe"),
+    )
     monkeypatch.setattr(loop, "connect_read_pipe", fake_connect_read_pipe)
 
     await asyncio.wait_for(bridge_callbacks._stdin_reader_loop(), timeout=1)
@@ -165,3 +285,4 @@ async def test_stdin_reader_loop_smoke_ping_and_exit_content_length(
     assert responses[0]["result"]["pong"] is True
     assert responses[1]["result"]["status"] == "exiting"
     assert responses[1]["result"]["reason"] == "test-done"
+    assert not controller.running

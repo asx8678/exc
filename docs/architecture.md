@@ -381,6 +381,8 @@ Code Puppy is a **dual-runtime system** designed for maximum performance and sim
 
 ### Bridge Mode Flow (Elixir Orchestration)
 
+Python bridge mode is activated either by passing `--bridge-mode` to the Python CLI or by setting `CODE_PUPPY_BRIDGE=1` before process start. The CLI shim sets the environment variable before importing the full application runtime so the bridge plugin freezes `BRIDGE_ENABLED=True` during plugin discovery. Once startup callbacks run, the bridge plugin emits `bridge.ready`, starts its stdin reader, and `AppRunner` keeps the event loop alive until the bridge controller handles `exit` and marks itself stopped.
+
 ```
 ┌─────────────┐    ┌───────────────┐    ┌───────────────────┐    ┌───────────────┐
 │   Client    │    │   Phoenix     │    │ PythonWorker.Port │    │   Python      │
@@ -395,9 +397,10 @@ Code Puppy is a **dual-runtime system** designed for maximum performance and sim
        │                   │  with run_id        │                      │
        │                   │─────────────────────▶│                      │
        │                   │                      │                      │
-       │                   │                      │  Launch python      │
-       │                   │                      │  code_puppy_main.py   │
-       │                   │                      │  --bridge-mode       │
+       │                   │                      │  Launch Python      │
+       │                   │                      │  pup --bridge-mode   │
+       │                   │                      │  (or CODE_PUPPY_    │
+       │                   │                      │   BRIDGE=1)          │
        │                   │                      │─────────────────────▶
        │                   │                      │                      │
        │                   │◀─────────────────────│  Port initialized     │
@@ -494,7 +497,7 @@ Code Puppy is a **dual-runtime system** designed for maximum performance and sim
 
 ### JSON-RPC 2.0 with Content-Length Framing
 
-Code Puppy uses **JSON-RPC 2.0** over stdio with **Content-Length** HTTP-style framing for robust communication between Elixir and Python.
+Code Puppy bridge-worker mode uses **JSON-RPC 2.0** over stdio with **Content-Length** HTTP-style framing for robust communication between Elixir and Python. In this mode stdout is reserved exclusively for framed protocol messages; human-facing banners, renderers, first-run config onboarding, version status, and other diagnostics must be skipped or sent somewhere other than stdout.
 
 #### Framing Format
 
@@ -508,7 +511,7 @@ Content-Length: <bytes>\r\n
 
 **Elixir → Python: Initialize**
 ```http
-Content-Length: 87\r\n\r\n
+Content-Length: 72\r\n\r\n
 {"jsonrpc":"2.0","method":"initialize","params":{"run_id":"run-abc123"}}
 ```
 
@@ -531,12 +534,12 @@ Content-Length: 156\r\n\r\n
 **Elixir → Python: Request/Response**
 ```http
 # Request:
-Content-Length: 134\r\n\r\n
-{"jsonrpc":"2.0","id":"req-1","method":"worker.ping","params":{"timestamp":1713123456789}}
+Content-Length: 83\r\n\r\n
+{"jsonrpc":"2.0","id":"req-1","method":"ping","params":{"timestamp":1713123456789}}
 
 # Response:
-Content-Length: 56\r\n\r\n
-{"jsonrpc":"2.0","id":"req-1","result":{"status":"ok","pong":true}}
+Content-Length: 95\r\n\r\n
+{"jsonrpc":"2.0","id":"req-1","result":{"success":true,"pong":true,"timestamp":1713123456.789}}
 ```
 
 ### Message Types
@@ -557,8 +560,8 @@ Content-Length: 56\r\n\r\n
 | `run.start` | `{agent_name, prompt, session_id}` | Start execution |
 | `run.cancel` | `{run_id}` | Soft cancel request |
 | `run.provide_response` | `{prompt_id, response}` | User input delivery |
-| `worker.ping` | `{}` | Health check |
-| `worker.shutdown` | `{code}` | Graceful exit |
+| `ping` | `{}` | Health check |
+| `exit` | `{reason, timeout_ms}` | Graceful exit; flips the bridge controller out of its run loop |
 
 #### Python → Elixir (Events)
 
@@ -591,7 +594,7 @@ Content-Length: 56\r\n\r\n
 |------|-------------|-------------|
 | **CLI Interactive** | `code-puppy` or `python -m code_puppy` | Local development, day-to-day coding |
 | **CLI Prompt-only** | `code-puppy -p "create a React component"` | CI/CD, automation, scripting |
-| **Bridge Mode** | `--bridge-mode` (Python CLI) or `CODE_PUPPY_BRIDGE=1` | Python bridge via JSON-RPC over stdio (Elixir spawns PythonWorker.Port). The Elixir CLI parses `--bridge-mode` as a reserved flag with no runtime effect. |
+| **Bridge Mode** | `pup --bridge-mode`, `python -m code_puppy --bridge-mode`, or `CODE_PUPPY_BRIDGE=1 pup` on the Python CLI | Python bridge worker via JSON-RPC over stdio (Elixir spawns PythonWorker.Port). The Elixir CLI parses its own `--bridge-mode` as a reserved flag with no runtime effect. |
 | **HTTP API** | `elixir/CodePuppyControlWeb` | External integrations, web dashboards |
 | **WebSocket** | `ws://host/socket` | Real-time UIs, streaming responses |
 | **TUI Mode** | `CODE_PUPPY_TUI=1` | Rich terminal interface (Textual) |
@@ -606,13 +609,13 @@ Entry Point:
                    │
          ┌─────────┴─────────┐
          │
+    CODE_PUPPY_BRIDGE?  ◀── yes ──▶  bridge startup callback + AppRunner._run_bridge_mode()
+         │ no
+         ▼
     args.prompt?  ◀── yes ──▶  prompt_runner.execute_single()
          │ no
          ▼
     is_tui_enabled()?  ◀── yes ──▶  textual_interactive_mode()
-         │ no
-         ▼
-    CODE_PUPPY_BRIDGE?  ◀── yes ──▶  elixir_bridge.run()
          │ no
          ▼
          interactive_mode()  ◀── default CLI loop
