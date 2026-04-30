@@ -43,6 +43,12 @@ defmodule CodePuppyControl.Telemetry do
   | `[:code_puppy, :websocket, :connect]` | `system_time`, `monotonic_time` | `socket_id`, `transport`, `params` |
   | `[:code_puppy, :websocket, :disconnect]` | `duration_ms`, `system_time` | `socket_id`, `reason`, `connected_at` |
 
+  ### Session Resume
+
+  | Event | Measurements | Metadata |
+  |-------|-------------|----------|
+  | `[:code_puppy, :session, :resume]` | `system_time`, `monotonic_time` | `session_id`, `restored`, `reason` |
+
   ## Usage
 
   Emit events using the helper functions:
@@ -395,6 +401,33 @@ defmodule CodePuppyControl.Telemetry do
         socket_id: socket_id,
         reason: reason,
         connected_at: connected_at
+      }
+    )
+  end
+
+  # ============================================================================
+  # Session Resume Events
+  # ============================================================================
+
+  @doc """
+  Emits a session resume event for `pup --continue`.
+
+  `reason` is `:latest` when a persisted session was restored, or a fallback
+  reason such as `:no_sessions`, `:list_failed`, `:load_failed`, or
+  `:agent_state_failed` when the CLI starts a fresh interactive session.
+  """
+  @spec session_resume(String.t() | nil, boolean(), atom()) :: :ok
+  def session_resume(session_id, restored, reason) do
+    :telemetry.execute(
+      [:code_puppy, :session, :resume],
+      %{
+        system_time: System.system_time(:millisecond),
+        monotonic_time: System.monotonic_time(:millisecond)
+      },
+      %{
+        session_id: session_id,
+        restored: restored,
+        reason: reason
       }
     )
   end

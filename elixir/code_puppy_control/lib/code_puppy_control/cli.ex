@@ -17,13 +17,14 @@ defmodule CodePuppyControl.CLI do
     * `-v`, `-V`, `--version` - Show version and exit
     * `-m`, `--model MODEL` - Model to use (default: from config)
     * `-a`, `--agent AGENT` - Agent to use (default: code-puppy)
-    * `-c`, `--continue` - Parsed flag; currently routes to interactive mode without session restore
+    * `-c`, `--continue` - Resume the most recent persisted session
     * `-p`, `--prompt PROMPT` - Execute a single prompt and exit
     * `-i`, `--interactive` - Run in interactive mode
     * `--bridge-mode` - Parsed flag; reserved for bridge-mode delegation (no runtime effect in current Elixir CLI)
   """
 
   alias CodePuppyControl.CLI.Parser
+  alias CodePuppyControl.CLI.SessionResume
 
   @version Mix.Project.config()[:version]
 
@@ -35,11 +36,11 @@ defmodule CodePuppyControl.CLI do
     case Parser.parse(args) do
       {:help, _opts} ->
         IO.puts(help_text())
-        System.halt(0)
+        halt(0)
 
       {:version, _opts} ->
         IO.puts("code-puppy #{@version}")
-        System.halt(0)
+        halt(0)
 
       {:ok, opts} ->
         run(opts)
@@ -47,7 +48,7 @@ defmodule CodePuppyControl.CLI do
       {:error, message} ->
         IO.puts(:stderr, "Error: #{message}")
         IO.puts(:stderr, "Try 'pup --help' for usage information.")
-        System.halt(1)
+        halt(1)
     end
   end
 
@@ -63,7 +64,7 @@ defmodule CodePuppyControl.CLI do
 
     * `:one_shot`               — Non-interactive prompt (`-p TEXT` / positional)
     * `:interactive_with_prompt` — Interactive mode with an initial prompt (`-p TEXT -i`)
-    * `:continue_session`       — Parsed flag (`-c`); currently routes to interactive mode without session restore
+    * `:continue_session`       — Restore newest persisted session (`-c`) before REPL
     * `:interactive_default`     — Plain interactive REPL (no prompt / empty prompt)
   """
   @spec resolve_run_mode(map()) ::
@@ -103,21 +104,37 @@ defmodule CodePuppyControl.CLI do
         run_interactive(opts)
 
       :continue_session ->
-        run_interactive(opts)
+        run_continue_session(opts)
 
       :interactive_default ->
         run_interactive(opts)
     end
 
-    System.halt(0)
+    halt(0)
   end
 
   # ---------------------------------------------------------------------------
   # Private helpers
   # ---------------------------------------------------------------------------
 
+  defp run_continue_session(opts) do
+    case SessionResume.restore_latest(opts) do
+      {:ok, resumed_opts} ->
+        run_interactive(resumed_opts)
+
+      {:fresh, fresh_opts, :no_sessions} ->
+        IO.puts("No previous session found, starting fresh.")
+        run_interactive(fresh_opts)
+
+      {:fresh, fresh_opts, _reason} ->
+        IO.puts("Could not restore previous session, starting fresh.")
+        run_interactive(fresh_opts)
+    end
+  end
+
   defp run_interactive(opts) do
-    CodePuppyControl.REPL.Loop.run(opts)
+    module = repl_loop_module()
+    module.run(opts)
   end
 
   defp run_single_prompt(opts) do
@@ -126,8 +143,19 @@ defmodule CodePuppyControl.CLI do
         :ok
 
       :error ->
-        System.halt(1)
+        halt(1)
     end
+  end
+
+  defp repl_loop_module do
+    Application.get_env(:code_puppy_control, :cli_repl_loop_module, CodePuppyControl.REPL.Loop)
+  end
+
+  @spec halt(non_neg_integer()) :: no_return()
+  defp halt(status) do
+    halt_fun = Application.get_env(:code_puppy_control, :cli_halt_fun, &System.halt/1)
+    halt_fun.(status)
+    exit({:halt_returned, status})
   end
 
   @doc """
@@ -145,7 +173,7 @@ defmodule CodePuppyControl.CLI do
       -v, -V, --version Show version and exit
       -m, --model MODEL Model to use (default: from config)
       -a, --agent AGENT Agent to use (default: code-puppy)
-      -c, --continue Parsed flag; currently routes to interactive mode (no session restore yet)
+      -c, --continue Resume the most recent persisted session
       -p, --prompt PROMPT Execute a single prompt and exit
       -i, --interactive Run in interactive mode
       --bridge-mode Parsed; reserved (no runtime effect in current Elixir CLI)
@@ -153,7 +181,7 @@ defmodule CodePuppyControl.CLI do
     Examples:
       pup Start interactive mode
       pup "explain this code" Run single prompt
-      pup -m claude-sonnet -c       -c flag parsed (currently same as interactive mode)
+      pup -m claude-sonnet -c       Resume latest session with a model override
 
     For more information: https://github.com/anthropics/code-puppy
     """

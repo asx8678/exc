@@ -30,6 +30,13 @@ defmodule CodePuppyControl.CLITest do
       text = CLI.help_text()
       assert text =~ "Examples:"
       assert text =~ "pup \"explain this code\""
+      assert text =~ "Resume latest session"
+    end
+
+    test "does not describe --continue as a parsed-only stub" do
+      text = CLI.help_text()
+      refute text =~ "currently routes"
+      refute text =~ "no session restore yet"
     end
 
     test "contains version from mix project" do
