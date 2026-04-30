@@ -42,6 +42,8 @@ logger = logging.getLogger(__name__)
 # Module-level state - bridge controller instance and stdin reader task
 _bridge_controller: BridgeController | None = None
 _stdin_reader_task: asyncio.Task[None] | None = None
+_shutdown_event: asyncio.Event | None = None
+_shutdown_event_loop: asyncio.AbstractEventLoop | None = None
 
 
 def _log_bridge(message: str, level: str = "info") -> None:
@@ -73,12 +75,75 @@ def _write_framed_message(msg: dict) -> None:
         _log_bridge(f"Failed to write framed message: {e}", "error")
 
 
-def _request_bridge_stop(reason: str) -> None:
-    """Mark the active bridge controller stopped so bridge mode can exit."""
-    if _bridge_controller is None:
+def _new_shutdown_event() -> asyncio.Event:
+    """Create a shutdown event bound to the current running loop."""
+    global _shutdown_event, _shutdown_event_loop
+
+    _shutdown_event_loop = asyncio.get_running_loop()
+    _shutdown_event = asyncio.Event()
+    return _shutdown_event
+
+
+def _get_shutdown_event() -> asyncio.Event:
+    """Return the shutdown event for the current running loop."""
+    global _shutdown_event, _shutdown_event_loop
+
+    loop = asyncio.get_running_loop()
+    if _shutdown_event is None or _shutdown_event_loop is not loop:
+        _shutdown_event_loop = loop
+        _shutdown_event = asyncio.Event()
+    return _shutdown_event
+
+
+def _signal_bridge_shutdown() -> None:
+    """Wake public bridge shutdown waiters, if any."""
+    if _shutdown_event is not None:
+        _shutdown_event.set()
+
+
+async def await_shutdown() -> None:
+    """Wait until bridge mode should exit.
+
+    This is the public lifecycle primitive for bridge-mode callers. It hides
+    bridge controller globals and controller internals from application code
+    while still preserving the existing exit behavior: an ``exit`` request,
+    stdin EOF, DEVNULL/non-pipe stdin, or shutdown cleanup all release the wait.
+
+    Raises:
+        RuntimeError: If bridge callbacks did not activate.
+    """
+    if not BRIDGE_ENABLED:
+        raise RuntimeError("bridge plugin not activated")
+
+    controller = _bridge_controller
+    reader_task = _stdin_reader_task
+    if controller is None and reader_task is None:
+        raise RuntimeError("bridge plugin not activated")
+    if controller is None or not controller.running:
+        return
+    if reader_task is not None and reader_task.done():
         return
 
-    _bridge_controller.request_stop()
+    event = _get_shutdown_event()
+
+    # Re-check after event creation so a stop request between the first checks
+    # and waiter setup cannot strand bridge mode. Race conditions: rude.
+    controller = _bridge_controller
+    reader_task = _stdin_reader_task
+    if controller is None or not controller.running:
+        return
+    if reader_task is not None and reader_task.done():
+        return
+
+    await event.wait()
+
+
+def _request_bridge_stop(reason: str) -> None:
+    """Mark the active bridge controller stopped so bridge mode can exit."""
+    if _bridge_controller is not None:
+        _bridge_controller.request_stop()
+
+    _signal_bridge_shutdown()
     _log_bridge(f"Bridge controller stop requested: {reason}", "info")
 
 
@@ -205,6 +270,8 @@ async def _on_startup() -> None:
     _log_bridge("Initializing Elixir bridge mode", "info")
 
     try:
+        _new_shutdown_event()
+
         # Create bridge controller - handles command dispatch
         _bridge_controller = BridgeController()
 
@@ -271,9 +338,11 @@ async def _on_shutdown() -> None:
             if _bridge_controller is controller:
                 _bridge_controller = None
 
+        _signal_bridge_shutdown()
         _log_bridge("Bridge shutdown complete", "info")
 
     except Exception as e:
+        _signal_bridge_shutdown()
         _log_bridge(f"Bridge shutdown error: {e}", "error")
         logger.error(f"Elixir bridge shutdown error: {e}")
 

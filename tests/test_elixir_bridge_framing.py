@@ -73,6 +73,59 @@ def _decode_frames(data: bytes) -> list[dict[str, Any]]:
 
 
 @pytest.mark.asyncio
+async def test_public_await_shutdown_raises_when_bridge_not_active(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The public bridge waiter fails fast if startup never created state."""
+    import code_puppy.plugins.elixir_bridge as bridge
+
+    monkeypatch.setattr(bridge_callbacks, "BRIDGE_ENABLED", True)
+    monkeypatch.setattr(bridge_callbacks, "_bridge_controller", None)
+    monkeypatch.setattr(bridge_callbacks, "_stdin_reader_task", None)
+
+    with pytest.raises(RuntimeError, match="bridge plugin not activated"):
+        await bridge.await_shutdown()
+
+
+@pytest.mark.asyncio
+async def test_public_await_shutdown_resolves_when_stdin_reader_stops_on_eof(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """EOF releases the public bridge waiter without AppRunner polling internals."""
+    import code_puppy.plugins.elixir_bridge as bridge
+
+    controller = BridgeController()
+    transport = _FakeReadTransport()
+
+    async def fake_connect_read_pipe(protocol_factory: Any, pipe: Any) -> Any:
+        protocol = protocol_factory()
+        protocol.connection_made(transport)
+        protocol.eof_received()
+        return transport, protocol
+
+    loop = asyncio.get_running_loop()
+    monkeypatch.setattr(bridge_callbacks, "BRIDGE_ENABLED", True)
+    monkeypatch.setattr(bridge_callbacks, "_bridge_controller", controller)
+    monkeypatch.setattr(bridge_callbacks, "_shutdown_event", None)
+    monkeypatch.setattr(bridge_callbacks, "_shutdown_event_loop", None)
+    monkeypatch.setattr(bridge_callbacks, "_log_bridge", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        bridge_callbacks,
+        "_stdin_read_pipe_attach_status",
+        lambda _stdin: (True, "test pipe"),
+    )
+    monkeypatch.setattr(loop, "connect_read_pipe", fake_connect_read_pipe)
+
+    reader_task = asyncio.create_task(bridge_callbacks._stdin_reader_loop())
+    monkeypatch.setattr(bridge_callbacks, "_stdin_reader_task", reader_task)
+
+    await asyncio.wait_for(bridge.await_shutdown(), timeout=1)
+    await asyncio.wait_for(reader_task, timeout=1)
+
+    assert not controller.running
+
+
+@pytest.mark.asyncio
 async def test_read_framed_message_awaits_streamreader_until_full_body() -> None:
     """The reader must await StreamReader reads instead of handling coroutines."""
     reader = asyncio.StreamReader()
