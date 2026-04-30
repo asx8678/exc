@@ -43,6 +43,11 @@ defmodule CodePuppyControl.FeatureFlags do
   alias CodePuppyControl.Config.Isolation
   alias CodePuppyControl.Config.Paths
 
+  @default_source :api
+  @valid_sources [:api, :slash_command, :config_file, :test]
+
+  @type set_error :: String.t() | :unknown
+
   # ── Client API ──────────────────────────────────────────────────────────
 
   @doc """
@@ -84,12 +89,31 @@ defmodule CodePuppyControl.FeatureFlags do
   Persists the change to `flags.json`. Accepts both `:llm_client` atoms
   and `"elixir.llm_client"` strings.
 
+  This legacy arity falls back to source `:api`. Use `set/3` for operator
+  or integration code so audit telemetry records the source explicitly.
+  Explicitly invalid source opts emit `[:code_puppy, :feature_flags, :invalid]`
+  telemetry before falling back; omitted source opts silently use `:api`.
+
   Returns `:ok` on success, `{:error, reason}` on failure.
   """
-  @spec set(atom() | String.t(), boolean()) :: :ok | {:error, String.t()}
+  @spec set(atom() | String.t(), boolean()) :: :ok | {:error, set_error()}
   def set(capability, value) when is_boolean(value) do
+    set(capability, value, [])
+  end
+
+  @doc """
+  Enables or disables a capability at runtime with source metadata.
+
+  Valid sources include `:api`, `:slash_command`, `:config_file`, and `:test`.
+  Invalid source values are observable via `:invalid` telemetry while the write
+  still falls back to `:api`.
+  """
+  @spec set(atom() | String.t(), boolean(), keyword()) :: :ok | {:error, set_error()}
+  def set(capability, value, opts) when is_boolean(value) and is_list(opts) do
+    source = source_from_opts(opts, @default_source)
+
     with {:ok, resolved} <- Flags.resolve(capability) do
-      GenServer.call(__MODULE__, {:set, resolved, value})
+      GenServer.call(__MODULE__, {:set, resolved, value, source})
     end
   catch
     :exit, _ -> {:error, "FeatureFlags GenServer not running"}
@@ -154,16 +178,12 @@ defmodule CodePuppyControl.FeatureFlags do
 
   @impl true
   def handle_call({:set, capability, value}, _from, %{flags: flags} = state) do
-    new_flags = Map.put(flags, capability, value)
+    set_flag(capability, value, flags, state, @default_source)
+  end
 
-    case persist_to_disk(new_flags) do
-      :ok ->
-        emit_telemetry(:set, %{capability => value})
-        {:reply, :ok, %{state | flags: new_flags}}
-
-      {:error, reason} ->
-        {:reply, {:error, reason}, state}
-    end
+  @impl true
+  def handle_call({:set, capability, value, source}, _from, %{flags: flags} = state) do
+    set_flag(capability, value, flags, state, source)
   end
 
   @impl true
@@ -189,6 +209,19 @@ defmodule CodePuppyControl.FeatureFlags do
   end
 
   # ── Private ─────────────────────────────────────────────────────────────
+
+  defp set_flag(capability, value, flags, state, source) do
+    new_flags = Map.put(flags, capability, value)
+
+    case persist_to_disk(new_flags) do
+      :ok ->
+        emit_telemetry(:set, %{capability => value}, source)
+        {:reply, :ok, %{state | flags: new_flags}}
+
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
+    end
+  end
 
   defp flags_file, do: Paths.flags_file()
 
@@ -290,11 +323,39 @@ defmodule CodePuppyControl.FeatureFlags do
     |> Enum.into(%{})
   end
 
-  defp emit_telemetry(action, flags) do
+  defp source_from_opts(opts, default) do
+    case Keyword.fetch(opts, :source) do
+      {:ok, source} when source in @valid_sources ->
+        source
+
+      {:ok, invalid} ->
+        emit_invalid_source(invalid, default)
+        default
+
+      :error ->
+        default
+    end
+  end
+
+  defp emit_invalid_source(invalid, fallback) do
+    :telemetry.execute(
+      [:code_puppy, :feature_flags, :invalid],
+      %{count: 1},
+      %{reason: {:invalid_source, invalid}, fallback: fallback}
+    )
+  end
+
+  defp emit_telemetry(action, flags, source \\ nil) do
+    metadata =
+      case source do
+        nil -> %{flags: flags}
+        source -> %{flags: flags, source: source}
+      end
+
     :telemetry.execute(
       [:code_puppy_control, :feature_flags, action],
       %{},
-      %{flags: flags}
+      metadata
     )
   end
 end
