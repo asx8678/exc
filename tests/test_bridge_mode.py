@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import asyncio
 import importlib
 import json
 import os
@@ -17,6 +16,12 @@ from typing import Any
 from unittest.mock import Mock
 
 import pytest
+
+
+def _encode_bridge_frame(message: dict[str, Any]) -> bytes:
+    """Encode one Content-Length framed JSON-RPC message."""
+    body = json.dumps(message, separators=(",", ":")).encode("utf-8")
+    return f"Content-Length: {len(body)}\r\n\r\n".encode("utf-8") + body
 
 
 def _decode_bridge_frames(data: bytes) -> list[dict[str, Any]]:
@@ -168,6 +173,48 @@ class TestBridgeModeSubprocessLifecycle:
         messages = _decode_bridge_frames(stdout)
         methods = [message.get("method") for message in messages]
         assert methods in (["bridge.ready"], ["bridge.ready", "bridge.closing"])
+
+    def test_bridge_mode_exits_after_exit_request(self, tmp_path: Path) -> None:
+        """An explicit bridge exit request must stop the AppRunner wait."""
+        repo_root, env = _bridge_subprocess_context(tmp_path)
+        exit_request = _encode_bridge_frame(
+            {
+                "jsonrpc": "2.0",
+                "id": "exit-subprocess",
+                "method": "exit",
+                "params": {"reason": "test-exit"},
+            }
+        )
+
+        proc = subprocess.Popen(
+            [sys.executable, "-m", "code_puppy", "--bridge-mode"],
+            cwd=repo_root,
+            env=env,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+        try:
+            stdout, stderr = proc.communicate(input=exit_request, timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            stdout, stderr = proc.communicate(timeout=2)
+            pytest.fail(
+                "bridge mode did not exit after exit request\n"
+                f"stdout={stdout!r}\nstderr={stderr.decode('utf-8', 'replace')}"
+            )
+
+        assert proc.returncode == 0, stderr.decode("utf-8", "replace")
+
+        messages = _decode_bridge_frames(stdout)
+        assert messages[0].get("method") == "bridge.ready"
+        exit_responses = [
+            message for message in messages if message.get("id") == "exit-subprocess"
+        ]
+        assert exit_responses
+        assert exit_responses[0]["result"]["status"] == "exiting"
+        assert exit_responses[0]["result"]["reason"] == "test-exit"
 
     def test_bridge_mode_exits_when_stdin_is_devnull(self, tmp_path: Path) -> None:
         """DEVNULL stdin must not hang on deferred read-pipe registration errors."""
@@ -365,39 +412,37 @@ class TestAppRunnerBridgeMode:
         shutdown.assert_called_once_with()
 
     @pytest.mark.asyncio
-    async def test_run_bridge_mode_polls_until_controller_stops(
+    async def test_run_bridge_mode_uses_public_bridge_shutdown_api(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """The bridge wait loop exits once the controller stops."""
+        """The bridge wait delegates to the public plugin lifecycle API."""
         from code_puppy.app_runner import AppRunner
-        from code_puppy.plugins.elixir_bridge import register_callbacks as bridge_cb
+        import code_puppy.plugins.elixir_bridge as bridge
 
-        class Controller:
-            running = True
+        bridge_waits = 0
 
-        controller = Controller()
-        sleep_delays: list[float] = []
+        async def fake_await_shutdown() -> None:
+            nonlocal bridge_waits
+            bridge_waits += 1
 
-        async def fake_sleep(delay: float) -> None:
-            sleep_delays.append(delay)
-            controller.running = False
-
-        monkeypatch.setattr(bridge_cb, "_bridge_controller", controller)
-        monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+        monkeypatch.setattr(bridge, "await_shutdown", fake_await_shutdown)
 
         await AppRunner()._run_bridge_mode()
 
-        assert sleep_delays == [0.1]
+        assert bridge_waits == 1
 
     @pytest.mark.asyncio
-    async def test_run_bridge_mode_raises_when_controller_missing(
+    async def test_run_bridge_mode_raises_when_bridge_shutdown_api_not_active(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """Bridge mode must fail loudly if the bridge plugin did not activate."""
         from code_puppy.app_runner import AppRunner
-        from code_puppy.plugins.elixir_bridge import register_callbacks as bridge_cb
+        import code_puppy.plugins.elixir_bridge as bridge
 
-        monkeypatch.setattr(bridge_cb, "_bridge_controller", None)
+        async def fake_await_shutdown() -> None:
+            raise RuntimeError("bridge plugin not activated")
+
+        monkeypatch.setattr(bridge, "await_shutdown", fake_await_shutdown)
 
         with pytest.raises(RuntimeError, match="bridge plugin not activated"):
             await AppRunner()._run_bridge_mode()

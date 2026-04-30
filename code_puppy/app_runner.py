@@ -325,17 +325,18 @@ class AppRunner:
     async def _run_bridge_mode(self) -> None:
         """Run as a JSON-RPC bridge worker until shutdown.
 
-        The bridge plugin's startup callback has already created the
-        BridgeController and started a background stdin reader task. This method
-        keeps the event loop alive until the controller reports it is no longer
-        running (typically by an ``exit`` request or stdin EOF).
+        The bridge plugin's startup callback has already created the bridge
+        controller and started a background stdin reader task. This method keeps
+        the event loop alive through the plugin's public shutdown waiter instead
+        of polling plugin globals or controller internals.
         """
-        import asyncio
+        from code_puppy.plugins.elixir_bridge import await_shutdown
 
-        from code_puppy.plugins.elixir_bridge import register_callbacks as _bridge_cb
-
-        controller = getattr(_bridge_cb, "_bridge_controller", None)
-        if controller is None:
+        try:
+            await await_shutdown()
+        except RuntimeError as exc:
+            if "bridge plugin not activated" not in str(exc):
+                raise
             sys.stderr.write(
                 "ERROR: --bridge-mode was set but the bridge plugin did not "
                 "activate.\n"
@@ -345,15 +346,9 @@ class AppRunner:
                 "  Try: CODE_PUPPY_BRIDGE=1 pup  (instead of pup --bridge-mode)\n"
             )
             sys.stderr.flush()
-            raise RuntimeError("Bridge mode requested but bridge plugin not activated")
-
-        while True:
-            controller = getattr(_bridge_cb, "_bridge_controller", None)
-            if controller is None:
-                break
-            if not getattr(controller, "running", False):
-                break
-            await asyncio.sleep(0.1)
+            raise RuntimeError(
+                "Bridge mode requested but bridge plugin not activated"
+            ) from exc
 
     async def run(self) -> None:
         """Full application lifecycle: parse → setup → validate → dispatch."""

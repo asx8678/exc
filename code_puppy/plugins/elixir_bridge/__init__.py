@@ -98,7 +98,7 @@ class _ResponseSlot:
         """Wait for response with timeout. Returns (result, error)."""
         if self.event.wait(timeout):
             return self.result, self.error
-        return None, None # Timeout
+        return None, None  # Timeout
 
     def complete(self, result: Any, error: Any) -> None:
         """Mark response as complete."""
@@ -149,6 +149,22 @@ def get_connection_url() -> str | None:
         The connection URL if set, None otherwise.
     """
     return _elixir_control_plane_url
+
+
+async def await_shutdown() -> None:
+    """Wait until bridge-mode shutdown is requested.
+
+    Public wrapper used by application code that needs to keep the process alive
+    while the Python bridge worker is active. The implementation lives in the
+    callback-registration layer because that layer owns the bridge controller
+    and stdin reader task.
+
+    Raises:
+        RuntimeError: If bridge callbacks did not activate.
+    """
+    from . import register_callbacks
+
+    await register_callbacks.await_shutdown()
 
 
 def call_method(
@@ -654,7 +670,7 @@ def handle_response(response: dict[str, Any]) -> None:
 
     request_id = response.get("id")
     if request_id is None:
-        return # Notification, no response needed
+        return  # Notification, no response needed
 
     with _response_lock:
         slot = _pending_responses.get(request_id)
@@ -715,7 +731,7 @@ def notify_elixir_event(
             try:
                 loop = asyncio.get_running_loop()
                 # We're in async context, use call_soon_threadsafe if on different thread
-                if threading.current_thread().ident != loop._thread_id: # type: ignore[attr-defined]
+                if threading.current_thread().ident != loop._thread_id:  # type: ignore[attr-defined]
                     loop.call_soon_threadsafe(send_request_to_elixir, message)
                 else:
                     send_request_to_elixir(message)
@@ -739,6 +755,8 @@ __all__ = [
     "get_connection_url",
     "call_method",
     "handle_response",
+    # Bridge-mode lifecycle
+    "await_shutdown",
     # Batch support
     "call_batch",
     "send_batch_to_elixir",
