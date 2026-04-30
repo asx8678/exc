@@ -71,14 +71,14 @@ defmodule CodePuppyControl.CLI do
           :one_shot | :interactive_with_prompt | :continue_session | :interactive_default
   def resolve_run_mode(opts) do
     case opts do
-      %{prompt: _, interactive: true} ->
+      %{continue: true} ->
+        :continue_session
+
+      %{prompt: prompt, interactive: true} when is_binary(prompt) and prompt != "" ->
         :interactive_with_prompt
 
       %{prompt: prompt} when is_binary(prompt) and prompt != "" ->
         :one_shot
-
-      %{continue: true} ->
-        :continue_session
 
       _ ->
         :interactive_default

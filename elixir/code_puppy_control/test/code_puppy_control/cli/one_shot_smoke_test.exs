@@ -204,8 +204,8 @@ defmodule CodePuppyControl.CLI.OneShotSmokeTest do
       assert :interactive_default = CLI.resolve_run_mode(%{prompt: ""})
     end
 
-    test "-p with -c still routes to one-shot (prompt takes precedence)" do
-      assert :one_shot = CLI.resolve_run_mode(%{prompt: "hello", continue: true})
+    test "-c takes precedence over prompt routing" do
+      assert :continue_session = CLI.resolve_run_mode(%{prompt: "hello", continue: true})
     end
   end
 

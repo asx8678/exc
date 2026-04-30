@@ -89,7 +89,7 @@ defmodule CodePuppyControl.CLI.Smoke.Phases do
       {%{}, :interactive_default},
       {%{prompt: nil}, :interactive_default},
       {%{prompt: ""}, :interactive_default},
-      {%{prompt: "hi", continue: true}, :one_shot}
+      {%{prompt: "hi", continue: true}, :continue_session}
     ]
 
     failures =

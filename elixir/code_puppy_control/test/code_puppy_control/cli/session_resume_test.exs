@@ -21,10 +21,8 @@ defmodule CodePuppyControl.CLI.SessionResumeTest do
 
   setup do
     base_dir =
-      Path.join(
-        Path.expand("~/.code_puppy_ex/sessions"),
-        "continue_session_#{System.unique_integer([:positive])}"
-      )
+      System.tmp_dir!()
+      |> Path.join("code_puppy_session_resume_#{System.unique_integer([:positive, :monotonic])}")
 
     File.mkdir_p!(base_dir)
 
