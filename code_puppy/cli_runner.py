@@ -16,12 +16,8 @@ Bootstrap strategy:
 - Heavy submodules are deferred via __getattr__ for backward compat
 """
 
+import os
 import sys
-
-# Lightweight imports only - these modules don't pull in heavy deps
-from code_puppy.config import get_use_dbos
-from code_puppy.errors import FatalError
-from code_puppy.terminal_utils import reset_unix_terminal
 
 # -----------------------------------------------------------------------------
 # Lazy import registry: attribute -> import spec
@@ -76,7 +72,7 @@ def __dir__() -> list[str]:
 # -----------------------------------------------------------------------------
 
 
-def main_entry() -> None:
+def main_entry() -> int | None:
     """Entry point for the installed CLI tool.
 
     Fast path: --help and --version are handled with minimal imports.
@@ -89,10 +85,16 @@ def main_entry() -> None:
     first_arg = sys.argv[1] if len(sys.argv) > 1 else None
     if first_arg in ("--help", "-h"):
         _print_help_fast()
-        return
+        return None
     if first_arg in ("--version", "-V", "-v"):
         _print_version_fast()
-        return
+        return None
+
+    # Bridge mode must be visible before the full runtime imports plugins.
+    # code_puppy.plugins.elixir_bridge freezes BRIDGE_ENABLED at import time,
+    # so set the environment flag before _run_full() can load callbacks.
+    if "--bridge-mode" in sys.argv:
+        os.environ["CODE_PUPPY_BRIDGE"] = "1"
 
     # Full path: load everything and run
     return _run_full()
@@ -150,6 +152,8 @@ def _run_full() -> int | None:
     import asyncio
     import traceback
 
+    from code_puppy.errors import FatalError
+
     # Heavy setup - only done for actual execution, not --help/--version
     from code_puppy.pydantic_patches import apply_all_patches
 
@@ -169,11 +173,18 @@ def _run_full() -> int | None:
     except KeyboardInterrupt:
         # Note: Using sys.stderr for crash output - messaging system may not be available
         sys.stderr.write(traceback.format_exc())
-        if get_use_dbos():
-            from dbos import DBOS
+        from importlib import import_module
 
+        from code_puppy import config as puppy_config
+
+        if getattr(puppy_config, "get_use_dbos")():
+            DBOS = getattr(import_module("dbos"), "DBOS")
             DBOS.destroy()
         return 0
     finally:
         # Reset terminal on Unix-like systems (not Windows)
+        from code_puppy.terminal_utils import reset_unix_terminal
+
         reset_unix_terminal()
+
+    return None

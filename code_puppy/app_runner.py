@@ -16,24 +16,27 @@ import argparse
 import os
 import sys
 from collections.abc import Callable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, TypeAlias, cast
 
 from code_puppy import __version__
 
 if TYPE_CHECKING:
     # Type-only imports for static analysis — not loaded at runtime
     from rich.console import Console
-    from dbos import DBOSConfig
+else:
+    Console = Any
+
+DBOSConfig: TypeAlias = dict[str, object]
 
 # Module-level flag accessible to external code
 shutdown_flag = False
 
 # Lazy-loaded function references — populated on first use of run()
-_interactive_mode: Callable | None = None
-_execute_single_prompt: Callable | None = None
+_interactive_mode: Callable[..., Any] | None = None
+_execute_single_prompt: Callable[..., Any] | None = None
 
 
-def _get_interactive_mode() -> Callable:
+def _get_interactive_mode() -> Callable[..., Any]:
     """Lazy import interactive_mode to defer heavy TUI dependencies."""
     global _interactive_mode
     if _interactive_mode is None:
@@ -43,7 +46,7 @@ def _get_interactive_mode() -> Callable:
     return _interactive_mode
 
 
-def _get_execute_single_prompt() -> Callable:
+def _get_execute_single_prompt() -> Callable[..., Any]:
     """Lazy import execute_single_prompt to defer heavy dependencies."""
     global _execute_single_prompt
     if _execute_single_prompt is None:
@@ -58,9 +61,9 @@ def _log_gil_status() -> None:
     from code_puppy.messaging import emit_info
 
     try:
-        gil_enabled = sys._is_gil_enabled() # Python 3.13+
+        gil_enabled = sys._is_gil_enabled()  # Python 3.13+
     except AttributeError:
-        return # Python < 3.13, GIL is always enabled
+        return  # Python < 3.13, GIL is always enabled
 
     if not gil_enabled:
         emit_info("🧵 Free-threaded Python active (GIL disabled)")
@@ -130,7 +133,7 @@ class AppRunner:
     # Renderer selection
     # ------------------------------------------------------------------
 
-    def setup_renderers(self) -> tuple:
+    def setup_renderers(self) -> tuple[Any, Any, Any]:
         """Create and start message renderers; returns (message_renderer, bus_renderer, display_console)."""
         from code_puppy.console import build_console
         from code_puppy.messaging import (
@@ -146,14 +149,14 @@ class AppRunner:
 
         # Legacy renderer for backward compatibility (emits via get_global_queue)
         message_queue = get_global_queue()
-        message_renderer = SynchronousInteractiveRenderer(
+        message_renderer: Any = SynchronousInteractiveRenderer(
             message_queue, display_console
         )
         message_renderer.start()
 
         # New MessageBus renderer for structured messages (tools emit here)
         message_bus = get_message_bus()
-        bus_renderer = RichConsoleRenderer(message_bus, display_console)
+        bus_renderer: Any = RichConsoleRenderer(message_bus, display_console)
         bus_renderer.start()
 
         return message_renderer, bus_renderer, display_console
@@ -165,7 +168,7 @@ class AppRunner:
     def show_logo(self, args: argparse.Namespace, display_console: Console) -> None:
         """Display the Code Puppy ASCII logo when entering interactive mode."""
         if args.prompt:
-            return # Skip logo in prompt-only mode
+            return  # Skip logo in prompt-only mode
 
         try:
             import pyfiglet
@@ -216,14 +219,14 @@ class AppRunner:
 
                 import signal
 
-                def _uvx_protective_sigint_handler(_sig, _frame):
+                def _uvx_protective_sigint_handler(_sig: int, _frame: object) -> None:
                     """Protective SIGINT handler for Windows+uvx."""
                     reset_windows_terminal_full()
                     disable_windows_ctrl_c()
 
                 signal.signal(signal.SIGINT, _uvx_protective_sigint_handler)
         except ImportError:
-            pass # uvx_detection module not available, ignore
+            pass  # uvx_detection module not available, ignore
 
     # ------------------------------------------------------------------
     # Plugin loading (config / environment)
@@ -231,7 +234,7 @@ class AppRunner:
 
     def load_api_keys(self) -> None:
         """Load API keys from puppy.cfg into environment variables."""
-        from code_puppy.config import load_api_keys_to_environment
+        from code_puppy.config import load_api_keys_to_environment  # type: ignore[attr-defined]
 
         load_api_keys_to_environment()
 
@@ -259,7 +262,7 @@ class AppRunner:
 
     def configure_agent(self, args: argparse.Namespace) -> None:
         """Validate and apply --model / --agent flags from the command line."""
-        from code_puppy.config import _validate_model_exists, set_model_name
+        from code_puppy.config import _validate_model_exists, set_model_name  # type: ignore[attr-defined]
         from code_puppy.messaging import emit_error, emit_system_message
 
         if args.model:
@@ -319,45 +322,94 @@ class AppRunner:
     # REPL loop dispatch (run)
     # ------------------------------------------------------------------
 
+    async def _run_bridge_mode(self) -> None:
+        """Run as a JSON-RPC bridge worker until shutdown.
+
+        The bridge plugin's startup callback has already created the
+        BridgeController and started a background stdin reader task. This method
+        keeps the event loop alive by polling the controller's ``_running`` flag
+        until it is flipped to ``False`` (typically by an ``exit`` JSON-RPC
+        request).
+
+        NOTE(djs.3): This intentionally peeks at private bridge state
+        (``_bridge_controller`` and ``_running``). A future refactor should add
+        a public ``await_shutdown()`` API to the bridge plugin so this can be
+        cleaner. Tracked as a follow-up.
+        """
+        import asyncio
+
+        from code_puppy.plugins.elixir_bridge import register_callbacks as _bridge_cb
+
+        controller = getattr(_bridge_cb, "_bridge_controller", None)
+        if controller is None:
+            sys.stderr.write(
+                "ERROR: --bridge-mode was set but the bridge plugin did not "
+                "activate.\n"
+                "  Likely cause: CODE_PUPPY_BRIDGE was not set before "
+                "code_puppy.plugins.elixir_bridge\n"
+                "  was imported, so BRIDGE_ENABLED was frozen as False.\n"
+                "  Try: CODE_PUPPY_BRIDGE=1 pup  (instead of pup --bridge-mode)\n"
+            )
+            sys.stderr.flush()
+            raise RuntimeError("Bridge mode requested but bridge plugin not activated")
+
+        while True:
+            controller = getattr(_bridge_cb, "_bridge_controller", None)
+            if controller is None:
+                break
+            if not getattr(controller, "_running", False):
+                break
+            await asyncio.sleep(0.1)
+
     async def run(self) -> None:
         """Full application lifecycle: parse → setup → validate → dispatch."""
         global shutdown_flag
 
         # Deferred imports to keep --help/--version fast
         from code_puppy import callbacks
-        from code_puppy.config import (
+        from code_puppy.config import (  # type: ignore[attr-defined]
             ensure_config_exists,
             get_use_dbos,
             initialize_command_history_file,
         )
         from code_puppy.config_package import env_bool
         from code_puppy.keymap import KeymapError, validate_cancel_agent_key
-        from code_puppy.version_checker import default_version_mismatch_behavior
 
         args = self.parse_args()
 
-        # --bridge-mode sets CODE_PUPPY_BRIDGE=1
+        # --bridge-mode sets CODE_PUPPY_BRIDGE=1. cli_runner.main_entry() does
+        # this before importing app_runner; repeat the explicit assignment for
+        # callers that instantiate AppRunner directly.
         if getattr(args, "bridge_mode", False):
-            os.environ.setdefault("CODE_PUPPY_BRIDGE", "1")
+            os.environ["CODE_PUPPY_BRIDGE"] = "1"
+        bridge_mode_enabled = os.environ.get("CODE_PUPPY_BRIDGE") == "1"
 
-        # Check TUI mode early to skip legacy renderers — Textual handles all output
-        from code_puppy.tui.launcher import is_tui_enabled
+        message_renderer = None
+        bus_renderer = None
 
-        tui_mode = is_tui_enabled() and not args.prompt
-
-        if tui_mode:
-            # In TUI mode, don't start legacy renderer threads — they fight Textual for the terminal
-            message_renderer = None
-            bus_renderer = None
-            display_console = None
+        if bridge_mode_enabled:
+            # Bridge stdout is the JSON-RPC wire. Do not start Rich/Owl/Textual
+            # renderers and do not print the logo; both would corrupt framing.
+            tui_mode = False
         else:
-            message_renderer, bus_renderer, display_console = self.setup_renderers()
-            self.show_logo(args, display_console)
+            # Check TUI mode early to skip legacy renderers — Textual handles all output
+            from code_puppy.tui.launcher import is_tui_enabled
+
+            tui_mode = is_tui_enabled() and not args.prompt
+
+            if tui_mode:
+                # In TUI mode, don't start legacy renderer threads — they fight Textual for the terminal
+                message_renderer = None
+                bus_renderer = None
+            else:
+                message_renderer, bus_renderer, display_console = self.setup_renderers()
+                self.show_logo(args, display_console)
 
         initialize_command_history_file()
         from code_puppy.messaging import emit_error, emit_system_message
 
-        ensure_config_exists()
+        if not bridge_mode_enabled:
+            ensure_config_exists()
 
         try:
             validate_cancel_agent_key()
@@ -365,69 +417,82 @@ class AppRunner:
             emit_error(str(e))
             sys.exit(1)
 
-        if not tui_mode:
+        if not tui_mode and not bridge_mode_enabled:
             self.setup_signals()
         self.load_api_keys()
         self.configure_agent(args)
 
         current_version = __version__
-        no_version_update = env_bool("NO_VERSION_UPDATE", default=False)
-        if no_version_update:
-            emit_system_message(f"Current version: {current_version}")
-            emit_system_message(
-                "Update phase disabled because NO_VERSION_UPDATE is set to 1 or true"
-            )
-        else:
-            if len(callbacks.get_callbacks("version_check")):
-                await callbacks.on_version_check(current_version)
+        if not bridge_mode_enabled:
+            no_version_update = env_bool("NO_VERSION_UPDATE", default=False)
+            if no_version_update:
+                emit_system_message(f"Current version: {current_version}")
+                emit_system_message(
+                    "Update phase disabled because NO_VERSION_UPDATE is set to 1 or true"
+                )
             else:
-                default_version_mismatch_behavior(current_version)
-                # Fire background version check (non-blocking refresh)
-                import asyncio
-                from code_puppy.version_checker import check_version_background
+                if len(callbacks.get_callbacks("version_check")):
+                    await callbacks.on_version_check(current_version)
+                else:
+                    from code_puppy.version_checker import (
+                        check_version_background,
+                        default_version_mismatch_behavior,
+                    )
 
-                asyncio.create_task(check_version_background(current_version))
+                    default_version_mismatch_behavior(current_version)
+                    # Fire background version check (non-blocking refresh)
+                    import asyncio
 
-        # eagerly probe Elixir transport so failures surface with a clear
-        # banner instead of a cryptic traceback deep inside prompt rendering.
-        try:
-            from code_puppy.elixir_transport_helpers import get_transport
+                    asyncio.create_task(check_version_background(current_version))
 
-            get_transport()
-        except Exception as _transport_err:
-            from code_puppy.messaging import emit_error, emit_warning
+            # Eagerly probe Elixir transport so failures surface with a clear
+            # banner instead of a cryptic traceback deep inside prompt rendering.
+            try:
+                from code_puppy.elixir_transport_helpers import get_transport
 
-            emit_error(
-                "Elixir control-plane failed to start:\n"
-                f" {type(_transport_err).__name__}: {_transport_err}\n"
-                "Remediation:\n"
-                " * Run manually: cd elixir/code_puppy_control && mix code_puppy.stdio_service\n"
-                " * Check elixir is installed: which elixir\n"
-                " * To boot anyway in degraded mode: export PUP_ALLOW_ELIXIR_DEGRADED=1"
-            )
-            if os.environ.get("PUP_ALLOW_ELIXIR_DEGRADED") != "1":
-                raise
-            emit_warning("Continuing in degraded mode (PUP_ALLOW_ELIXIR_DEGRADED=1)")
+                get_transport()
+            except Exception as _transport_err:
+                from code_puppy.messaging import emit_error, emit_warning
+
+                emit_error(
+                    "Elixir control-plane failed to start:\n"
+                    f" {type(_transport_err).__name__}: {_transport_err}\n"
+                    "Remediation:\n"
+                    " * Run manually: cd elixir/code_puppy_control && mix code_puppy.stdio_service\n"
+                    " * Check elixir is installed: which elixir\n"
+                    " * To boot anyway in degraded mode: export PUP_ALLOW_ELIXIR_DEGRADED=1"
+                )
+                if os.environ.get("PUP_ALLOW_ELIXIR_DEGRADED") != "1":
+                    raise
+                emit_warning(
+                    "Continuing in degraded mode (PUP_ALLOW_ELIXIR_DEGRADED=1)"
+                )
 
         await callbacks.on_startup()
 
-        # Log free-threading (no-GIL) status
-        _log_gil_status()
+        # Log free-threading (no-GIL) status only for human-facing CLI modes.
+        if not bridge_mode_enabled:
+            _log_gil_status()
 
-        # Register workflow state callback handlers for tracking flags
+        # Register workflow state callback handlers for tracking flags. Keep this
+        # in bridge mode as bridge requests may still touch workflow state.
         from code_puppy.workflow_state import register_callback_handlers
 
-        register_callback_handlers()
+        cast(Callable[[], None], register_callback_handlers)()
 
-        # Initialize DBOS if not disabled (lazy import — DBOS is heavy and only needed here)
-        if get_use_dbos():
-            from dbos import DBOS
+        # Initialize DBOS if not disabled (lazy import — DBOS is heavy and only needed here).
+        # Bridge mode skips DBOS to avoid any non-protocol stdout from DBOS startup.
+        dbos_enabled = get_use_dbos() and not bridge_mode_enabled
+        if dbos_enabled:
+            from importlib import import_module
 
             from code_puppy.dbos_utils import is_dbos_initialized
 
+            DBOS = getattr(import_module("dbos"), "DBOS")
+
             dbos_config = self._get_dbos_config(current_version)
             try:
-                DBOS(config=dbos_config) # type: ignore[arg-type]
+                DBOS(config=dbos_config)
                 DBOS.launch()
             except Exception as e:
                 emit_error(f"Error initializing DBOS: {e}")
@@ -444,38 +509,44 @@ class AppRunner:
 
         shutdown_flag = False
         try:
-            initial_command = None
-            prompt_only_mode = False
-
-            if args.prompt:
-                initial_command = args.prompt
-                prompt_only_mode = True
-            elif args.command:
-                initial_command = " ".join(args.command)
+            if bridge_mode_enabled:
+                await self._run_bridge_mode()
+            else:
+                initial_command = None
                 prompt_only_mode = False
 
-            if prompt_only_mode:
-                await _get_execute_single_prompt()(initial_command, message_renderer)
-            elif tui_mode:
-                from code_puppy.tui.launcher import textual_interactive_mode
+                if args.prompt:
+                    initial_command = args.prompt
+                    prompt_only_mode = True
+                elif args.command:
+                    initial_command = " ".join(args.command)
+                    prompt_only_mode = False
 
-                await textual_interactive_mode(
-                    message_renderer, initial_command=initial_command
-                )
-            else:
-                # Default to interactive mode (no args = same as -i)
-                await _get_interactive_mode()(
-                    message_renderer, initial_command=initial_command
-                )
+                if prompt_only_mode:
+                    await _get_execute_single_prompt()(
+                        initial_command, message_renderer
+                    )
+                elif tui_mode:
+                    from code_puppy.tui.launcher import textual_interactive_mode
+
+                    await textual_interactive_mode(
+                        message_renderer, initial_command=initial_command or ""
+                    )
+                else:
+                    # Default to interactive mode (no args = same as -i)
+                    await _get_interactive_mode()(
+                        message_renderer, initial_command=initial_command
+                    )
         finally:
             if message_renderer:
                 message_renderer.stop()
             if bus_renderer:
                 bus_renderer.stop()
             await callbacks.on_shutdown()
-            if get_use_dbos():
-                from dbos import DBOS
+            if dbos_enabled:
+                from importlib import import_module
 
+                DBOS = getattr(import_module("dbos"), "DBOS")
                 DBOS.destroy()
 
 
