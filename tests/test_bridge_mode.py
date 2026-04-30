@@ -5,14 +5,44 @@ from __future__ import annotations
 import argparse
 import asyncio
 import importlib
+import json
 import os
+import subprocess
 import sys
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, contextmanager
+from pathlib import Path
 from types import ModuleType
+from typing import Any
 from unittest.mock import Mock
 
 import pytest
+
+
+def _decode_bridge_frames(data: bytes) -> list[dict[str, Any]]:
+    """Strictly decode Content-Length frames from bridge stdout."""
+    messages: list[dict[str, Any]] = []
+    offset = 0
+
+    while offset < len(data):
+        header_end = data.find(b"\r\n\r\n", offset)
+        assert header_end != -1, f"unframed stdout bytes at offset {offset}: {data!r}"
+
+        header = data[offset:header_end].decode("utf-8")
+        assert header.lower().startswith("content-length:"), (
+            f"non-protocol stdout before frame body: {header!r}"
+        )
+
+        content_length = int(header.split(":", 1)[1].strip())
+        body_start = header_end + 4
+        body_end = body_start + content_length
+        assert body_end <= len(data), "truncated bridge stdout frame"
+
+        body = data[body_start:body_end]
+        messages.append(json.loads(body.decode("utf-8")))
+        offset = body_end
+
+    return messages
 
 
 @contextmanager
@@ -96,6 +126,42 @@ async def _patched_app_runner_dependencies(
     monkeypatch.setattr(workflow_state, "register_callback_handlers", lambda: None)
 
     yield startup, shutdown
+
+
+class TestBridgeModeSubprocessLifecycle:
+    """End-to-end bridge worker lifecycle regressions."""
+
+    def test_bridge_mode_exits_when_stdin_is_closed(self, tmp_path: Path) -> None:
+        """Closed stdin must behave like shutdown, not infinite bridge purgatory."""
+        repo_root = Path(__file__).resolve().parents[1]
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(repo_root) + os.pathsep + env.get("PYTHONPATH", "")
+        env["PUP_EX_HOME"] = str(tmp_path / "pup-home")
+
+        proc = subprocess.Popen(
+            [sys.executable, "-m", "code_puppy", "--bridge-mode"],
+            cwd=repo_root,
+            env=env,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+        try:
+            stdout, stderr = proc.communicate(input=b"", timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            stdout, stderr = proc.communicate(timeout=2)
+            pytest.fail(
+                "bridge mode did not exit after stdin EOF\n"
+                f"stdout={stdout!r}\nstderr={stderr.decode('utf-8', 'replace')}"
+            )
+
+        assert proc.returncode == 0, stderr.decode("utf-8", "replace")
+
+        messages = _decode_bridge_frames(stdout)
+        methods = [message.get("method") for message in messages]
+        assert methods in (["bridge.ready"], ["bridge.ready", "bridge.closing"])
 
 
 class TestCliRunnerBridgeMode:
@@ -262,19 +328,19 @@ class TestAppRunnerBridgeMode:
     async def test_run_bridge_mode_polls_until_controller_stops(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """The private-state polling loop exits once the controller stops."""
+        """The bridge wait loop exits once the controller stops."""
         from code_puppy.app_runner import AppRunner
         from code_puppy.plugins.elixir_bridge import register_callbacks as bridge_cb
 
         class Controller:
-            _running = True
+            running = True
 
         controller = Controller()
         sleep_delays: list[float] = []
 
         async def fake_sleep(delay: float) -> None:
             sleep_delays.append(delay)
-            controller._running = False
+            controller.running = False
 
         monkeypatch.setattr(bridge_cb, "_bridge_controller", controller)
         monkeypatch.setattr(asyncio, "sleep", fake_sleep)

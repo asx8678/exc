@@ -327,14 +327,8 @@ class AppRunner:
 
         The bridge plugin's startup callback has already created the
         BridgeController and started a background stdin reader task. This method
-        keeps the event loop alive by polling the controller's ``_running`` flag
-        until it is flipped to ``False`` (typically by an ``exit`` JSON-RPC
-        request).
-
-        NOTE(djs.3): This intentionally peeks at private bridge state
-        (``_bridge_controller`` and ``_running``). A future refactor should add
-        a public ``await_shutdown()`` API to the bridge plugin so this can be
-        cleaner. Tracked as a follow-up.
+        keeps the event loop alive until the controller reports it is no longer
+        running (typically by an ``exit`` request or stdin EOF).
         """
         import asyncio
 
@@ -357,7 +351,7 @@ class AppRunner:
             controller = getattr(_bridge_cb, "_bridge_controller", None)
             if controller is None:
                 break
-            if not getattr(controller, "_running", False):
+            if not getattr(controller, "running", False):
                 break
             await asyncio.sleep(0.1)
 

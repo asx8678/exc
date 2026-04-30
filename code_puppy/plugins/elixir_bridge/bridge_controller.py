@@ -82,9 +82,18 @@ class BridgeController:
         self._command_count = 0
         self._active_runs: dict[str, Any] = {}  # Track active runs for cancel support
 
+    @property
+    def running(self) -> bool:
+        """Whether the bridge worker should keep accepting commands."""
+        return self._running
+
+    def request_stop(self) -> None:
+        """Request the bridge worker loop to stop without awaiting cleanup."""
+        self._running = False
+
     async def shutdown(self) -> None:
         """Shutdown the controller and cleanup resources."""
-        self._running = False
+        self.request_stop()
         # Cancel any active runs
         for _run_id, run_info in list(self._active_runs.items()):
             if hasattr(run_info, "cancel"):
@@ -422,7 +431,7 @@ class BridgeController:
         reason = params.get("reason", "shutdown")
 
         # Initiate graceful shutdown
-        self._running = False
+        self.request_stop()
 
         return {
             "status": "exiting",
