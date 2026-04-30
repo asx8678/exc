@@ -105,9 +105,6 @@ defmodule CodePuppyControl.TestSupport.Reset do
     ensure_gen_server_started(CodePuppyControl.Concurrency.Supervisor)
     ensure_gen_server_started(CodePuppyControl.Concurrency.Limiter)
 
-    # Scheduler components
-    ensure_gen_server_started(CodePuppyControl.Scheduler.CronScheduler)
-
     # Parser registry
     ensure_gen_server_started(CodePuppyControl.Parsing.ParserRegistry)
 
@@ -418,9 +415,6 @@ defmodule CodePuppyControl.TestSupport.Reset do
 
     # Ensure Ecto Repo is started for database tests
     ensure_repo_started()
-
-    # Ensure CronScheduler is started for scheduler tests
-    ensure_gen_server_started(CodePuppyControl.Scheduler.CronScheduler)
 
     :ok
   end

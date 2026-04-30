@@ -44,7 +44,13 @@ defmodule CodePuppyControl.Application do
 
   use Application
 
-  @test_supervisor_opts if Mix.env() == :test, do: [max_restarts: 100, max_seconds: 1], else: []
+  # Compile-time env check — safe for releases (Mix.env() is evaluated at
+  # compile time when used in module attributes). Runtime Mix.env() calls
+  # are forbidden in application startup because Mix may not be available
+  # in a Burrito release. (code_puppy-5xd.6)
+  @env Mix.env()
+  @test_supervisor_opts if @env == :test, do: [max_restarts: 100, max_seconds: 1], else: []
+  @exclude_cron_scheduler @env == :test
 
   @impl true
   def start(_type, _args) do
@@ -151,10 +157,11 @@ defmodule CodePuppyControl.Application do
       # Must be a long-lived GenServer, not a Task, so the ETS table survives.
       CodePuppyControlWeb.Plugs.RateLimiterServer,
       # Oban job processing with SQLite engine
-      {Oban, Application.fetch_env!(:code_puppy_control, Oban)},
-      # Periodic scheduler for cron tasks
-      {CodePuppyControl.Scheduler.CronScheduler, []},
-      CodePuppyControlWeb.Endpoint
+      {Oban, Application.fetch_env!(:code_puppy_control, Oban)}
+      # Periodic scheduler for cron tasks — excluded in test to avoid
+      # Ecto-sandbox contention. CronScheduler tests start
+      # their own supervised instance instead. (code_puppy-5xd.6)
+      | cron_scheduler_child() ++ [CodePuppyControlWeb.Endpoint]
     ]
 
     # Relax restart intensity in test to tolerate repeated kills in OTP lifecycle
@@ -243,6 +250,17 @@ defmodule CodePuppyControl.Application do
   end
 
   # ── Burrito CLI dispatch helpers ────────────────────────────────
+
+  # CronScheduler is excluded from the supervision tree in test env to
+  # prevent Ecto-sandbox contention. Even with pool_size: 2, the global
+  # CronScheduler would hold one connection indefinitely, reducing
+  # available connections for test processes. CronScheduler unit tests
+  # start their own isolated instance via start_supervised/1 instead.
+  # Uses compile-time @exclude_cron_scheduler attribute (not runtime
+  # Mix.env()) for release safety. (code_puppy-5xd.6)
+  defp cron_scheduler_child do
+    if @exclude_cron_scheduler, do: [], else: [{CodePuppyControl.Scheduler.CronScheduler, []}]
+  end
 
   # Detect Burrito runtime context. Burrito sets `__BURRITO` at launch.
   defp burrito_cli_mode? do

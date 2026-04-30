@@ -255,7 +255,7 @@ Options:
   -v, -V, --version     Show version and exit
   -m, --model MODEL     Model to use (default: from config)
   -a, --agent AGENT     Agent to use (default: code-puppy)
-  -c, --continue        Parsed flag; currently routes to interactive mode (no session restore yet)
+  -c, --continue        Resume the most recent persisted session, then enter interactive mode
   -p, --prompt PROMPT   Execute a single prompt and exit
   -i, --interactive     Run in interactive mode
   --bridge-mode         Parsed; reserved flag with no runtime effect in current Elixir CLI
@@ -322,8 +322,11 @@ Start a REPL with slash commands, model/agent switching, and session management:
 # use -p "help me debug this" for a single-shot prompt instead)
 ./pup -i
 
-# -c is parsed but currently equivalent to interactive mode (no session restore yet)
+# Resume the newest persisted session, then enter interactive mode
 ./pup -c
+
+# Equivalent long flags; --continue wins over --interactive during routing
+./pup --interactive --continue
 
 # With a different model
 ./pup -m claude-sonnet

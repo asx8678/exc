@@ -10,14 +10,23 @@ defmodule CodePuppyControl.Tools.SchedulerToolsTest do
 
   alias CodePuppyControl.Tools.SchedulerTools
   alias CodePuppyControl.Scheduler
+  alias CodePuppyControl.Scheduler.CronScheduler
   alias CodePuppyControl.Repo
 
-  setup do
+  setup context do
     :ok = Ecto.Adapters.SQL.Sandbox.checkout(Repo)
     :ok = Ecto.Adapters.SQL.Sandbox.mode(Repo, {:shared, self()})
 
     # Clean up Oban jobs
     Repo.delete_all(Oban.Job)
+
+    # Start CronScheduler only for describe blocks that need it.
+    # The global CronScheduler is excluded from test supervision to
+    # avoid Ecto-sandbox contention (code_puppy-5xd.6), so tests
+    # that need it must start their own instance.
+    unless context[:no_cron_scheduler] do
+      {:ok, _pid} = start_supervised({CronScheduler, check_interval: 60_000})
+    end
 
     :ok
   end
@@ -252,6 +261,7 @@ defmodule CodePuppyControl.Tools.SchedulerToolsTest do
 
       result = SchedulerTools.scheduler_status()
 
+      # CronScheduler is started by setup (via supervised instance)
       assert result =~ "Scheduler is RUNNING"
       assert result =~ "CronScheduler PID"
       assert result =~ "Total Tasks:** 3"
@@ -351,6 +361,48 @@ defmodule CodePuppyControl.Tools.SchedulerToolsTest do
 
       assert result =~ "Schedule check triggered"
       assert result =~ "Tasks enqueued"
+    end
+  end
+
+  # Tests for graceful degradation when CronScheduler is not running.
+  # These run without starting a CronScheduler, verifying that
+  # SchedulerTools handles the absent-global-scheduler case.
+  # (code_puppy-5xd.6)
+  describe "scheduler not running" do
+    @describetag :no_cron_scheduler
+
+    test "scheduler_status returns not-running when CronScheduler is absent" do
+      result = SchedulerTools.scheduler_status()
+
+      assert result =~ "NOT RUNNING"
+      assert result =~ "Total Tasks"
+    end
+
+    test "force_check returns not-running message when CronScheduler is absent" do
+      result = SchedulerTools.force_check()
+
+      assert result =~ "Schedule check skipped"
+      assert result =~ "CronScheduler is not running"
+    end
+
+    test "list_tasks shows not-running status when CronScheduler is absent" do
+      result = SchedulerTools.list_tasks()
+
+      assert result =~ "Not running"
+    end
+
+    test "create_task shows scheduler-not-running note when CronScheduler is absent" do
+      attrs = %{
+        name: "no-scheduler-task",
+        agent_name: "code-puppy",
+        prompt: "Task without scheduler",
+        schedule_type: "hourly"
+      }
+
+      result = SchedulerTools.create_task(attrs)
+
+      assert result =~ "Task Created Successfully"
+      assert result =~ "not running"
     end
   end
 
