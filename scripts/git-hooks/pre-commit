@@ -30,16 +30,23 @@ info "staged Python files: ${staged_python[*]}"
 
 # --- detect tooling --------------------------------------------------------
 
-if command -v uv >/dev/null 2>&1 && uv run isort --version >/dev/null 2>&1; then
-  isort_cmd=(uv run isort --profile black)
+# Detect ruff independently
+if command -v uv >/dev/null 2>&1 && uv run ruff --version >/dev/null 2>&1; then
   ruff_cmd=(uv run ruff)
-elif command -v isort >/dev/null 2>&1; then
-  isort_cmd=(isort --profile black)
+elif command -v ruff >/dev/null 2>&1; then
   ruff_cmd=(ruff)
 else
-  # fall back to ruff's import sorter
+  printf >&2 'ERROR: ruff not found. Install dev dependencies.\n'
+  exit 1
+fi
+
+# Detect isort separately (may not be in uv deps)
+if command -v uv >/dev/null 2>&1 && uv run isort --version >/dev/null 2>&1; then
+  isort_cmd=(uv run isort --profile black)
+elif command -v isort >/dev/null 2>&1; then
+  isort_cmd=(isort --profile black)
+else
   isort_cmd=()
-  ruff_cmd=(ruff)
 fi
 
 # --- isort (import sort) ---------------------------------------------------
