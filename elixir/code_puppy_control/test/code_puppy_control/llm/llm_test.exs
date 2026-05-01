@@ -7,14 +7,28 @@ defmodule CodePuppyControl.LLMTest do
   """
   use ExUnit.Case, async: false
 
+  alias CodePuppyControl.FeatureFlags
   alias CodePuppyControl.LLM
   alias CodePuppyControl.LLM.Providers.{OpenAI, Anthropic}
   alias CodePuppyControl.Test.MockLLMHTTP
 
   setup do
+    prior = FeatureFlags.enabled?(:llm_client)
+    {:ok, _result} = FeatureFlags.enable(:llm_client, source: :test)
+
+    on_exit(fn ->
+      _ =
+        if prior do
+          FeatureFlags.enable(:llm_client, source: :test)
+        else
+          FeatureFlags.disable(:llm_client, source: :test)
+        end
+    end)
+
     # Ensure MockLLMHTTP is started under test supervision for proper isolation
     start_supervised!(MockLLMHTTP)
     MockLLMHTTP.reset()
+
     :ok
   end
 

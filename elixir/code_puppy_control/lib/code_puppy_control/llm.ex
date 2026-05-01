@@ -37,9 +37,32 @@ defmodule CodePuppyControl.LLM do
 
   Options are forwarded to the provider. The `:model` option defaults to the
   model name from the registry config.
+
+  ## ADR-004 Feature-Flag Gate
+
+  All public LLM facade chat entry points are gated on the `:llm_client`
+  capability via `CodePuppyControl.FeatureFlags.enabled?/1` before provider
+  resolution or rate-limiter acquisition.
+
+  Each routing decision emits telemetry at
+  `[:code_puppy, :llm, :route_decision]` with measurements `%{count: 1}` and
+  metadata `%{path: :elixir | :disabled, model: model_name, variant: variant}`.
+  The `variant` metadata is one of `:chat_handle`, `:chat_opts`,
+  `:stream_chat_handle`, or `:stream_chat_opts`.
+
+  When disabled, the facade short-circuits without calling providers and
+  returns `{:error, :elixir_llm_disabled}`. This is the first production
+  consumer smoke test for ADR-004 feature flags (`code_puppy-djs.4.8`). The
+  full runtime selector remains out of scope and lives in `code_puppy-bwt`.
+  Note: the `:path` metadata value space is currently `:elixir | :disabled`.
+  When the runtime selector lands in `code_puppy-bwt`, this vocabulary will
+  expand (e.g. `:python_fallback`, `:dual_run`). Consumers building dashboards
+  on this event should allowlist known values rather than exhaustively
+  pattern-match.
   """
 
   alias CodePuppyControl.Auth.RuntimeConnection
+  alias CodePuppyControl.FeatureFlags
   alias CodePuppyControl.LLM.Provider
   alias CodePuppyControl.ModelFactory.Handle
   alias CodePuppyControl.ModelRegistry
@@ -81,25 +104,32 @@ defmodule CodePuppyControl.LLM do
   @spec chat(Handle.t(), [Provider.message()], [Provider.tool()]) ::
           {:ok, Provider.response()} | {:error, term()}
   def chat(%Handle{} = handle, messages, tools) do
-    provider_opts = Handle.to_provider_opts(handle)
     model_name = handle.model_name || ""
-    rate_limiter_acquire(model_name)
-    result = handle.provider_module.chat(messages, tools, provider_opts)
-    rate_limiter_record(model_name, result_status(result))
-    result
+
+    with_feature_flag(:chat_handle, model_name, fn ->
+      provider_opts = Handle.to_provider_opts(handle)
+      rate_limiter_acquire(model_name)
+      result = handle.provider_module.chat(messages, tools, provider_opts)
+      rate_limiter_record(model_name, result_status(result))
+      result
+    end)
   end
 
   @spec chat([Provider.message()], [Provider.tool()], keyword()) ::
           {:ok, Provider.response()} | {:error, term()}
   def chat(messages, tools, opts)
       when is_list(messages) and is_list(tools) and is_list(opts) do
-    with {:ok, provider_mod, resolved_opts} <- resolve_provider(opts) do
-      model_name = Keyword.get(resolved_opts, :model, "")
-      rate_limiter_acquire(model_name)
-      result = provider_mod.chat(messages, tools, resolved_opts)
-      rate_limiter_record(model_name, result_status(result))
-      result
-    end
+    telemetry_model_name = Keyword.get(opts, :model, "")
+
+    with_feature_flag(:chat_opts, telemetry_model_name, fn ->
+      with {:ok, provider_mod, resolved_opts} <- resolve_provider(opts) do
+        model_name = Keyword.get(resolved_opts, :model, "")
+        rate_limiter_acquire(model_name)
+        result = provider_mod.chat(messages, tools, resolved_opts)
+        rate_limiter_record(model_name, result_status(result))
+        result
+      end
+    end)
   end
 
   # ── stream_chat/3,4 ───────────────────────────────────────────────────────
@@ -117,12 +147,15 @@ defmodule CodePuppyControl.LLM do
         ) ::
           :ok | {:error, term()}
   def stream_chat(%Handle{} = handle, messages, tools, callback_fn) do
-    provider_opts = Handle.to_provider_opts(handle)
     model_name = handle.model_name || ""
-    rate_limiter_acquire(model_name)
-    result = handle.provider_module.stream_chat(messages, tools, provider_opts, callback_fn)
-    rate_limiter_record(model_name, stream_result_status(result))
-    result
+
+    with_feature_flag(:stream_chat_handle, model_name, fn ->
+      provider_opts = Handle.to_provider_opts(handle)
+      rate_limiter_acquire(model_name)
+      result = handle.provider_module.stream_chat(messages, tools, provider_opts, callback_fn)
+      rate_limiter_record(model_name, stream_result_status(result))
+      result
+    end)
   end
 
   @spec stream_chat(
@@ -134,13 +167,17 @@ defmodule CodePuppyControl.LLM do
           :ok | {:error, term()}
   def stream_chat(messages, tools, opts, callback_fn)
       when is_list(messages) and is_list(tools) and is_list(opts) and is_function(callback_fn, 1) do
-    with {:ok, provider_mod, resolved_opts} <- resolve_provider(opts) do
-      model_name = Keyword.get(resolved_opts, :model, "")
-      rate_limiter_acquire(model_name)
-      result = provider_mod.stream_chat(messages, tools, resolved_opts, callback_fn)
-      rate_limiter_record(model_name, stream_result_status(result))
-      result
-    end
+    telemetry_model_name = Keyword.get(opts, :model, "")
+
+    with_feature_flag(:stream_chat_opts, telemetry_model_name, fn ->
+      with {:ok, provider_mod, resolved_opts} <- resolve_provider(opts) do
+        model_name = Keyword.get(resolved_opts, :model, "")
+        rate_limiter_acquire(model_name)
+        result = provider_mod.stream_chat(messages, tools, resolved_opts, callback_fn)
+        rate_limiter_record(model_name, stream_result_status(result))
+        result
+      end
+    end)
   end
 
   # ── Provider Introspection ────────────────────────────────────────────────
@@ -186,6 +223,26 @@ defmodule CodePuppyControl.LLM do
   end
 
   # ── Private ───────────────────────────────────────────────────────────────
+
+  defp with_feature_flag(variant, model_name, fun) do
+    if FeatureFlags.enabled?(:llm_client) do
+      :telemetry.execute(
+        [:code_puppy, :llm, :route_decision],
+        %{count: 1},
+        %{path: :elixir, model: model_name, variant: variant}
+      )
+
+      fun.()
+    else
+      :telemetry.execute(
+        [:code_puppy, :llm, :route_decision],
+        %{count: 1},
+        %{path: :disabled, model: model_name, variant: variant}
+      )
+
+      {:error, :elixir_llm_disabled}
+    end
+  end
 
   defp resolve_provider(opts) do
     cond do
