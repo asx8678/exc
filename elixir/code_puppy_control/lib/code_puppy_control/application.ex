@@ -153,6 +153,8 @@ defmodule CodePuppyControl.Application do
       # delegates per-capability routing to FeatureFlags in :auto mode.
       # Must start after FeatureFlags so :auto mode can query flags.
       CodePuppyControl.RuntimeSelector,
+      # Rollout observability — ETS-based metrics for runtime selection + fallback telemetry
+      CodePuppyControl.Rollout.Metrics,
       CodePuppyControl.RequestTracker,
       # Renderer registry — avoids String.to_atom for per-session renderers
       {Registry, keys: :unique, name: CodePuppyControl.REPL.RendererRegistry},
