@@ -136,6 +136,8 @@ defmodule CodePuppyControl.Application do
       CodePuppyControl.Concurrency.Supervisor,
       # Pack parallelism semaphore GenServer (replaces Python _async_active HACK)
       CodePuppyControl.Plugins.PackParallelism.Supervisor,
+      # Pack distributed registries – started only when remote packs are enabled
+      {CodePuppyControl.Pack.Registries, []},
       # Adaptive rate limiter with circuit breaker
       CodePuppyControl.RateLimiter.Supervisor,
       # Token ledger for per-run/session token accounting

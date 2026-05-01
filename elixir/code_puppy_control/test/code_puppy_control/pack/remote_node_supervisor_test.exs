@@ -264,9 +264,13 @@ defmodule CodePuppyControl.Pack.RemoteNodeSupervisorTest do
   describe "via-tuple naming" do
     setup do
       # Start the Registries supervisor so via-tuple lookups work.
-      # This replaces ad-hoc Registry.start_link calls with a
-      # properly supervised owner.
-      start_supervised!(CodePuppyControl.Pack.Registries)
+      # If it's already running (e.g., started by the application tree),
+      # we skip starting a duplicate — the registries are shared state.
+      case GenServer.whereis(CodePuppyControl.Pack.Registries) do
+        nil -> start_supervised!(CodePuppyControl.Pack.Registries)
+        _pid -> :ok
+      end
+
       :ok
     end
 

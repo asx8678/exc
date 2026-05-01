@@ -61,7 +61,8 @@ defmodule CodePuppyControl.Pack.RemoteNodeProxy do
           params: map(),
           started_at: integer(),
           status: :dispatched,
-          timer_ref: reference() | nil
+          timer_ref: reference() | nil,
+          reply_to: pid() | nil
         }
 
   @type state :: %{
@@ -128,9 +129,11 @@ defmodule CodePuppyControl.Pack.RemoteNodeProxy do
       iex> RemoteNodeProxy.dispatch(pid, :terrier, %{worktree_path: "../wt"})
       {:ok, "dist_1717000000_28471032"}
   """
-  @spec dispatch(GenServer.server(), atom(), map()) :: {:ok, String.t()} | {:error, term()}
-  def dispatch(proxy, sub_agent, params) when is_atom(sub_agent) and is_map(params) do
-    GenServer.call(proxy, {:dispatch, sub_agent, params})
+  @spec dispatch(GenServer.server(), atom(), map(), keyword()) ::
+          {:ok, String.t()} | {:error, term()}
+  def dispatch(proxy, sub_agent, params, opts \\ [])
+      when is_atom(sub_agent) and is_map(params) and is_list(opts) do
+    GenServer.call(proxy, {:dispatch, sub_agent, params, opts})
   end
 
   @doc """
@@ -235,10 +238,10 @@ defmodule CodePuppyControl.Pack.RemoteNodeProxy do
   end
 
   @impl true
-  def handle_call({:dispatch, sub_agent, params}, _from, state) do
+  def handle_call({:dispatch, sub_agent, params, opts}, _from, state) do
     case state.status do
       :connected ->
-        do_dispatch(sub_agent, params, state)
+        do_dispatch(sub_agent, params, opts, state)
 
       :disconnected ->
         {:reply, {:error, {:node_disconnected, state.node_name}}, state}
@@ -361,6 +364,9 @@ defmodule CodePuppyControl.Pack.RemoteNodeProxy do
             "#{inspect(state.node_name)}: #{result[:status]} in #{duration_ms}ms"
         )
 
+        # Send result to caller if reply_to was requested
+        if run_info.reply_to, do: send(run_info.reply_to, {:dispatch_result, run_id, result})
+
         {:noreply, %{state | active_runs: Map.delete(state.active_runs, run_id)}}
     end
   end
@@ -392,7 +398,7 @@ defmodule CodePuppyControl.Pack.RemoteNodeProxy do
   end
 
   @impl true
-  def handle_cast({:capabilities, caps}, state) do
+  def handle_cast({:capabilities, caps}, state) when is_map(caps) do
     Logger.info("[RemoteNodeProxy] capabilities updated for #{inspect(state.node_name)}")
 
     :telemetry.execute(
@@ -404,9 +410,16 @@ defmodule CodePuppyControl.Pack.RemoteNodeProxy do
     {:noreply, %{state | status: :connected, capabilities: caps, reconnect_attempts: 0}}
   end
 
+  # Guard clause: crash-safe from malformed capability casts
+  @impl true
+  def handle_cast({:capabilities, _caps}, state) do
+    Logger.warning("[RemoteNodeProxy] received malformed capabilities cast — ignoring")
+    {:noreply, state}
+  end
+
   # ── Private Helpers ─────────────────────────────────────────────────────
 
-  defp do_dispatch(sub_agent, params, state) do
+  defp do_dispatch(sub_agent, params, opts, state) do
     run_id = generate_run_id()
 
     # Dispatch message shape per §6.2
@@ -433,13 +446,16 @@ defmodule CodePuppyControl.Pack.RemoteNodeProxy do
       timer_ref =
         Process.send_after(self(), {:dispatch_timeout, run_id}, state.dispatch_timeout)
 
+      reply_to = Keyword.get(opts, :reply_to)
+
       run_info = %{
         run_id: run_id,
         sub_agent: sub_agent,
         params: params,
         started_at: System.monotonic_time(),
         status: :dispatched,
-        timer_ref: timer_ref
+        timer_ref: timer_ref,
+        reply_to: reply_to
       }
 
       {:reply, {:ok, run_id},

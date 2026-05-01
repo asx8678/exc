@@ -35,11 +35,24 @@ defmodule CodePuppyControl.Pack.RemoteNodeSupervisor do
   # ── Child Spec ──────────────────────────────────────────────────────────
 
   @doc false
-  def child_spec(opts) do
+  def child_spec(node_name) when is_atom(node_name) do
     %{
-      id: __MODULE__,
-      start: {__MODULE__, :start_link, [opts]},
-      type: :supervisor
+      id: {:remote_node, node_name},
+      start: {__MODULE__, :start_link, [node_name]},
+      type: :supervisor,
+      restart: :transient
+    }
+  end
+
+  def child_spec(opts) when is_list(opts) do
+    node_name = Keyword.fetch!(opts, :node_name)
+    start_opts = Keyword.delete(opts, :node_name)
+
+    %{
+      id: {:remote_node, node_name},
+      start: {__MODULE__, :start_link, [node_name, start_opts]},
+      type: :supervisor,
+      restart: :transient
     }
   end
 
