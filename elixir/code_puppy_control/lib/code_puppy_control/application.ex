@@ -138,6 +138,9 @@ defmodule CodePuppyControl.Application do
       CodePuppyControl.Plugins.PackParallelism.Supervisor,
       # Pack distributed registries – started only when remote packs are enabled
       {CodePuppyControl.Pack.Registries, []},
+      # Distributed pack orchestration — always start; modules are no-ops when disabled (§13.1)
+      CodePuppyControl.Pack.DistributedSupervisor,
+      CodePuppyControl.Pack.NodeMonitor,
       # Adaptive rate limiter with circuit breaker
       CodePuppyControl.RateLimiter.Supervisor,
       # Token ledger for per-run/session token accounting

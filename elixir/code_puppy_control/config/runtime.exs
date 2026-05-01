@@ -88,3 +88,55 @@ else
 
   config :code_puppy_control, :history_limit, history_limit
 end
+
+# ── Distributed Pack Configuration ─────────────────────────────────────────
+#
+# Controls the remote pack worker cluster. Disabled by default in config.exs.
+# Override via environment variables with PUP_ prefix:
+#
+# - PUP_DISTRIBUTED_ENABLED=true   (default: false)
+# - PUP_DISTRIBUTED_WORKERS=worker1@host,worker2@host  (default: [])
+# - PUP_DISTRIBUTED_HEARTBEAT_INTERVAL=15000  (default: 15s)
+# - PUP_DISTRIBUTED_DISCONNECT_TIMEOUT=30000  (default: 30s)
+# - PUP_DISTRIBUTED_CONNECT_TIMEOUT=5000      (default: 5s)
+#
+# NOTE: Full puppy.cfg integration is scoped for issue code_puppy-e2k.
+#
+# Defaults are set in config/config.exs and are NOT clobbered here.
+# Only override when env vars are explicitly provided.
+
+if System.get_env("PUP_DISTRIBUTED_ENABLED") do
+  enabled =
+    String.downcase(System.get_env("PUP_DISTRIBUTED_ENABLED", "false")) in ["true", "1", "yes"]
+
+  workers =
+    case System.get_env("PUP_DISTRIBUTED_WORKERS", "") do
+      "" -> []
+      str -> String.split(str, ",", trim: true) |> Enum.map(&String.trim/1)
+    end
+
+  heartbeat_interval =
+    case Integer.parse(System.get_env("PUP_DISTRIBUTED_HEARTBEAT_INTERVAL", "")) do
+      {val, _} when val > 0 -> val
+      _ -> 15_000
+    end
+
+  disconnect_timeout =
+    case Integer.parse(System.get_env("PUP_DISTRIBUTED_DISCONNECT_TIMEOUT", "")) do
+      {val, _} when val > 0 -> val
+      _ -> 30_000
+    end
+
+  connect_timeout =
+    case Integer.parse(System.get_env("PUP_DISTRIBUTED_CONNECT_TIMEOUT", "")) do
+      {val, _} when val > 0 -> val
+      _ -> 5_000
+    end
+
+  config :code_puppy_control, :distributed_packs,
+    enabled: enabled,
+    workers: workers,
+    heartbeat_interval: heartbeat_interval,
+    disconnect_timeout: disconnect_timeout,
+    connect_timeout: connect_timeout
+end
