@@ -208,17 +208,23 @@ defmodule CodePuppyControl.TUI.Widgets.ModelSelector do
   defp provider_bg(_), do: :black_background
 
   defp build_table(rows) do
-    rows
-    |> Enum.map(fn row ->
-      # render_model_row returns lists of Owl-tagged data.
-      # Convert each tagged element to chardata, then join.
-      line =
-        row
-        |> Enum.map(&Owl.Data.to_chardata/1)
-        |> IO.iodata_to_binary()
+    if function_exported?(Owl.Table, :new, 1) do
+      Owl.Table.new(rows)
+    else
+      # Fallback: extract plain text from Owl.Data tags
+      rows
+      |> Enum.map(fn row ->
+        plain =
+          row
+          |> Enum.map(fn
+            %Owl.Tag{data: data} -> data
+            other -> to_string(other)
+          end)
+          |> Enum.join("")
 
-      ["  ", line, "\n"]
-    end)
+        ["  ", plain, "\n"]
+      end)
+    end
   end
 
   # ── Private: Interactive Selection ────────────────────────────────────────

@@ -196,9 +196,17 @@ defmodule CodePuppyControl.TUI.Widgets.SessionBrowser do
     if function_exported?(Owl.Table, :new, 1) do
       Owl.Table.new(rows)
     else
+      # Fallback: extract plain text from Owl.Data tags
       rows
       |> Enum.map(fn row ->
-        plain = row |> to_string()
+        plain =
+          row
+          |> Enum.map(fn
+            %Owl.Tag{data: data} -> data
+            other -> to_string(other)
+          end)
+          |> Enum.join("")
+
         ["  ", plain, "\n"]
       end)
     end
