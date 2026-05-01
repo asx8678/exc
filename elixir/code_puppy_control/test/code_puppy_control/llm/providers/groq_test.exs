@@ -124,7 +124,6 @@ defmodule CodePuppyControl.LLM.Providers.GroqTest do
         end
       end)
 
-      events = []
       callback_fn = fn event -> send(self(), event) end
 
       assert :ok = Groq.stream_chat(@messages, [], @opts, callback_fn)

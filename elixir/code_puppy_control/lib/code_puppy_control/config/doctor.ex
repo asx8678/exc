@@ -8,6 +8,7 @@ defmodule CodePuppyControl.Config.Doctor do
   """
 
   alias CodePuppyControl.Config.{FirstRun, Isolation, Paths}
+  alias CodePuppyControl.RuntimeSelector.Status, as: RuntimeStatus
 
   @type check :: %{
           name: String.t(),
@@ -28,7 +29,7 @@ defmodule CodePuppyControl.Config.Doctor do
       check_legacy_home(),
       check_first_run_marker(),
       check_oauth_isolation()
-    ]
+    ] ++ RuntimeStatus.run_checks()
   end
 
   @doc "Format a list of checks into a human-readable report."

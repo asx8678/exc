@@ -397,7 +397,7 @@ defmodule CodePuppyControl.TUI.Renderer do
     chunks = Map.get(state.text_buffer, idx, [])
     buf = IO.iodata_to_binary(chunks)
 
-    if String.contains?(buf, "\n") or byte_size(buf) > @flush_threshold do
+    if String.contains?(buf, "\n") or byte_size(buf) > state.flush_threshold do
       Output.puts(Markdown.render(buf))
       state = %{state | text_buffer: Map.put(state.text_buffer, idx, [])}
       update_rate(state)

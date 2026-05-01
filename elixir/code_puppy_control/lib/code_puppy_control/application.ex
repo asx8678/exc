@@ -34,6 +34,7 @@ defmodule CodePuppyControl.Application do
   18b. CodePuppyControl.Plugins.PackParallelism.Supervisor - Pack run semaphore (replaces Python _async_active HACK)
   19. CodePuppyControl.TokenLedger - Token usage accounting
   19b. CodePuppyControl.Config.Writer - Atomic puppy.cfg write-back
+  19c. CodePuppyControl.FeatureFlags - ADR-004 Phase H feature flag system
   20. CodePuppyControl.RequestTracker - Tracks JSON-RPC request/response correlation
   21. CodePuppyControl.Tools.CommandRunner.ProcessManager - Shell process tracking
   22. CodePuppyControl.PtyManager - PTY session manager for interactive terminals
@@ -49,7 +50,7 @@ defmodule CodePuppyControl.Application do
   # are forbidden in application startup because Mix may not be available
   # in a Burrito release. (code_puppy-5xd.6)
   @env Mix.env()
-  @test_supervisor_opts if @env == :test, do: [max_restarts: 1000, max_seconds: 60], else: []
+  @test_supervisor_opts if @env == :test, do: [max_restarts: 100, max_seconds: 1], else: []
   @exclude_cron_scheduler @env == :test
 
   @impl true
@@ -146,10 +147,19 @@ defmodule CodePuppyControl.Application do
       # Token ledger for per-run/session token accounting
       CodePuppyControl.TokenLedger,
       # Atomic write-back for puppy.cfg
-      # Must start before any /mode or preset command can be dispatched,
+      # Must start before any /mode or /preset command can be dispatched,
       # since Presets.apply_preset/1 calls Writer.set_values/1 which
       # requires the GenServer to be alive.
       CodePuppyControl.Config.Writer,
+      # ADR-004 Phase H feature flags — reads ~/.code_puppy_ex/flags.json
+      # on startup; must start before any component queries flags.
+      CodePuppyControl.FeatureFlags,
+      # ADR-004 tri-state runtime selector — reads PUP_RUNTIME env var and
+      # delegates per-capability routing to FeatureFlags in :auto mode.
+      # Must start after FeatureFlags so :auto mode can query flags.
+      CodePuppyControl.RuntimeSelector,
+      # Rollout observability — ETS-based metrics for runtime selection + fallback telemetry
+      CodePuppyControl.Rollout.Metrics,
       CodePuppyControl.RequestTracker,
       # Renderer registry — avoids String.to_atom for per-session renderers
       {Registry, keys: :unique, name: CodePuppyControl.REPL.RendererRegistry},
