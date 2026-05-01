@@ -38,6 +38,8 @@ defmodule CodePuppyControl.Pack.Worker do
 
   use GenServer
 
+  alias CodePuppyControl.Pack.NamingService
+  alias CodePuppyControl.Pack.Worker.Capabilities
   alias CodePuppyControl.Telemetry
 
   require Logger
@@ -78,31 +80,34 @@ defmodule CodePuppyControl.Pack.Worker do
 
   # ── GenServer Callbacks ─────────────────────────────────────────────────
 
+  @doc """
+  Returns default capabilities (no overrides).
+
+  Delegates to `Capabilities.detect/0`. Useful as a programmatic fallback
+  when the full opts-based detection isn't needed.
+  """
+  @spec default_capabilities() :: map()
+  def default_capabilities, do: Capabilities.detect()
+
   @impl true
   def init(opts) do
-    host_os = Keyword.get(opts, :host_os, detect_host_os())
-    max_concurrent_runs = Keyword.get(opts, :max_concurrent_runs, 2)
-    available_models = Keyword.get(opts, :available_models, [])
-
-    capabilities = %{
-      node_name: Node.self(),
-      sub_agents: [:terrier, :watchdog, :shepherd, :retriever],
-      host_os: host_os,
-      available_models: available_models,
-      max_concurrent_runs: max_concurrent_runs,
-      features: %{
+    capabilities =
+      opts
+      |> Capabilities.detect()
+      |> Map.put(:features, %{
         file_ops: true,
         shell_access: true,
         git_access: true
-      }
-    }
+      })
 
     state = %{
       leader_node: nil,
       capabilities: capabilities,
       active_runs: %{},
-      max_concurrent_runs: max_concurrent_runs
+      max_concurrent_runs: capabilities.max_concurrent_runs
     }
+
+    maybe_register_with_naming_service(capabilities)
 
     Logger.info(
       "PackWorker started on #{Node.self()} with capabilities: #{inspect(capabilities)}"
@@ -236,14 +241,17 @@ defmodule CodePuppyControl.Pack.Worker do
 
   # ── Private Helpers ─────────────────────────────────────────────────────
 
-  @doc false
-  defp detect_host_os do
-    case :os.type() do
-      {:unix, :linux} -> :linux
-      {:unix, :darwin} -> :macos
-      {:win32, _} -> :windows
-      _ -> :linux
+  defp maybe_register_with_naming_service(capabilities) do
+    case NamingService.register_node(Node.self(), capabilities) do
+      :ok ->
+        Logger.debug("PackWorker registered with NamingService")
+
+      {:error, reason} ->
+        Logger.debug("NamingService registration skipped: #{inspect(reason)}")
     end
+  catch
+    :exit, _ ->
+      Logger.debug("NamingService not available, skipping registration")
   end
 
   @doc false

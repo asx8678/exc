@@ -9,13 +9,22 @@ defmodule CodePuppyControl.Pack.WorkerTest do
       capabilities = GenServer.call(pid, :request_capabilities)
 
       assert capabilities.node_name == Node.self()
-      assert capabilities.sub_agents == [:terrier, :watchdog, :shepherd, :retriever]
-      assert capabilities.host_os == :linux
-      assert capabilities.available_models == []
-      assert capabilities.max_concurrent_runs == 2
+      # Sub-agents come from Capabilities.detect fallback (AgentCatalogue not running)
+      assert :terrier in capabilities.sub_agents
+      assert :watchdog in capabilities.sub_agents
+      assert :shepherd in capabilities.sub_agents
+      assert :retriever in capabilities.sub_agents
+      # host_os is now a string (Capabilities normalizes atoms to strings)
+      assert capabilities.host_os == "linux"
+      # available_models may be auto-discovered from ModelRegistry
+      assert is_list(capabilities.available_models)
+      assert capabilities.max_concurrent_runs in 1..4
       assert capabilities.features.file_ops == true
       assert capabilities.features.shell_access == true
       assert capabilities.features.git_access == true
+      # New fields from Capabilities.detect
+      assert is_binary(capabilities.beam_version)
+      assert %DateTime{} = capabilities.started_at
     end
 
     test "initializes with custom max_concurrent_runs" do
@@ -35,7 +44,7 @@ defmodule CodePuppyControl.Pack.WorkerTest do
 
       capabilities = GenServer.call(pid, :request_capabilities)
 
-      assert capabilities.host_os in [:linux, :macos, :windows]
+      assert capabilities.host_os in ["linux", "darwin", "windows", "macos"]
     end
   end
 
@@ -46,7 +55,7 @@ defmodule CodePuppyControl.Pack.WorkerTest do
 
       assert is_map(capabilities)
       assert capabilities.node_name == Node.self()
-      assert capabilities.host_os == :macos
+      assert capabilities.host_os == "macos"
       assert Map.has_key?(capabilities, :features)
       assert Map.has_key?(capabilities.features, :file_ops)
     end
@@ -387,6 +396,32 @@ defmodule CodePuppyControl.Pack.WorkerTest do
       _ = :sys.get_state(pid)
 
       assert :pong == GenServer.call(pid, :ping)
+    end
+  end
+
+  describe "NamingService registration" do
+    test "worker registers with NamingService on init when available" do
+      # Start NamingService so registration succeeds
+      start_supervised!(CodePuppyControl.Pack.NamingService)
+
+      {:ok, pid} =
+        Worker.start_link(name: :worker_test_naming_reg, host_os: :linux)
+
+      capabilities = GenServer.call(pid, :request_capabilities)
+
+      # Worker should have registered itself with NamingService
+      registered = CodePuppyControl.Pack.NamingService.node_capabilities(Node.self())
+      assert registered != nil
+
+      # All sub_agents must be in NamingService's supported set
+      supported = MapSet.new([:terrier, :watchdog, :shepherd, :retriever])
+
+      for agent <- capabilities.sub_agents do
+        assert MapSet.member?(supported, agent),
+               "sub_agent #{inspect(agent)} not in NamingService supported types"
+      end
+
+      GenServer.stop(pid)
     end
   end
 

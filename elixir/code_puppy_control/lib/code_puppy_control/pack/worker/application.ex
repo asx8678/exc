@@ -197,12 +197,21 @@ defmodule CodePuppyControl.Pack.Worker.Application do
   """
   @spec worker_config(keyword()) :: keyword()
   def worker_config(opts \\ []) do
-    [
+    base = [
       leader: resolve_leader(opts),
       cookie: resolve_cookie(opts),
-      max_concurrent_runs: resolve_int(opts, :max_concurrent_runs, "max_concurrent_runs", 2),
-      available_models: Keyword.get(opts, :available_models, [])
-    ] ++ Keyword.take(opts, @passthrough_opts)
+      max_concurrent_runs: resolve_int(opts, :max_concurrent_runs, "max_concurrent_runs", 2)
+    ]
+
+    # Only add available_models if explicitly provided — let Capabilities.detect/1
+    # auto-discover from ModelRegistry when omitted.
+    base =
+      case Keyword.get(opts, :available_models) do
+        nil -> base
+        models -> Keyword.put(base, :available_models, models)
+      end
+
+    base ++ Keyword.take(opts, @passthrough_opts)
   end
 
   # ── Application Callback ────────────────────────────────────────────────
