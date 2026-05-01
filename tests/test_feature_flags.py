@@ -1,4 +1,6 @@
-"""Tests for the Python mirror of Elixir feature flags."""
+"""Tests for the Python mirror of Elixir feature flags (core boolean behaviour)."""
+
+from __future__ import annotations
 
 import json
 import logging
@@ -10,7 +12,7 @@ import pytest
 from code_puppy import feature_flags
 from code_puppy.feature_flags import CAPABILITIES, FeatureFlagClient
 
-EXPECTED_CAPABILITIES = {
+EXPECTED_CAPABILITIES: dict[str, str] = {
     "llm_client": "Route LLM client calls to Elixir",
     "base_agent": "Route agent execution to Elixir",
     "tools": "Route tool dispatch to Elixir",
@@ -32,14 +34,17 @@ def _read_json(path: Path) -> dict[str, object]:
     return cast(dict[str, object], json.loads(path.read_text(encoding="utf-8")))
 
 
-def _enabled_state(client: FeatureFlagClient) -> dict[str, bool]:
-    return {name: client.enabled(name) for name in feature_flags.CAPABILITIES}
+def _percentage_state(client: FeatureFlagClient) -> dict[str, int]:
+    return {name: client.percentage(name) for name in feature_flags.CAPABILITIES}
 
 
-def _assert_all_false(client: FeatureFlagClient) -> None:
-    assert _enabled_state(client) == {
-        name: False for name in feature_flags.CAPABILITIES
-    }
+def _assert_all_zero(client: FeatureFlagClient) -> None:
+    assert _percentage_state(client) == {name: 0 for name in feature_flags.CAPABILITIES}
+
+
+# ---------------------------------------------------------------------------
+# Capability metadata
+# ---------------------------------------------------------------------------
 
 
 class TestCapabilityMetadata:
@@ -109,44 +114,50 @@ class TestPathResolution:
         assert feature_flags.flags_file() == Path("flags.json")
 
 
+# ---------------------------------------------------------------------------
+# File loading — core boolean behaviour
+# ---------------------------------------------------------------------------
+
+
 class TestFileLoading:
-    def test_missing_file_defaults_all_flags_false(self, tmp_path: Path) -> None:
+    def test_missing_file_defaults_all_zero(self, tmp_path: Path) -> None:
         client = FeatureFlagClient(path=_flags_path(tmp_path))
-        _assert_all_false(client)
-        assert client.list() == [
-            (name, False, description)
+        _assert_all_zero(client)
+        entries = client.list()
+        assert entries == [
+            (name, 0, description)
             for name, description in EXPECTED_CAPABILITIES.items()
         ]
 
-    def test_empty_file_defaults_all_flags_false(self, tmp_path: Path) -> None:
+    def test_empty_file_defaults_all_zero(self, tmp_path: Path) -> None:
         path = _flags_path(tmp_path)
         path.write_text("", encoding="utf-8")
-        _assert_all_false(FeatureFlagClient(path=path))
+        _assert_all_zero(FeatureFlagClient(path=path))
 
-    def test_malformed_json_defaults_all_flags_false(self, tmp_path: Path) -> None:
+    def test_malformed_json_defaults_all_zero(self, tmp_path: Path) -> None:
         path = _flags_path(tmp_path)
-        path.write_text("this is not json at all {{{", encoding="utf-8")
-        _assert_all_false(FeatureFlagClient(path=path))
+        path.write_text("not json {{{", encoding="utf-8")
+        _assert_all_zero(FeatureFlagClient(path=path))
 
-    def test_invalid_utf8_file_defaults_all_false(self, tmp_path: Path) -> None:
+    def test_invalid_utf8_file_defaults_all_zero(self, tmp_path: Path) -> None:
         path = _flags_path(tmp_path)
         path.write_bytes(b"\xff\xfe\xfd\xfc")
         client = FeatureFlagClient(path=path)
         for cap in CAPABILITIES:
-            assert client.enabled(cap) is False
+            assert client.percentage(cap) == 0
 
-    def test_json_array_defaults_all_flags_false_and_warns(
+    def test_json_array_defaults_all_zero_and_warns(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
         path = _flags_path(tmp_path)
         _write_json(path, [1, 2, 3])
 
         with caplog.at_level(logging.WARNING, logger=feature_flags.__name__):
-            _assert_all_false(FeatureFlagClient(path=path))
+            _assert_all_zero(FeatureFlagClient(path=path))
 
         assert "flags.json is not a JSON object" in caplog.text
 
-    def test_valid_full_schema_loads_correctly(self, tmp_path: Path) -> None:
+    def test_valid_full_schema_bool_loads_correctly(self, tmp_path: Path) -> None:
         path = _flags_path(tmp_path)
         _write_json(
             path,
@@ -159,30 +170,30 @@ class TestFileLoading:
             },
         )
 
-        assert _enabled_state(FeatureFlagClient(path=path)) == {
-            "llm_client": True,
-            "base_agent": False,
-            "tools": True,
-            "plugins": False,
-            "cli": True,
+        assert _percentage_state(FeatureFlagClient(path=path)) == {
+            "llm_client": 100,
+            "base_agent": 0,
+            "tools": 100,
+            "plugins": 0,
+            "cli": 100,
         }
 
-    def test_valid_partial_schema_defaults_missing_keys_false(
+    def test_valid_partial_schema_bool_defaults_missing_keys_zero(
         self, tmp_path: Path
     ) -> None:
         path = _flags_path(tmp_path)
         _write_json(path, {"elixir.cli": True})
         client = FeatureFlagClient(path=path)
 
-        assert client.enabled("cli") is True
+        assert client.percentage("cli") == 100
         for capability in set(EXPECTED_CAPABILITIES) - {"cli"}:
-            assert client.enabled(capability) is False
+            assert client.percentage(capability) == 0
 
     def test_unprefixed_keys_are_accepted(self, tmp_path: Path) -> None:
         path = _flags_path(tmp_path)
         _write_json(path, {"llm_client": True})
         client = FeatureFlagClient(path=path)
-        assert client.enabled("llm_client") is True
+        assert client.percentage("llm_client") == 100
 
     def test_alias_collision_resolves_deterministically_unprefixed_first(
         self, tmp_path: Path
@@ -193,7 +204,7 @@ class TestFileLoading:
             encoding="utf-8",
         )
         client = FeatureFlagClient(path=path)
-        assert client.enabled("llm_client") is True
+        assert client.percentage("llm_client") == 100
 
     def test_alias_collision_resolves_deterministically_prefixed_first(
         self, tmp_path: Path
@@ -204,7 +215,7 @@ class TestFileLoading:
             encoding="utf-8",
         )
         client = FeatureFlagClient(path=path)
-        assert client.enabled("llm_client") is True
+        assert client.percentage("llm_client") == 100
 
     def test_unknown_keys_are_ignored(self, tmp_path: Path) -> None:
         path = _flags_path(tmp_path)
@@ -218,11 +229,11 @@ class TestFileLoading:
         )
         client = FeatureFlagClient(path=path)
 
-        assert client.enabled("llm_client") is True
+        assert client.percentage("llm_client") == 100
         for capability in set(EXPECTED_CAPABILITIES) - {"llm_client"}:
-            assert client.enabled(capability) is False
+            assert client.percentage(capability) == 0
 
-    def test_non_bool_values_are_ignored_and_warn_once(
+    def test_non_bool_non_int_values_are_ignored_and_warn_once(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
         path = _flags_path(tmp_path)
@@ -232,65 +243,82 @@ class TestFileLoading:
             client = FeatureFlagClient(path=path)
             client.reload()
 
-        assert client.enabled("cli") is False
-        assert client.enabled("tools") is True
-        assert caplog.text.count("expected boolean") == 1
+        assert client.percentage("cli") == 0
+        assert client.percentage("tools") == 100
+        assert caplog.text.count("expected boolean or integer") == 1
+
+
+# ---------------------------------------------------------------------------
+# Client API — percentage(), enabled(), is_enabled(), set()
+# ---------------------------------------------------------------------------
 
 
 class TestClientApi:
-    def test_enabled_known_capability_returns_current_bool(
+    def test_percentage_known_capability_returns_current_int(
         self, tmp_path: Path
     ) -> None:
         path = _flags_path(tmp_path)
-        _write_json(path, {"elixir.plugins": True})
+        _write_json(path, {"elixir.plugins": 42})
         client = FeatureFlagClient(path=path)
-        assert client.enabled("plugins") is True
-        assert client.enabled("base_agent") is False
+        assert client.percentage("plugins") == 42
+        assert client.percentage("base_agent") == 0
 
-    def test_enabled_unknown_capability_raises_value_error(
-        self, tmp_path: Path
-    ) -> None:
+    def test_unknown_capability_raises_value_error(self, tmp_path: Path) -> None:
         client = FeatureFlagClient(path=_flags_path(tmp_path))
         with pytest.raises(ValueError, match="Unknown feature-flag capability"):
-            client.enabled("not_real")
+            client.percentage("not_real")
 
-    def test_list_returns_five_name_enabled_description_tuples(
+    def test_list_returns_five_name_percentage_description_tuples(
         self, tmp_path: Path
     ) -> None:
         path = _flags_path(tmp_path)
-        _write_json(path, {"elixir.llm_client": True, "elixir.cli": True})
+        _write_json(path, {"elixir.llm_client": 100, "elixir.cli": 75})
         entries = FeatureFlagClient(path=path).list()
 
         assert entries == [
-            ("llm_client", True, "Route LLM client calls to Elixir"),
-            ("base_agent", False, "Route agent execution to Elixir"),
-            ("tools", False, "Route tool dispatch to Elixir"),
-            ("plugins", False, "Load plugins via Elixir loader"),
-            ("cli", True, "Route CLI/REPL to Elixir"),
+            ("llm_client", 100, "Route LLM client calls to Elixir"),
+            ("base_agent", 0, "Route agent execution to Elixir"),
+            ("tools", 0, "Route tool dispatch to Elixir"),
+            ("plugins", 0, "Load plugins via Elixir loader"),
+            ("cli", 75, "Route CLI/REPL to Elixir"),
         ]
         assert all(len(entry) == 3 for entry in entries)
 
     def test_reload_reflects_external_disk_changes(self, tmp_path: Path) -> None:
         path = _flags_path(tmp_path)
         client = FeatureFlagClient(path=path)
-        assert client.enabled("cli") is False
+        assert client.percentage("cli") == 0
 
         _write_json(path, {"elixir.cli": True})
-        assert client.enabled("cli") is False
+        assert client.percentage("cli") == 0
 
         client.reload()
-        assert client.enabled("cli") is True
+        assert client.percentage("cli") == 100
 
-    def test_reload_from_corrupted_file_resets_to_all_false(
+    def test_reload_from_corrupted_file_resets_to_all_zero(
         self, tmp_path: Path
     ) -> None:
         path = _flags_path(tmp_path)
         path.write_text('{"elixir.cli": true}', encoding="utf-8")
         client = FeatureFlagClient(path=path)
-        assert client.enabled("cli") is True
+        assert client.percentage("cli") == 100
         path.write_bytes(b"\xff\xfe\xfd\xfc")
         client.reload()
-        assert client.enabled("cli") is False
+        assert client.percentage("cli") == 0
+
+    # --- set() with bool values ---
+
+    def test_set_bool_true_persists_as_100(self, tmp_path: Path) -> None:
+        path = _flags_path(tmp_path)
+        client = FeatureFlagClient(path=path)
+        client.set("cli", True)
+        assert client.percentage("cli") == 100
+
+    def test_set_bool_false_persists_as_0(self, tmp_path: Path) -> None:
+        path = _flags_path(tmp_path)
+        client = FeatureFlagClient(path=path)
+        client.set("cli", False)
+        assert client.percentage("cli") == 0
 
     def test_set_writes_canonical_keys_and_pretty_newline(self, tmp_path: Path) -> None:
         path = _flags_path(tmp_path)
@@ -323,11 +351,11 @@ class TestClientApi:
     def test_set_updates_in_memory_without_reload(self, tmp_path: Path) -> None:
         client = FeatureFlagClient(path=_flags_path(tmp_path))
         client.set("ELIXIR.TOOLS", True)
-        assert client.enabled("tools") is True
+        assert client.percentage("tools") == 100
 
-    def test_set_non_bool_value_raises_type_error(self, tmp_path: Path) -> None:
+    def test_set_non_bool_non_int_value_raises_type_error(self, tmp_path: Path) -> None:
         client = FeatureFlagClient(path=_flags_path(tmp_path))
-        with pytest.raises(TypeError, match="must be bool"):
+        with pytest.raises(TypeError, match="must be bool or int"):
             client.set("cli", "yes")  # type: ignore[arg-type]
 
     def test_set_unknown_capability_raises_value_error(self, tmp_path: Path) -> None:
@@ -341,8 +369,9 @@ class TestClientApi:
         client.set("llm_client", True)
         client.reset()
 
-        _assert_all_false(client)
-        assert _read_json(path) == {
+        _assert_all_zero(client)
+        decoded = _read_json(path)
+        assert decoded == {
             f"elixir.{name}": False for name in sorted(EXPECTED_CAPABILITIES)
         }
 
@@ -350,23 +379,23 @@ class TestClientApi:
         path = _flags_path(tmp_path)
         client = FeatureFlagClient(path=path)
         client.set("llm_client", True)
-        client.set("tools", True)
+        client.set("tools", 50)
         client.reset()
         client.reload()
-        _assert_all_false(client)
+        _assert_all_zero(client)
 
     def test_multiple_sets_persist_final_state(self, tmp_path: Path) -> None:
         path = _flags_path(tmp_path)
         client = FeatureFlagClient(path=path)
         client.set("llm_client", True)
-        client.set("tools", True)
+        client.set("tools", 50)
         client.set("llm_client", False)
 
-        assert client.enabled("llm_client") is False
-        assert client.enabled("tools") is True
+        assert client.percentage("llm_client") == 0
+        assert client.percentage("tools") == 50
         decoded = _read_json(path)
         assert decoded["elixir.llm_client"] is False
-        assert decoded["elixir.tools"] is True
+        assert decoded["elixir.tools"] == 50
 
     def test_client_without_path_uses_elixir_home(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -375,9 +404,9 @@ class TestClientApi:
         monkeypatch.delenv("PUP_HOME", raising=False)
         monkeypatch.delenv("PUPPY_HOME", raising=False)
         client = FeatureFlagClient()
-        client.set("cli", True)
+        client.set("cli", 25)
         assert (tmp_path / "flags.json").exists()
-        assert client.enabled("cli") is True
+        assert client.percentage("cli") == 25
 
     def test_set_refuses_to_write_under_legacy_python_home(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -390,7 +419,38 @@ class TestClientApi:
         with pytest.raises(RuntimeError, match="legacy"):
             client.set("cli", True)
         assert not flags_path.exists()
-        assert client.enabled("cli") is False
+        assert client.percentage("cli") == 0
+
+    # --- is_enabled() backward compat (deterministic) ---
+
+    def test_is_enabled_deterministic_zero(self, tmp_path: Path) -> None:
+        path = _flags_path(tmp_path)
+        client = FeatureFlagClient(path=path)
+        client.set("cli", 0)
+        assert client.is_enabled("cli") is False
+
+    def test_is_enabled_deterministic_one(self, tmp_path: Path) -> None:
+        path = _flags_path(tmp_path)
+        client = FeatureFlagClient(path=path)
+        client.set("cli", 1)
+        assert client.is_enabled("cli") is True
+
+    def test_is_enabled_deterministic_twenty_five(self, tmp_path: Path) -> None:
+        path = _flags_path(tmp_path)
+        client = FeatureFlagClient(path=path)
+        client.set("cli", 25)
+        assert client.is_enabled("cli") is True
+
+    def test_is_enabled_deterministic_one_hundred(self, tmp_path: Path) -> None:
+        path = _flags_path(tmp_path)
+        client = FeatureFlagClient(path=path)
+        client.set("cli", 100)
+        assert client.is_enabled("cli") is True
+
+
+# ---------------------------------------------------------------------------
+# Module-level API
+# ---------------------------------------------------------------------------
 
 
 class TestModuleLevelApi:
@@ -405,22 +465,61 @@ class TestModuleLevelApi:
         feature_flags.set_flag("cli", True)
 
         assert feature_flags.enabled("cli") is True
-        assert ("cli", True, "Route CLI/REPL to Elixir") in (feature_flags.list_flags())
+        assert ("cli", 100, "Route CLI/REPL to Elixir") in feature_flags.list_flags()
 
         _write_json(tmp_path / "flags.json", {"elixir.cli": False})
         assert feature_flags.enabled("cli") is True
         feature_flags.reload()
         assert feature_flags.enabled("cli") is False
 
+    def test_module_level_is_enabled(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.setenv("PUP_EX_HOME", str(tmp_path))
+        feature_flags.reset()
+        feature_flags.set_flag("cli", 25)
+        assert feature_flags.is_enabled("cli") is True
+
+    def test_set_flag_with_int_percentage(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.setenv("PUP_EX_HOME", str(tmp_path))
+        feature_flags.reset()
+        feature_flags.set_flag("llm_client", 25)
+        assert feature_flags.list_flags() == [
+            ("llm_client", 25, "Route LLM client calls to Elixir"),
+            ("base_agent", 0, "Route agent execution to Elixir"),
+            ("tools", 0, "Route tool dispatch to Elixir"),
+            ("plugins", 0, "Load plugins via Elixir loader"),
+            ("cli", 0, "Route CLI/REPL to Elixir"),
+        ]
+
+
+# ---------------------------------------------------------------------------
+# Resilience
+# ---------------------------------------------------------------------------
+
 
 class TestResilience:
-    def test_recreated_client_after_disk_corruption_falls_back_all_false(
+    def test_recreated_client_after_disk_corruption_falls_back_all_zero(
         self, tmp_path: Path
     ) -> None:
         path = _flags_path(tmp_path)
         client = FeatureFlagClient(path=path)
         client.set("cli", True)
-        assert client.enabled("cli") is True
+        assert client.percentage("cli") == 100
 
         path.write_text("{ nope", encoding="utf-8")
-        _assert_all_false(FeatureFlagClient(path=path))
+        _assert_all_zero(FeatureFlagClient(path=path))
+
+    def test_warning_deduplication(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Repeated warnings for the same key are only logged once."""
+        path = _flags_path(tmp_path)
+        _write_json(path, {"elixir.cli": "maybe", "elixir.tools": "maybe"})
+        with caplog.at_level(logging.WARNING, logger=feature_flags.__name__):
+            client = FeatureFlagClient(path=path)
+            client.reload()
+            client.reload()
+        assert caplog.text.count("expected boolean or integer") == 2
