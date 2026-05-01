@@ -1,0 +1,199 @@
+#!/usr/bin/env bash
+# pre-push — tracked native hook
+# Mirrors the lefthook.yml pre-push block (elixir compile/test, python ruff/smoke)
+# Last sync: 2025-05-01
+#
+# Uses NUL-delimited git output + bash arrays to avoid unsafe filename handling.
+# Handles new branches (0000… remote sha) by computing range via merge-base.
+
+set -euo pipefail
+
+PROJECT_ROOT="$(git rev-parse --show-toplevel)"
+
+# --- helpers ----------------------------------------------------------------
+
+die() {
+  printf >&2 'ERROR: %s\n' "$*"
+  exit 1
+}
+
+info() {
+  printf '==> %s\n' "$*"
+}
+
+warn() {
+  printf >&2 'WARNING: %s\n' "$*"
+}
+
+# --- parse stdin (one line per pushed ref) ---------------------------------
+# Format: <local-ref> <local-sha> <remote-ref> <remote-sha>
+
+ranges=()      # git diff ranges to inspect
+
+while IFS=' ' read -r local_ref local_sha remote_ref remote_sha; do
+  # skip deletions
+  [[ "$local_sha" == "0000000000000000000000000000000000000000" ]] && continue
+
+  if [[ "$remote_sha" == "0000000000000000000000000000000000000000" ]]; then
+    # new branch — compute range against remote base
+    info "new branch detected: $local_ref"
+
+    # try remote HEAD, then main, then master
+    base=""
+    for candidate in "origin/HEAD" "origin/main" "origin/master"; do
+      if git rev-parse --verify -q "$candidate" >/dev/null 2>&1; then
+        base="$candidate"
+        break
+      fi
+    done
+
+    if [[ -n "$base" ]]; then
+      merge_base="$(git merge-base "$base" HEAD 2>/dev/null || true)"
+      if [[ -n "$merge_base" && "$merge_base" != "$local_sha" ]]; then
+        ranges+=( "${merge_base}..HEAD" )
+      else
+        ranges+=( "HEAD" )
+      fi
+    else
+      # no remote base found — just check what's staged vs HEAD
+      ranges+=( "HEAD" )
+    fi
+  else
+    ranges+=( "${remote_sha}..${local_sha}" )
+  fi
+done
+
+if [[ ${#ranges[@]} -eq 0 ]]; then
+  info 'no refs to push — skipping pre-push checks'
+  exit 0
+fi
+
+# --- gather changed files across all ranges ---------------------------------
+
+all_files=()
+for range in "${ranges[@]}"; do
+  while IFS= read -r -d '' f; do
+    all_files+=( "$f" )
+  done < <(git diff --name-only -z --diff-filter=ACMR "$range" -- . 2>/dev/null || true)
+done
+
+# deduplicate
+declare -A seen
+deduped=()
+for f in "${all_files[@]}"; do
+  if [[ -z "${seen[$f]:-}" ]]; then
+    seen[$f]=1
+    deduped+=( "$f" )
+  fi
+done
+
+[[ ${#deduped[@]} -eq 0 ]] && { info 'no changed files — skipping checks'; exit 0; }
+
+# --- classify files ---------------------------------------------------------
+
+py_files=()
+elixir_files=()
+test_files=()
+review_files=()
+
+for f in "${deduped[@]}"; do
+  # Python files (anywhere)
+  if [[ "$f" == *.py ]]; then
+    py_files+=( "$f" )
+  fi
+
+  # Elixir files — only under elixir/ (matches lefthook.yml)
+  if grep -qE '^elixir/.*\.(ex|exs)$' <<<"$f"; then
+    elixir_files+=( "$f" )
+  fi
+
+  # Test files — must contain /test/ and be _test.exs (matches lefthook.yml)
+  if grep -qE '(^|/)test/.*_test\.exs$' <<<"$f"; then
+    test_files+=( "$f" )
+    review_files+=( "$f" )
+  fi
+done
+
+# --- Python checks ----------------------------------------------------------
+
+if [[ ${#py_files[@]} -gt 0 ]]; then
+  # detect tooling (arrays for safe command construction)
+  if command -v uv >/dev/null 2>&1; then
+    ruff_cmd=(uv run ruff)
+  else
+    ruff_cmd=(ruff)
+  fi
+
+  info "Running ruff on ${#py_files[@]} Python file(s) ..."
+  if ! "${ruff_cmd[@]}" check -- "${py_files[@]}" 2>/dev/null; then
+    warn "ruff check found issues (advisory — push continues)"
+  fi
+
+  if [[ "$PROJECT_ROOT" != "$(git rev-parse --show-toplevel)" ]]; then
+    cd "$PROJECT_ROOT"
+  fi
+
+  # smoke import check for code_puppy package files
+  code_puppy_files=()
+  for f in "${py_files[@]}"; do
+    [[ "$f" == code_puppy/* ]] && code_puppy_files+=( "$f" )
+  done
+
+  if [[ ${#code_puppy_files[@]} -gt 0 ]]; then
+    info 'Running Python smoke import check ...'
+    if command -v uv >/dev/null 2>&1; then
+      smoke_cmd=(uv run python -c "import code_puppy; import code_puppy.agents.agent_pack_leader")
+    else
+      smoke_cmd=(python -c "import code_puppy; import code_puppy.agents.agent_pack_leader")
+    fi
+    if ! "${smoke_cmd[@]}" 2>/dev/null; then
+      warn 'Python smoke import failed (advisory — push continues)'
+    else
+      info 'Python smoke import OK'
+    fi
+  fi
+else
+  info 'No Python files changed — skipping Python checks'
+fi
+
+# --- Elixir checks ----------------------------------------------------------
+
+if [[ ${#elixir_files[@]} -gt 0 ]]; then
+  elixir_dir="$PROJECT_ROOT/elixir/code_puppy_control"
+  if [[ -d "$elixir_dir" ]]; then
+    info "Running Elixir compile (warnings-as-errors) ..."
+    if ! (cd "$elixir_dir" && mix compile --warnings-as-errors 2>/dev/null); then
+      warn 'Elixir compile found warnings (advisory — push continues)'
+    else
+      info 'Elixir compile OK'
+    fi
+
+    info "Running Elixir fast tests ..."
+    if ! (cd "$elixir_dir" && mix test --exclude slow --exclude integration --max-failures 5 2>/dev/null); then
+      warn 'Elixir fast tests found failures (advisory — push continues)'
+    else
+      info 'Elixir fast tests OK'
+    fi
+  else
+    warn "Elixir directory not found at $elixir_dir — skipping Elixir checks"
+  fi
+else
+  info 'No Elixir files changed — skipping Elixir checks'
+fi
+
+# --- Advisory: test file review --------------------------------------------
+
+if [[ ${#review_files[@]} -gt 0 ]]; then
+  printf '📋 Advisory: Test file review\n'
+  printf '─────────────────────────────────────\n'
+  if [[ -x "$PROJECT_ROOT/scripts/review-tests.sh" ]]; then
+    "$PROJECT_ROOT/scripts/review-tests.sh" "${review_files[@]}" 2>&1 || \
+      warn 'Review found issues (advisory — push continues)'
+  else
+    printf 'review-tests.sh not found — skipping automated review\n'
+    printf 'Run manually: ./scripts/review-tests.sh <test_files>\n'
+  fi
+  printf '─────────────────────────────────────\n'
+fi
+
+info 'pre-push checks completed'

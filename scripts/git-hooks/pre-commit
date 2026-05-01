@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+# pre-commit — tracked native hook
+# Mirrors the lefthook.yml pre-commit block (isort, ruff-format, ruff-lint)
+# Last sync: 2025-05-01
+#
+# Uses NUL-delimited git output + bash arrays to avoid unsafe filename handling.
+
+set -euo pipefail
+
+# --- helpers ----------------------------------------------------------------
+
+die() {
+  printf >&2 'ERROR: %s\n' "$*"
+  exit 1
+}
+
+info() {
+  printf '==> %s\n' "$*"
+}
+
+# --- gather staged Python files --------------------------------------------
+
+mapfile -d '' staged_python < <(
+  git diff --cached --name-only -z --diff-filter=ACMR -- '*.py'
+) || true
+
+if [[ ${#staged_python[@]} -eq 0 ]]; then
+  info 'no staged Python files — skipping pre-commit checks'
+  exit 0
+fi
+
+info "staged Python files: ${staged_python[*]}"
+
+# --- detect tooling --------------------------------------------------------
+
+if command -v uv >/dev/null 2>&1; then
+  isort_cmd=(uv run isort --profile black)
+  ruff_cmd=(uv run ruff)
+else
+  if command -v isort >/dev/null 2>&1; then
+    isort_cmd=(isort --profile black)
+  else
+    # fall back to ruff's import sorter
+    isort_cmd=()
+    use_ruff_isort=true
+  fi
+  ruff_cmd=(ruff)
+fi
+
+# --- isort (import sort) ---------------------------------------------------
+
+if [[ ${#isort_cmd[@]} -gt 0 ]]; then
+  info 'running isort ...'
+  "${isort_cmd[@]}" -- "${staged_python[@]}"
+else
+  info 'isort not found; using ruff import sorter'
+  "${ruff_cmd[@]}" check --select I --fix -- "${staged_python[@]}"
+fi
+
+# re-stage any fixes
+git add -- "${staged_python[@]}" 2>/dev/null || true
+
+# --- ruff format -----------------------------------------------------------
+
+info 'running ruff format ...'
+"${ruff_cmd[@]}" format -- "${staged_python[@]}"
+git add -- "${staged_python[@]}" 2>/dev/null || true
+
+# --- ruff lint -------------------------------------------------------------
+
+info 'running ruff check ...'
+"${ruff_cmd[@]}" check --fix -- "${staged_python[@]}"
+git add -- "${staged_python[@]}" 2>/dev/null || true
