@@ -6,19 +6,22 @@ Python code paths. It intentionally reads the file directly rather than going
 through the Elixir bridge: no feature-flag JSON-RPC method exists today, and
 feature flags must degrade safely to all-disabled when Elixir is unavailable.
 
-All capabilities default to ``False`` when the file is missing, empty,
+All capabilities default to ``False`` (0%) when the file is missing, empty,
 malformed, or otherwise unusable. Unknown JSON keys are ignored so future
 Elixir-only flags do not break older Python clients.
 
-Note: warnings for malformed input (non-object root, non-bool values) are
-de-duplicated per client instance to avoid log spam in long-running processes.
-This is an intentional improvement over the Elixir reference, which logs every
-parse. Flag state semantics still match Elixir exactly.
+Note: warnings for malformed input (non-object root, non-boolean, non-integer
+values) are de-duplicated per client instance to avoid log spam in long-running
+processes. This is an intentional improvement over the Elixir reference, which
+logs every parse. Flag state semantics still match Elixir exactly.
 """
+
+from __future__ import annotations
 
 import json
 import logging
 import os
+import random
 import threading
 from collections.abc import Mapping
 from pathlib import Path
@@ -28,8 +31,10 @@ from code_puppy.persistence import atomic_write_text
 
 logger = logging.getLogger(__name__)
 
-FlagState: TypeAlias = dict[str, bool]
-FlagEntry: TypeAlias = tuple[str, bool, str]
+# Internal: 0..100 percentage per capability.
+FlagState: TypeAlias = dict[str, int]
+FlagEntry: TypeAlias = tuple[str, int, str]
+SerializedFlags: TypeAlias = dict[str, bool | int]
 
 CAPABILITIES: Final[dict[str, str]] = {
     "llm_client": "Route LLM client calls to Elixir",
@@ -91,16 +96,26 @@ def json_key(capability: str) -> str:
 
 
 def _default_flags() -> FlagState:
-    """Return a fresh all-disabled flag state."""
-    return {capability: False for capability in CAPABILITIES}
+    """Return a fresh all-disabled (0%) flag state."""
+    return {capability: 0 for capability in CAPABILITIES}
 
 
-def _serialize_flags(flags: Mapping[str, bool]) -> FlagState:
-    """Serialize internal flag names to canonical ``elixir.`` JSON keys."""
-    return {
-        json_key(capability): flags.get(capability, False)
-        for capability in CAPABILITIES
-    }
+def _serialize_flags(flags: Mapping[str, int]) -> SerializedFlags:
+    """Serialize internal flag percentages to canonical ``elixir.`` JSON keys.
+
+    0 → ``false``, 100 → ``true``, 1..99 → integer (gradual rollout).
+    """
+    result: SerializedFlags = {}
+    for capability in CAPABILITIES:
+        pct = flags.get(capability, 0)
+        key = json_key(capability)
+        if pct == 0:
+            result[key] = False
+        elif pct == 100:
+            result[key] = True
+        else:
+            result[key] = pct
+    return result
 
 
 def _ensure_not_legacy_home(path: Path) -> None:
@@ -144,22 +159,49 @@ class FeatureFlagClient:
             return self._path
         return flags_file()
 
-    def enabled(self, capability: str) -> bool:
-        """Return whether ``capability`` is enabled.
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
 
-        Known capabilities default to ``False``. Unknown capabilities raise
-        ``ValueError``, matching Elixir's public API raising ``ArgumentError``.
+    def enabled(self, capability: str) -> bool:
+        """Return whether ``capability`` is probabilistically enabled.
+
+        The check is based on the stored percentage (0..100):
+
+        - 0 → always ``False``
+        - 100 → always ``True``
+        - 1..99 → ``random.randint(1, 100) <= percentage``
+
+        Unknown capabilities raise ``ValueError``, matching Elixir's public API
+        raising ``ArgumentError``.
+        """
+        pct = self.percentage(capability)
+        if pct <= 0:
+            return False
+        if pct >= 100:
+            return True
+        return random.randint(1, 100) <= pct
+
+    def is_enabled(self, capability: str) -> bool:
+        """Backward-compatible alias for :meth:`enabled`."""
+        return self.enabled(capability)
+
+    def percentage(self, capability: str) -> int:
+        """Return the rollout percentage (0..100) for ``capability``.
+
+        ``0`` means fully disabled. ``100`` means fully enabled. Values in
+        between represent gradual rollout.
         """
         resolved = resolve(capability)
         with self._lock:
-            return self._flags.get(resolved, False)
+            return self._flags.get(resolved, 0)
 
     def list(self) -> list[FlagEntry]:
-        """Return all capabilities as ``(name, enabled, description)`` tuples."""
+        """Return all capabilities as ``(name, percentage, description)`` tuples."""
         with self._lock:
             snapshot = self._flags.copy()
         return [
-            (name, snapshot.get(name, False), description)
+            (name, snapshot.get(name, 0), description)
             for name, description in CAPABILITIES.items()
         ]
 
@@ -169,33 +211,37 @@ class FeatureFlagClient:
             self._flags = self._load_from_disk()
 
     def reset(self) -> None:
-        """Persist and cache the default all-disabled state."""
+        """Persist and cache the default all-disabled (0%) state."""
         fresh = _default_flags()
         with self._lock:
             self._persist_to_disk(fresh)
             self._flags = fresh
 
-    def set(self, capability: str, value: bool) -> None:
+    def set(self, capability: str, value: bool | int) -> None:
         """Set ``capability`` to ``value``, persisting canonical JSON to disk.
 
+        ``True`` → 100%, ``False`` → 0%. An integer 0..100 sets the rollout
+        percentage directly.
+
         Raises:
-            TypeError: If ``value`` is not a real ``bool``.
-            ValueError: If ``capability`` is unknown.
+            TypeError: If ``value`` is neither ``bool`` nor ``int``.
+            ValueError: If ``value`` is an ``int`` outside 0..100, or if
+                ``capability`` is unknown.
             OSError: If the atomic write fails.
             RuntimeError: If the target path is under the legacy Python home.
         """
-        if not isinstance(value, bool):
-            raise TypeError(
-                "Feature-flag values must be bool; "
-                f"got {type(value).__name__} for {capability!r}"
-            )
+        pct = _to_percentage(value, capability)
 
         resolved = resolve(capability)
         with self._lock:
             fresh = self._flags.copy()
-            fresh[resolved] = value
+            fresh[resolved] = pct
             self._persist_to_disk(fresh)
             self._flags = fresh
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
 
     def _load_from_disk(self) -> FlagState:
         """Load flags from disk using the Elixir-compatible fallback rules."""
@@ -204,7 +250,9 @@ class FeatureFlagClient:
             if not path.exists() or path.stat().st_size < 2:
                 return _default_flags()
             raw = path.read_text(encoding="utf-8")
-        except OSError, UnicodeError:
+        except OSError:
+            return _default_flags()
+        except UnicodeError:
             return _default_flags()
 
         try:
@@ -215,7 +263,10 @@ class FeatureFlagClient:
         return self._parse_decoded(decoded)
 
     def _parse_decoded(self, decoded: Any) -> FlagState:
-        """Merge decoded JSON into an all-disabled default state."""
+        """Merge decoded JSON into an all-disabled (0%) default state.
+
+        Accepts ``bool`` (``True`` → 100, ``False`` → 0) and ``int`` (0..100).
+        """
         flags = _default_flags()
         if not isinstance(decoded, dict):
             self._warn_once(
@@ -234,18 +285,21 @@ class FeatureFlagClient:
                 continue
 
             if isinstance(value, bool):
+                flags[resolved] = 100 if value else 0
+            elif isinstance(value, int) and 0 <= value <= 100:
                 flags[resolved] = value
             else:
                 self._warn_once(
-                    f"non-bool:{resolved}",
-                    "FeatureFlags: expected boolean for %s, got %r. Ignoring.",
+                    f"non-flag-value:{resolved}",
+                    "FeatureFlags: expected boolean or integer 0..100 for %s, "
+                    "got %r. Ignoring.",
                     key,
                     value,
                 )
 
         return flags
 
-    def _persist_to_disk(self, flags: Mapping[str, bool]) -> None:
+    def _persist_to_disk(self, flags: Mapping[str, int]) -> None:
         """Write flags atomically using the canonical Elixir JSON schema."""
         content = json.dumps(
             _serialize_flags(flags),
@@ -264,6 +318,35 @@ class FeatureFlagClient:
         logger.warning(message, *args)
 
 
+# ---------------------------------------------------------------------------
+# Module-level helpers
+# ---------------------------------------------------------------------------
+
+
+def _to_percentage(value: bool | int, capability: str) -> int:
+    """Convert a user-supplied value to an internal percentage (0..100).
+
+    ``True`` → 100, ``False`` → 0.  ``int`` 0..100 passes through.
+    """
+    if isinstance(value, bool):
+        return 100 if value else 0
+    if isinstance(value, int):
+        if not 0 <= value <= 100:
+            raise ValueError(
+                f"Feature-flag percentage must be 0..100; "
+                f"got {value} for {capability!r}"
+            )
+        return value
+    raise TypeError(
+        "Feature-flag values must be bool or int 0..100; "
+        f"got {type(value).__name__} for {capability!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Singleton / module-level convenience API
+# ---------------------------------------------------------------------------
+
 _DEFAULT_CLIENT: FeatureFlagClient | None = None
 _DEFAULT_CLIENT_PATH: Path | None = None
 _DEFAULT_CLIENT_LOCK = threading.RLock()
@@ -271,7 +354,7 @@ _DEFAULT_CLIENT_LOCK = threading.RLock()
 
 def _get_default_client() -> FeatureFlagClient:
     """Return the module-level singleton, rebuilding it if the env path changed."""
-    global _DEFAULT_CLIENT, _DEFAULT_CLIENT_PATH
+    global _DEFAULT_CLIENT, _DEFAULT_CLIENT_PATH  # noqa: PLW0603
 
     current_path = flags_file()
     with _DEFAULT_CLIENT_LOCK:
@@ -282,7 +365,7 @@ def _get_default_client() -> FeatureFlagClient:
 
 
 def enabled(capability: str) -> bool:
-    """Return whether ``capability`` is enabled on the default client."""
+    """Return whether ``capability`` is probabilistically enabled on the default client."""
     return _get_default_client().enabled(capability)
 
 
@@ -297,14 +380,15 @@ def reload() -> None:
 
 
 def reset() -> None:
-    """Reset all known flags to ``False`` on the default client."""
+    """Reset all known flags to 0% on the default client."""
     _get_default_client().reset()
 
 
-def set_flag(capability: str, value: bool) -> None:
+def set_flag(capability: str, value: bool | int) -> None:
     """Set a feature flag on the default client.
 
     Named ``set_flag`` instead of ``set`` to avoid shadowing the built-in type.
+    Accepts ``bool`` or ``int`` 0..100.
     """
     _get_default_client().set(capability, value)
 
