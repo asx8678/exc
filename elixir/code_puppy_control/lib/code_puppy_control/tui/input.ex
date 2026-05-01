@@ -1,21 +1,22 @@
 defmodule CodePuppyControl.TUI.Input do
   @moduledoc """
-  Non-blocking terminal input with line editing support.
+  Non-blocking terminal input.
 
-  Provides a GenServer-based input loop that reads lines from stdin
-  without blocking the TUI App. Supports:
+  Provides a GenServer-based input loop that reads raw lines from stdin
+  via `IO.gets/1` without blocking the TUI App. Supports:
 
-    * Line-at-a-time input with basic editing (backspace, Ctrl+W)
-    * Command history (up/down arrows)
-    * Tab completion hook (delegates to `CodePuppyControl.REPL.Completion`)
-    * Graceful shutdown on EOF or Ctrl+D
+    * Raw line-at-a-time input (delegates line editing to the terminal driver)
+    * In-memory command history (add-only; navigation is handled by the App/Screen layer)
+    * Graceful shutdown on EOF (`Ctrl+D`) or terminal errors
 
   ## Architecture
 
-  The Input GenServer runs in a dedicated task that reads from
-  `IO.gets/1`. When a line is completed, it sends the input to
-  the TUI App via `App.send_input/2`. This decouples the blocking
-  IO read from the App's event loop.
+  The Input GenServer spawns a background `Task` that blocks on
+  `IO.gets/1`. Each completed line is sent to the TUI App via
+  `App.send_input/2`. This decouples the blocking IO read from the
+  App's event loop. The prompt string is stored in state but the
+  reader task reads with an empty string — the App/Screen is
+  responsible for printing the prompt before each read.
 
   ## Usage
 
@@ -73,6 +74,8 @@ defmodule CodePuppyControl.TUI.Input do
     * `:app` — the TUI App GenServer to forward input to (default: `App`)
     * `:prompt` — the prompt string (default: `"> "`)
     * `:name` — GenServer name registration
+    * `:start_reader` — whether to start the background reader task (default: `true`)
+      Set to `false` in tests to avoid blocking on `IO.gets/1`.
   """
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
@@ -189,6 +192,7 @@ defmodule CodePuppyControl.TUI.Input do
 
   # ── Reader Task ─────────────────────────────────────────────────────────
 
+  @doc false
   # The reader runs in a separate Task to avoid blocking the GenServer.
   # It reads lines from IO.gets/1 and sends them to the Input GenServer.
   defp start_reader(input_server, _initial_prompt) do
@@ -197,6 +201,7 @@ defmodule CodePuppyControl.TUI.Input do
     end)
   end
 
+  @doc false
   defp reader_loop(input_server) do
     case IO.gets("") do
       :eof ->
@@ -214,6 +219,7 @@ defmodule CodePuppyControl.TUI.Input do
 
   # ── History Management ─────────────────────────────────────────────────
 
+  @doc false
   defp append_history(history, line) do
     new_history = history ++ [line]
 
