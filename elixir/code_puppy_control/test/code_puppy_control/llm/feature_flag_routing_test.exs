@@ -7,7 +7,10 @@ defmodule CodePuppyControl.LLM.FeatureFlagRoutingTest do
   @event [:code_puppy, :llm, :route_decision]
 
   setup do
-    prior = FeatureFlags.enabled?(:llm_client)
+    # Start from a deterministic state — always false.
+    # Tests that need :llm_client enabled MUST set it explicitly in the test body.
+    :ok = FeatureFlags.set(:llm_client, false, source: :test)
+
     test_pid = self()
     handler_id = "ff-route-test-#{System.unique_integer([:positive])}"
 
@@ -33,13 +36,7 @@ defmodule CodePuppyControl.LLM.FeatureFlagRoutingTest do
 
     on_exit(fn ->
       :telemetry.detach(handler_id)
-
-      _ =
-        if prior do
-          FeatureFlags.set(:llm_client, true, source: :test)
-        else
-          FeatureFlags.set(:llm_client, false, source: :test)
-        end
+      :ok = FeatureFlags.set(:llm_client, false, source: :test)
     end)
 
     %{handler_id: handler_id}
