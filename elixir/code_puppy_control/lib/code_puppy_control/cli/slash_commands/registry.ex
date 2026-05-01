@@ -251,6 +251,16 @@ defmodule CodePuppyControl.CLI.SlashCommands.Registry do
         category: "config"
       ),
       CommandInfo.new(
+        name: "feature-flags",
+        description: "List, set, and reload Elixir feature flags",
+        handler: &Commands.FeatureFlags.handle_feature_flags/2,
+        usage: "/feature-flags [list|set <capability> <bool>|reload]",
+        aliases: ["feature_flags"],
+        category: "config",
+        detailed_help:
+          "View ADR-004 v1 feature flags, set a known capability to true/false, or reload flags from disk."
+      ),
+      CommandInfo.new(
         name: "diff",
         description: "Show or configure diff highlighting colors",
         handler: &Commands.Diff.handle_diff/2,
