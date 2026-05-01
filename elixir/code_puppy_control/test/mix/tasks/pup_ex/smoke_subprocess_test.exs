@@ -88,7 +88,16 @@ defmodule Mix.Tasks.PupEx.SmokeSubprocessTest do
             {"TMPDIR", tmp_root},
             # Share the test build dir so the subprocess does not
             # have to recompile from scratch.
-            {"MIX_ENV", "test"}
+            {"MIX_ENV", "test"},
+            # (code_puppy-i1n) Give the subprocess its own SQLite DB.
+            # The main test process holds an Ecto Sandbox lock on the
+            # default test DB, so the subprocess would fail with
+            # "database is locked" during its own application startup.
+            # A unique DB per subprocess invocation avoids the lock
+            # contention entirely.  The smoke test only needs the DB
+            # to exist (for Repo startup); it does not query sessions.
+            {"PUP_TEST_DB",
+             Path.join(tmp_root, "smoke_subproc_#{:erlang.unique_integer([:positive])}.db")}
           ],
           # Keep stderr off stdout — Mix/Logger noise belongs there
           # and we want a clean stdout to parse as JSON.

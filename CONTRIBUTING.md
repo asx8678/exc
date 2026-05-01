@@ -72,6 +72,8 @@ Longer explanation if needed.
 
 Types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`
 
+Include the **bd issue ID** (e.g. `code_puppy-djs.7`) in the commit message body when the change addresses a tracked issue.
+
 ### Code Review
 
 All changes require review. The Python freeze policy (above) will be strictly enforced during the migration period.
@@ -130,8 +132,8 @@ To make reviews blocking in CI, set `REVIEW_BLOCKING=1` in the environment or ad
 ### Questions?
 
 > Reach out via:
-> - Issues for feature requests and bugs
-- Pack Leader agents for architectural questions
+> - **bd issues** for feature requests and bugs — see `bd ready` to find available work or `bd create` to file a new issue
+> - Pack Leader agents for architectural questions
 
 ## Testing Tiers
 

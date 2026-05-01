@@ -102,6 +102,13 @@ defmodule CodePuppyControl.REPL.SendToAgentTest do
   # ---------------------------------------------------------------------------
 
   defp setup_mock_llm_and_session(_context) do
+    # (code_puppy-i1n) Ensure Agent.State.Supervisor is alive —
+    # Loop.handle_input calls ensure_agent_state_for which needs
+    # the DynamicSupervisor to start child processes.
+    CodePuppyControl.TestSupport.Reset.ensure_gen_server_started(
+      CodePuppyControl.Agent.State.Supervisor
+    )
+
     session_id = :crypto.strong_rand_bytes(4) |> Base.encode16(case: :lower)
 
     prev_llm = Application.get_env(:code_puppy_control, :repl_llm_module)

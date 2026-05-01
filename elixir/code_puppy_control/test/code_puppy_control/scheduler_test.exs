@@ -9,6 +9,10 @@ defmodule CodePuppyControl.SchedulerTest do
   alias CodePuppyControl.Repo
 
   setup do
+    # (code_puppy-i1n) Ensure Repo is available — supervised processes
+    # may be dead if the application tree was killed by a prior test.
+    CodePuppyControl.TestSupport.Reset.ensure_gen_server_started(Repo)
+
     :ok = Ecto.Adapters.SQL.Sandbox.checkout(Repo)
     :ok = Ecto.Adapters.SQL.Sandbox.mode(Repo, {:shared, self()})
 

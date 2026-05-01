@@ -115,6 +115,9 @@ defmodule CodePuppyControl.Tool.RunnerTest do
   # ── Setup ─────────────────────────────────────────────────────────────────
 
   setup do
+    # (code_puppy-i1n) Ensure Tool.Registry is alive.
+    CodePuppyControl.TestSupport.Reset.ensure_gen_server_started(Registry)
+
     Registry.clear()
     Registry.register_many([EchoTool, BlockedTool, SlowTool, CrashTool, ToolTimeoutTool])
 

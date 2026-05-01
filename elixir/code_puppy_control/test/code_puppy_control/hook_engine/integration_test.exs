@@ -9,6 +9,12 @@ defmodule CodePuppyControl.HookEngine.IntegrationTest do
   @engine_name __MODULE__.TestEngine
 
   setup do
+    # (code_puppy-i1n) Ensure Callbacks.Registry is alive — it's a supervised
+    # singleton that may be dead if a prior test killed the supervisor tree.
+    CodePuppyControl.TestSupport.Reset.ensure_gen_server_started(
+      CodePuppyControl.Callbacks.Registry
+    )
+
     # Start a fresh HookEngine for each test
     {:ok, pid} = HookEngine.start_link(name: @engine_name, strict_validation: false)
     Callbacks.clear(:pre_tool_call)

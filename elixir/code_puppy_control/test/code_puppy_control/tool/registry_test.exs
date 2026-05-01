@@ -85,6 +85,9 @@ defmodule CodePuppyControl.Tool.RegistryTest do
   # ── Setup ─────────────────────────────────────────────────────────────────
 
   setup do
+    # (code_puppy-i1n) Ensure Tool.Registry is alive.
+    CodePuppyControl.TestSupport.Reset.ensure_gen_server_started(Registry)
+
     # Clear registry and register only our test tools
     Registry.clear()
     Registry.register_many([TestToolAlpha, TestToolBeta, TestToolGamma])

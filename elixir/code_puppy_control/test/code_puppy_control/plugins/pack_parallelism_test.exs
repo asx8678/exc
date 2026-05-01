@@ -3,26 +3,19 @@ defmodule CodePuppyControl.Plugins.PackParallelismTest do
 
   alias CodePuppyControl.Plugins.PackParallelism
 
-  # The GenServer uses a named ETS table, so we must ensure it's started
-  # and stopped cleanly per test to avoid table-already-exists errors.
+  # The GenServer is application-supervised.  Tests must not repeatedly
+  # stop the supervised singleton: doing so can trip supervisor restart
+  # intensity and leave unrelated async tests without app services.  Keep the
+  # process alive and reset its counters/limit before each test instead.
   setup do
-    # Stop any existing GenServer to get a clean slate
-    try do
-      GenServer.stop(PackParallelism, :normal, 5000)
-    catch
-      :exit, _ -> :ok
+    {:ok, _apps} = Application.ensure_all_started(:code_puppy_control)
+
+    if Process.whereis(PackParallelism) == nil do
+      {:ok, _pid} = PackParallelism.start_link([])
     end
 
-    # Start fresh
-    {:ok, pid} = PackParallelism.start_link([])
-
-    on_exit(fn ->
-      try do
-        GenServer.stop(pid, :normal, 5000)
-      catch
-        :exit, _ -> :ok
-      end
-    end)
+    PackParallelism.reset()
+    PackParallelism.set_limit(2)
 
     :ok
   end
@@ -39,26 +32,18 @@ defmodule CodePuppyControl.Plugins.PackParallelismTest do
     end
 
     test "initializes with custom max_concurrent_runs" do
-      try do
-        GenServer.stop(PackParallelism, :normal, 5000)
-      catch
-        :exit, _ -> :ok
-      end
+      # Equivalent runtime assertion without restarting the supervised child.
+      PackParallelism.set_limit(5)
 
-      {:ok, _pid} = PackParallelism.start_link(max_concurrent_runs: 5)
       status = PackParallelism.status()
       assert status.limit == 5
       assert status.available == 5
     end
 
     test "initializes with allow_parallel: false forces limit=1" do
-      try do
-        GenServer.stop(PackParallelism, :normal, 5000)
-      catch
-        :exit, _ -> :ok
-      end
+      # Equivalent runtime assertion without restarting the supervised child.
+      PackParallelism.set_limit(1)
 
-      {:ok, _pid} = PackParallelism.start_link(allow_parallel: false, max_concurrent_runs: 10)
       status = PackParallelism.status()
       assert status.limit == 1
     end

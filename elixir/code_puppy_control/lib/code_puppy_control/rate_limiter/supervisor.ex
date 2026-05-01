@@ -15,6 +15,13 @@ defmodule CodePuppyControl.RateLimiter.Supervisor do
 
   use Supervisor
 
+  # Runtime `Mix.env/0` calls are forbidden in startup paths because Mix may
+  # not be available in packaged releases. Capture it at compile time instead.
+  @env Mix.env()
+  @restart_opts if @env == :test,
+                  do: [max_restarts: 1000, max_seconds: 60],
+                  else: [max_restarts: 5, max_seconds: 10]
+
   @doc """
   Starts the rate limiter supervisor.
   """
@@ -29,6 +36,6 @@ defmodule CodePuppyControl.RateLimiter.Supervisor do
       CodePuppyControl.RateLimiter
     ]
 
-    Supervisor.init(children, strategy: :one_for_one, max_restarts: 5, max_seconds: 10)
+    Supervisor.init(children, [strategy: :one_for_one] ++ @restart_opts)
   end
 end

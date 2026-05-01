@@ -14,6 +14,7 @@ defmodule CodePuppyControl.SessionStoragePubSubTest do
 
   use ExUnit.Case, async: false
 
+  alias CodePuppyControl.Repo
   alias CodePuppyControl.SessionStorage
 
   # ---------------------------------------------------------------------------
@@ -21,6 +22,15 @@ defmodule CodePuppyControl.SessionStoragePubSubTest do
   # ---------------------------------------------------------------------------
 
   setup do
+    # These tests interact with the Store GenServer, which uses Ecto/Repo for
+    # durable persistence.  Check out a sandbox connection in {:shared, self()}
+    # mode so the Store's process (a separate GenServer) can also use the Repo.
+    # Without this, the Store's Ecto calls fail with DBConnection.OwnershipError
+    # because the pool is configured as Ecto.Adapters.SQL.Sandbox in :manual
+    # mode.  (code_puppy-i1n)
+    :ok = Ecto.Adapters.SQL.Sandbox.checkout(Repo)
+    :ok = Ecto.Adapters.SQL.Sandbox.mode(Repo, {:shared, self()})
+
     tmp =
       Path.join(System.tmp_dir!(), "session_pubsub_test_#{System.unique_integer([:positive])}")
 

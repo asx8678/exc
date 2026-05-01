@@ -17,6 +17,12 @@ defmodule CodePuppyControl.Tools.AgentManagerTest do
   alias CodePuppyControl.Tools.AgentCatalogue
 
   setup do
+    # (code_puppy-i1n) Ensure AgentManager is alive — prior tests
+    # may have destabilised the supervision tree.
+    CodePuppyControl.TestSupport.Reset.ensure_gen_server_started(
+      CodePuppyControl.Tools.AgentManager
+    )
+
     # Reset manager state before each test
     :ok = AgentManager.reset_for_testing()
     on_exit(fn -> AgentManager.reset_for_testing() end)

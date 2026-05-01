@@ -4,6 +4,9 @@ defmodule CodePuppyControlWeb.SessionsControllerTest do
   alias CodePuppyControl.Repo
 
   setup do
+    # (code_puppy-i1n) Ensure Repo is available.
+    CodePuppyControl.TestSupport.Reset.ensure_gen_server_started(Repo)
+
     owner = Ecto.Adapters.SQL.Sandbox.start_owner!(Repo, shared: true)
     on_exit(fn -> Ecto.Adapters.SQL.Sandbox.stop_owner(owner) end)
 

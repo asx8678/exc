@@ -21,6 +21,14 @@ defmodule CodePuppyControl.Plugins.PackParallelism.Supervisor do
 
   use Supervisor
 
+  # The fast suite exercises restart paths for supervised singletons. The
+  # default supervisor intensity (3 restarts / 5s) can take down the whole
+  # application during test-order races, cascading into unrelated "no process"
+  # failures. Keep production defaults, but relax this inner supervisor in test
+  # just like the root app supervisor. Runtime Mix.env/0 calls are avoided.
+  @env Mix.env()
+  @test_supervisor_opts if @env == :test, do: [max_restarts: 1000, max_seconds: 60], else: []
+
   @doc """
   Starts the pack parallelism supervisor.
   """
@@ -35,6 +43,7 @@ defmodule CodePuppyControl.Plugins.PackParallelism.Supervisor do
       CodePuppyControl.Plugins.PackParallelism
     ]
 
-    Supervisor.init(children, strategy: :one_for_one)
+    opts = [strategy: :one_for_one] ++ @test_supervisor_opts
+    Supervisor.init(children, opts)
   end
 end

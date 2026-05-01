@@ -597,6 +597,11 @@ defmodule CodePuppyControl.Workflow.StateTest do
 
   describe "callback arity matches hook declarations (code-puppy-ctj.3)" do
     setup do
+      # (code_puppy-i1n) Ensure Callbacks.Registry is alive.
+      CodePuppyControl.TestSupport.Reset.ensure_gen_server_started(
+        CodePuppyControl.Callbacks.Registry
+      )
+
       CodePuppyControl.Callbacks.clear(:run_shell_command)
       CodePuppyControl.Callbacks.clear(:agent_run_start)
       CodePuppyControl.Callbacks.clear(:agent_run_end)
@@ -796,6 +801,11 @@ defmodule CodePuppyControl.Workflow.StateTest do
 
   describe "async-safe callback isolation regression (code-puppy-ctj.3)" do
     setup do
+      # (code_puppy-i1n) Ensure Callbacks.Registry is alive.
+      CodePuppyControl.TestSupport.Reset.ensure_gen_server_started(
+        CodePuppyControl.Callbacks.Registry
+      )
+
       CodePuppyControl.Callbacks.clear(:agent_run_start)
       CodePuppyControl.Callbacks.clear(:agent_run_end)
       CodePuppyControl.Callbacks.clear(:pre_tool_call)
