@@ -13,6 +13,8 @@ defmodule CodePuppyControl.Pack.RemoteNodeProxy do
   - `capabilities` — last advertised capabilities map from the worker, or `nil`
   - `active_runs` — map of `%{run_id => run_info}` for in-flight dispatches
   - `node_ref` — reference for internal event correlation
+  - `reconnect_attempts` — count of failed connection attempts since last
+    successful handshake; reset to 0 on connect
 
   ## Lifecycle
 
@@ -58,7 +60,8 @@ defmodule CodePuppyControl.Pack.RemoteNodeProxy do
           sub_agent: atom(),
           params: map(),
           started_at: integer(),
-          status: :dispatched
+          status: :dispatched,
+          timer_ref: reference() | nil
         }
 
   @type state :: %{
@@ -67,13 +70,16 @@ defmodule CodePuppyControl.Pack.RemoteNodeProxy do
           capabilities: map() | nil,
           active_runs: %{String.t() => run_info()},
           node_ref: reference(),
+          reconnect_attempts: non_neg_integer(),
           handshake_fn: (node(), timeout() -> {:ok, map()} | {:error, term()}),
-          handshake_timeout: timeout()
+          handshake_timeout: timeout(),
+          dispatch_timeout: timeout()
         }
 
   # ── Configuration ────────────────────────────────────────────────────────
 
   @default_handshake_timeout 30_000
+  @default_dispatch_timeout 30_000
   @worker_name :pack_worker
 
   # ── Public API ───────────────────────────────────────────────────────────
@@ -89,6 +95,8 @@ defmodule CodePuppyControl.Pack.RemoteNodeProxy do
   - `:monitor_fn` — (optional) node monitoring function for testing;
     defaults to `&Node.monitor/2`
   - `:handshake_timeout` — (optional) handshake timeout in ms (default 30_000)
+  - `:dispatch_timeout` — (optional) per-run dispatch timeout in ms
+    (default 30_000); lost results are cleaned up after this timeout
   """
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts) do
@@ -120,34 +128,33 @@ defmodule CodePuppyControl.Pack.RemoteNodeProxy do
       iex> RemoteNodeProxy.dispatch(pid, :terrier, %{worktree_path: "../wt"})
       {:ok, "dist_1717000000_28471032"}
   """
-  @spec dispatch(pid(), atom(), map()) :: {:ok, String.t()} | {:error, term()}
-  def dispatch(proxy_pid, sub_agent, params)
-      when is_pid(proxy_pid) and is_atom(sub_agent) and is_map(params) do
-    GenServer.call(proxy_pid, {:dispatch, sub_agent, params})
+  @spec dispatch(GenServer.server(), atom(), map()) :: {:ok, String.t()} | {:error, term()}
+  def dispatch(proxy, sub_agent, params) when is_atom(sub_agent) and is_map(params) do
+    GenServer.call(proxy, {:dispatch, sub_agent, params})
   end
 
   @doc """
   Returns the current proxy status summary.
   """
-  @spec status(pid()) :: map()
-  def status(proxy_pid) when is_pid(proxy_pid) do
-    GenServer.call(proxy_pid, :status)
+  @spec status(GenServer.server()) :: map()
+  def status(proxy) do
+    GenServer.call(proxy, :status)
   end
 
   @doc """
   Returns the node name tracked by this proxy.
   """
-  @spec node_name(pid()) :: node()
-  def node_name(proxy_pid) when is_pid(proxy_pid) do
-    GenServer.call(proxy_pid, :node_name)
+  @spec node_name(GenServer.server()) :: node()
+  def node_name(proxy) do
+    GenServer.call(proxy, :node_name)
   end
 
   @doc """
   Returns the last known capabilities from the remote worker.
   """
-  @spec capabilities(pid()) :: map() | nil
-  def capabilities(proxy_pid) when is_pid(proxy_pid) do
-    GenServer.call(proxy_pid, :capabilities)
+  @spec capabilities(GenServer.server()) :: map() | nil
+  def capabilities(proxy) do
+    GenServer.call(proxy, :capabilities)
   end
 
   # ── GenServer Callbacks ──────────────────────────────────────────────────
@@ -158,6 +165,7 @@ defmodule CodePuppyControl.Pack.RemoteNodeProxy do
     handshake_fn = Keyword.get(opts, :handshake_fn, &default_handshake/2)
     monitor_fn = Keyword.get(opts, :monitor_fn, &Node.monitor/2)
     handshake_timeout = Keyword.get(opts, :handshake_timeout, @default_handshake_timeout)
+    dispatch_timeout = Keyword.get(opts, :dispatch_timeout, @default_dispatch_timeout)
 
     # Start monitoring the remote node for up/down events.
     # Node.monitor/2 returns a boolean — we generate our own reference
@@ -171,23 +179,33 @@ defmodule CodePuppyControl.Pack.RemoteNodeProxy do
       capabilities: nil,
       active_runs: %{},
       node_ref: node_ref,
+      reconnect_attempts: 0,
       handshake_fn: handshake_fn,
-      handshake_timeout: handshake_timeout
+      handshake_timeout: handshake_timeout,
+      dispatch_timeout: dispatch_timeout
     }
 
-    # Attempt initial capability handshake
-    case handshake_fn.(node_name, handshake_timeout) do
+    # Defer the initial handshake to handle_continue so supervisor
+    # startup doesn't block for up to @default_handshake_timeout ms.
+    {:ok, state, {:continue, :handshake}}
+  end
+
+  # ── Continue Handlers ───────────────────────────────────────────────────
+
+  @impl true
+  def handle_continue(:handshake, state) do
+    case state.handshake_fn.(state.node_name, state.handshake_timeout) do
       {:ok, caps} ->
-        emit_node_telemetry(:connected, node_name, caps)
-        {:ok, %{state | status: :connected, capabilities: caps}}
+        emit_node_telemetry(:connected, state.node_name, caps)
+        {:noreply, %{state | status: :connected, capabilities: caps}}
 
       {:error, _reason} ->
         Logger.warning(
-          "[RemoteNodeProxy] initial handshake with #{inspect(node_name)} failed; " <>
+          "[RemoteNodeProxy] initial handshake with #{inspect(state.node_name)} failed; " <>
             "waiting for :nodeup event"
         )
 
-        {:ok, state}
+        {:noreply, %{state | reconnect_attempts: 1}}
     end
   end
 
@@ -204,7 +222,8 @@ defmodule CodePuppyControl.Pack.RemoteNodeProxy do
       node_name: state.node_name,
       status: state.status,
       active_runs: map_size(state.active_runs),
-      capabilities: state.capabilities
+      capabilities: state.capabilities,
+      reconnect_attempts: state.reconnect_attempts
     }
 
     {:reply, reply, state}
@@ -238,15 +257,18 @@ defmodule CodePuppyControl.Pack.RemoteNodeProxy do
     case state.handshake_fn.(node_name, state.handshake_timeout) do
       {:ok, caps} ->
         emit_node_telemetry(:connected, node_name, caps)
-        {:noreply, %{state | status: :connected, capabilities: caps}}
+        {:noreply, %{state | status: :connected, capabilities: caps, reconnect_attempts: 0}}
 
       {:error, reason} ->
+        new_attempts = state.reconnect_attempts + 1
+
         Logger.warning(
-          "[RemoteNodeProxy] re-handshake with #{inspect(node_name)} failed: #{inspect(reason)}"
+          "[RemoteNodeProxy] re-handshake with #{inspect(node_name)} failed " <>
+            "(attempt #{new_attempts}): #{inspect(reason)}"
         )
 
         # Stay in :connecting — next :nodeup will retry
-        {:noreply, %{state | status: :connecting}}
+        {:noreply, %{state | status: :connecting, reconnect_attempts: new_attempts}}
     end
   end
 
@@ -268,7 +290,41 @@ defmodule CodePuppyControl.Pack.RemoteNodeProxy do
       active_runs: Map.keys(state.active_runs)
     })
 
-    {:noreply, %{state | status: :disconnected}}
+    # Cancel any outstanding dispatch timers for in-flight runs
+    state.active_runs
+    |> Enum.each(fn {_run_id, run_info} ->
+      if run_info.timer_ref, do: Process.cancel_timer(run_info.timer_ref)
+    end)
+
+    {:noreply,
+     %{
+       state
+       | status: :disconnected,
+         active_runs: %{},
+         reconnect_attempts: state.reconnect_attempts + 1
+     }}
+  end
+
+  @impl true
+  def handle_info({:dispatch_timeout, run_id}, state) do
+    case Map.get(state.active_runs, run_id) do
+      nil ->
+        # Already cleaned up (result arrived or nodedown)
+        {:noreply, state}
+
+      _run_info ->
+        Logger.warning(
+          "[RemoteNodeProxy] dispatch timeout for run #{run_id} on #{inspect(state.node_name)}"
+        )
+
+        :telemetry.execute(
+          [:code_puppy, :distributed_pack, :dispatch, :exception],
+          %{run_id: run_id, error: "dispatch_timeout"},
+          %{node: state.node_name}
+        )
+
+        {:noreply, %{state | active_runs: Map.delete(state.active_runs, run_id)}}
+    end
   end
 
   @impl true
@@ -279,13 +335,17 @@ defmodule CodePuppyControl.Pack.RemoteNodeProxy do
   # ── Worker Callback Casts ────────────────────────────────────────────────
 
   @impl true
-  def handle_cast({:result, run_id, result}, state) do
+  def handle_cast({:result, run_id, result}, state)
+      when is_binary(run_id) and is_map(result) do
     case Map.get(state.active_runs, run_id) do
       nil ->
         Logger.warning("[RemoteNodeProxy] received result for unknown run: #{run_id}")
         {:noreply, state}
 
       run_info ->
+        # Cancel the dispatch timeout timer — result arrived in time
+        if run_info.timer_ref, do: Process.cancel_timer(run_info.timer_ref)
+
         duration_ms =
           (System.monotonic_time() - run_info.started_at)
           |> System.convert_time_unit(:native, :millisecond)
@@ -305,14 +365,29 @@ defmodule CodePuppyControl.Pack.RemoteNodeProxy do
     end
   end
 
+  # Guard clause: crash-safe from malformed remote data
   @impl true
-  def handle_cast({:progress, run_id, progress_msg}, state) do
+  def handle_cast({:result, _run_id, _result}, state) do
+    Logger.warning("[RemoteNodeProxy] received malformed result cast — ignoring")
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_cast({:progress, run_id, progress_msg}, state)
+      when is_binary(run_id) and is_map(progress_msg) do
     if Map.has_key?(state.active_runs, run_id) do
       Logger.debug(
         "[RemoteNodeProxy] progress on #{run_id}: #{progress_msg[:type]} — #{progress_msg[:message]}"
       )
     end
 
+    {:noreply, state}
+  end
+
+  # Guard clause: crash-safe from malformed remote data
+  @impl true
+  def handle_cast({:progress, _run_id, _progress_msg}, state) do
+    Logger.warning("[RemoteNodeProxy] received malformed progress cast — ignoring")
     {:noreply, state}
   end
 
@@ -326,7 +401,7 @@ defmodule CodePuppyControl.Pack.RemoteNodeProxy do
       %{capabilities: caps}
     )
 
-    {:noreply, %{state | status: :connected, capabilities: caps}}
+    {:noreply, %{state | status: :connected, capabilities: caps, reconnect_attempts: 0}}
   end
 
   # ── Private Helpers ─────────────────────────────────────────────────────
@@ -355,12 +430,16 @@ defmodule CodePuppyControl.Pack.RemoteNodeProxy do
         %{node: state.node_name, sub_agent: sub_agent}
       )
 
+      timer_ref =
+        Process.send_after(self(), {:dispatch_timeout, run_id}, state.dispatch_timeout)
+
       run_info = %{
         run_id: run_id,
         sub_agent: sub_agent,
         params: params,
         started_at: System.monotonic_time(),
-        status: :dispatched
+        status: :dispatched,
+        timer_ref: timer_ref
       }
 
       {:reply, {:ok, run_id},

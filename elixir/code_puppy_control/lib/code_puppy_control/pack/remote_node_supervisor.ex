@@ -32,16 +32,36 @@ defmodule CodePuppyControl.Pack.RemoteNodeSupervisor do
 
   alias CodePuppyControl.Pack.RemoteNodeProxy
 
+  # ── Child Spec ──────────────────────────────────────────────────────────
+
+  @doc false
+  def child_spec(opts) do
+    %{
+      id: __MODULE__,
+      start: {__MODULE__, :start_link, [opts]},
+      type: :supervisor
+    }
+  end
+
   # ── Public API ───────────────────────────────────────────────────────────
 
   @doc """
   Starts a `RemoteNodeSupervisor` for the given remote node.
 
   `node_name` is an Erlang node atom, e.g. `:"pup_worker@host"`.
+
+  ## Options
+
+  - `:proxy_opts` — keyword list of extra options forwarded to
+    `RemoteNodeProxy.start_link/1` (e.g., `handshake_fn`, `monitor_fn`
+    for testing). The `:node_name` key is always set to `node_name`.
+  - `:name` — override the supervisor registration name (for testing
+    without a Registry)
   """
-  @spec start_link(node()) :: Supervisor.on_start()
-  def start_link(node_name) when is_atom(node_name) do
-    Supervisor.start_link(__MODULE__, node_name, name: via_name(node_name))
+  @spec start_link(node(), keyword()) :: Supervisor.on_start()
+  def start_link(node_name, opts \\ []) when is_atom(node_name) and is_list(opts) do
+    name = Keyword.get(opts, :name, via_name(node_name))
+    Supervisor.start_link(__MODULE__, {node_name, opts}, name: name)
   end
 
   @doc """
@@ -55,23 +75,28 @@ defmodule CodePuppyControl.Pack.RemoteNodeSupervisor do
   # ── Supervisor Callbacks ─────────────────────────────────────────────────
 
   @impl true
-  def init(node_name) when is_atom(node_name) do
+  def init({node_name, opts}) when is_atom(node_name) and is_list(opts) do
+    proxy_opts =
+      opts
+      |> Keyword.get(:proxy_opts, [])
+      |> Keyword.put(:node_name, node_name)
+
     children = [
       %{
         id: :remote_node_proxy,
-        start: {RemoteNodeProxy, :start_link, [[node_name: node_name]]},
+        start: {RemoteNodeProxy, :start_link, [proxy_opts]},
         type: :worker,
         restart: :transient,
         shutdown: 5_000
       }
     ]
 
-    opts = [
+    supervisor_opts = [
       strategy: :one_for_one,
       max_restarts: 3,
       max_seconds: 5
     ]
 
-    Supervisor.init(children, opts)
+    Supervisor.init(children, supervisor_opts)
   end
 end

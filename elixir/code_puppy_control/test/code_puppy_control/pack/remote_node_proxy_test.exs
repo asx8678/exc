@@ -35,7 +35,9 @@ defmodule CodePuppyControl.Pack.RemoteNodeProxyTest do
     test "starts in :connecting when handshake fails" do
       {:ok, pid} = start_proxy()
 
-      assert %{status: :connecting, node_name: @test_node} = RemoteNodeProxy.status(pid)
+      assert %{status: :connecting, node_name: @test_node, reconnect_attempts: 1} =
+               RemoteNodeProxy.status(pid)
+
       assert RemoteNodeProxy.capabilities(pid) == nil
 
       GenServer.stop(pid, :normal)
@@ -45,7 +47,7 @@ defmodule CodePuppyControl.Pack.RemoteNodeProxyTest do
       {:ok, pid} =
         start_proxy(handshake_fn: fn _node, _timeout -> {:ok, mock_caps()} end)
 
-      assert %{status: :connected} = RemoteNodeProxy.status(pid)
+      assert %{status: :connected, reconnect_attempts: 0} = RemoteNodeProxy.status(pid)
       assert RemoteNodeProxy.capabilities(pid) == mock_caps()
 
       GenServer.stop(pid, :normal)
@@ -64,22 +66,61 @@ defmodule CodePuppyControl.Pack.RemoteNodeProxyTest do
       Agent.update(handshake_agent, fn _ -> {:ok, mock_caps()} end)
       send(pid, {:nodeup, @test_node})
 
-      assert %{status: :connected, capabilities: caps} = RemoteNodeProxy.status(pid)
+      assert %{status: :connected, capabilities: caps, reconnect_attempts: 0} =
+               RemoteNodeProxy.status(pid)
+
       assert caps == mock_caps()
 
       Agent.stop(handshake_agent)
       GenServer.stop(pid, :normal)
     end
 
+    test "increments reconnect_attempts on each failed :nodeup handshake" do
+      {:ok, pid} = start_proxy()
+      assert %{reconnect_attempts: 1} = RemoteNodeProxy.status(pid)
+
+      # Send nodeup — handshake still fails
+      send(pid, {:nodeup, @test_node})
+      assert %{reconnect_attempts: 2, status: :connecting} = RemoteNodeProxy.status(pid)
+
+      # Send another nodeup — still failing
+      send(pid, {:nodeup, @test_node})
+      assert %{reconnect_attempts: 3, status: :connecting} = RemoteNodeProxy.status(pid)
+
+      GenServer.stop(pid, :normal)
+    end
+
+    test "resets reconnect_attempts to 0 on successful :nodeup handshake" do
+      {:ok, pid} = start_proxy()
+      assert %{reconnect_attempts: 1} = RemoteNodeProxy.status(pid)
+
+      # We can't swap handshake_fn after init, so use a new proxy
+      GenServer.stop(pid, :normal)
+
+      {:ok, pid2} =
+        start_proxy(
+          handshake_fn: fn _node, _timeout ->
+            # Init handshake succeeds → reconnect_attempts = 0
+            {:ok, mock_caps()}
+          end
+        )
+
+      # Init handshake succeeds → reconnect_attempts = 0
+      assert %{reconnect_attempts: 0, status: :connected} = RemoteNodeProxy.status(pid2)
+
+      GenServer.stop(pid2, :normal)
+    end
+
     test "transitions :connected → :disconnected on :nodedown" do
       {:ok, pid} =
         start_proxy(handshake_fn: fn _node, _timeout -> {:ok, mock_caps()} end)
 
-      assert %{status: :connected} = RemoteNodeProxy.status(pid)
+      assert %{status: :connected, reconnect_attempts: 0} = RemoteNodeProxy.status(pid)
 
       send(pid, {:nodedown, @test_node})
 
-      assert %{status: :disconnected} = RemoteNodeProxy.status(pid)
+      assert %{status: :disconnected, reconnect_attempts: 1} =
+               RemoteNodeProxy.status(pid)
 
       GenServer.stop(pid, :normal)
     end
@@ -221,12 +262,15 @@ defmodule CodePuppyControl.Pack.RemoteNodeProxyTest do
   describe "capabilities cast" do
     test "updates capabilities and transitions to :connected" do
       {:ok, pid} = start_proxy()
-      assert %{status: :connecting, capabilities: nil} = RemoteNodeProxy.status(pid)
+
+      assert %{status: :connecting, capabilities: nil, reconnect_attempts: 1} =
+               RemoteNodeProxy.status(pid)
 
       new_caps = mock_caps()
       GenServer.cast(pid, {:capabilities, new_caps})
 
-      assert %{status: :connected, capabilities: ^new_caps} = RemoteNodeProxy.status(pid)
+      assert %{status: :connected, capabilities: ^new_caps, reconnect_attempts: 0} =
+               RemoteNodeProxy.status(pid)
 
       GenServer.stop(pid, :normal)
     end
@@ -260,7 +304,7 @@ defmodule CodePuppyControl.Pack.RemoteNodeProxyTest do
           end
         )
 
-      assert %{status: :connecting} = RemoteNodeProxy.status(pid)
+      assert %{status: :connecting, reconnect_attempts: 1} = RemoteNodeProxy.status(pid)
       assert RemoteNodeProxy.capabilities(pid) == nil
 
       GenServer.stop(pid, :normal)
@@ -273,13 +317,15 @@ defmodule CodePuppyControl.Pack.RemoteNodeProxyTest do
 
       {:ok, pid} = start_proxy(handshake_fn: handshake_fn)
 
-      assert %{status: :connecting} = RemoteNodeProxy.status(pid)
+      assert %{status: :connecting, reconnect_attempts: 1} = RemoteNodeProxy.status(pid)
 
       # Make handshake succeed for the nodeup event
       Agent.update(handshake_agent, fn _ -> {:ok, mock_caps()} end)
       send(pid, {:nodeup, @test_node})
 
-      assert %{status: :connected, capabilities: caps} = RemoteNodeProxy.status(pid)
+      assert %{status: :connected, capabilities: caps, reconnect_attempts: 0} =
+               RemoteNodeProxy.status(pid)
+
       assert caps == mock_caps()
 
       Agent.stop(handshake_agent)
@@ -290,7 +336,7 @@ defmodule CodePuppyControl.Pack.RemoteNodeProxyTest do
   # ── In-flight Runs on Disconnect ─────────────────────────────────────────
 
   describe "nodedown with active runs" do
-    test "nodedown does not remove active runs from state" do
+    test "nodedown clears active runs from state" do
       {:ok, pid} =
         start_proxy(handshake_fn: fn _node, _timeout -> {:ok, mock_caps()} end)
 
@@ -299,7 +345,7 @@ defmodule CodePuppyControl.Pack.RemoteNodeProxyTest do
 
       send(pid, {:nodedown, @test_node})
 
-      assert %{status: :disconnected} = RemoteNodeProxy.status(pid)
+      assert %{status: :disconnected, active_runs: 0} = RemoteNodeProxy.status(pid)
 
       GenServer.stop(pid, :normal)
     end
@@ -486,6 +532,150 @@ defmodule CodePuppyControl.Pack.RemoteNodeProxyTest do
       assert_received {:telemetry_caps_updated, %{node: @test_node}, %{capabilities: ^new_caps}}
 
       :telemetry.detach(handler_id)
+      GenServer.stop(pid, :normal)
+    end
+  end
+
+  # ── Dispatch Timeout ──────────────────────────────────────────────────────
+
+  describe "dispatch timeout" do
+    test "removes run from active_runs after dispatch timeout fires" do
+      # Use a very short timeout so the test runs fast
+      {:ok, pid} =
+        start_proxy(
+          handshake_fn: fn _node, _timeout -> {:ok, mock_caps()} end,
+          dispatch_timeout: 50
+        )
+
+      assert {:ok, _run_id} = RemoteNodeProxy.dispatch(pid, :terrier, %{worktree_path: "."})
+      assert %{active_runs: 1} = RemoteNodeProxy.status(pid)
+
+      # Wait for the timeout to fire
+      Process.sleep(100)
+
+      assert %{active_runs: 0} = RemoteNodeProxy.status(pid)
+
+      GenServer.stop(pid, :normal)
+    end
+
+    test "emits dispatch exception telemetry on timeout" do
+      events = [:code_puppy, :distributed_pack, :dispatch, :exception]
+      handler_id = make_ref()
+
+      :telemetry.attach(
+        handler_id,
+        events,
+        fn _name, measurements, metadata, acc ->
+          send(acc, {:telemetry_dispatch_timeout, measurements, metadata})
+        end,
+        self()
+      )
+
+      {:ok, pid} =
+        start_proxy(
+          handshake_fn: fn _node, _timeout -> {:ok, mock_caps()} end,
+          dispatch_timeout: 50
+        )
+
+      assert {:ok, run_id} = RemoteNodeProxy.dispatch(pid, :terrier, %{worktree_path: "."})
+
+      # Wait for the timeout to fire
+      Process.sleep(100)
+
+      assert_received {:telemetry_dispatch_timeout, %{run_id: ^run_id, error: "dispatch_timeout"},
+                       %{node: @test_node}}
+
+      :telemetry.detach(handler_id)
+      GenServer.stop(pid, :normal)
+    end
+
+    test "timer is cancelled when result arrives before timeout" do
+      {:ok, pid} =
+        start_proxy(
+          handshake_fn: fn _node, _timeout -> {:ok, mock_caps()} end,
+          dispatch_timeout: 5_000
+        )
+
+      assert {:ok, run_id} = RemoteNodeProxy.dispatch(pid, :terrier, %{worktree_path: "."})
+      assert %{active_runs: 1} = RemoteNodeProxy.status(pid)
+
+      # Send result before timeout fires
+      GenServer.cast(pid, {:result, run_id, %{status: :success, output: "done"}})
+      RemoteNodeProxy.status(pid)
+
+      assert %{active_runs: 0} = RemoteNodeProxy.status(pid)
+
+      # Verify no stale timeout message arrives later
+      refute_receive {:dispatch_timeout, ^run_id}, 200
+
+      GenServer.stop(pid, :normal)
+    end
+
+    test "timeout for unknown run_id is a no-op" do
+      {:ok, pid} =
+        start_proxy(
+          handshake_fn: fn _node, _timeout -> {:ok, mock_caps()} end,
+          dispatch_timeout: 5_000
+        )
+
+      # Send a manual dispatch_timeout for a non-existent run
+      send(pid, {:dispatch_timeout, "bogus_run_id"})
+
+      # Should not crash
+      assert %{active_runs: 0} = RemoteNodeProxy.status(pid)
+
+      GenServer.stop(pid, :normal)
+    end
+  end
+
+  # ── Malformed Casts ──────────────────────────────────────────────────────
+
+  describe "malformed cast guards" do
+    test "malformed result cast (non-binary run_id) is ignored" do
+      {:ok, pid} =
+        start_proxy(handshake_fn: fn _node, _timeout -> {:ok, mock_caps()} end)
+
+      GenServer.cast(pid, {:result, 12345, %{status: :success}})
+
+      # Should not crash
+      assert %{active_runs: 0} = RemoteNodeProxy.status(pid)
+
+      GenServer.stop(pid, :normal)
+    end
+
+    test "malformed result cast (non-map result) is ignored" do
+      {:ok, pid} =
+        start_proxy(handshake_fn: fn _node, _timeout -> {:ok, mock_caps()} end)
+
+      GenServer.cast(pid, {:result, "some_run", "not_a_map"})
+
+      # Should not crash
+      assert %{active_runs: 0} = RemoteNodeProxy.status(pid)
+
+      GenServer.stop(pid, :normal)
+    end
+
+    test "malformed progress cast (non-binary run_id) is ignored" do
+      {:ok, pid} =
+        start_proxy(handshake_fn: fn _node, _timeout -> {:ok, mock_caps()} end)
+
+      GenServer.cast(pid, {:progress, 12345, %{type: :milestone, message: "hi"}})
+
+      # Should not crash
+      assert %{active_runs: 0} = RemoteNodeProxy.status(pid)
+
+      GenServer.stop(pid, :normal)
+    end
+
+    test "malformed progress cast (non-map msg) is ignored" do
+      {:ok, pid} =
+        start_proxy(handshake_fn: fn _node, _timeout -> {:ok, mock_caps()} end)
+
+      GenServer.cast(pid, {:progress, "some_run", "not_a_map"})
+
+      # Should not crash
+      assert %{active_runs: 0} = RemoteNodeProxy.status(pid)
+
       GenServer.stop(pid, :normal)
     end
   end
