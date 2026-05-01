@@ -124,8 +124,6 @@ defmodule CodePuppyControl.Telemetry do
   @typedoc "Capability map"
   @type capabilities :: map()
 
-  alias CodePuppyControl.Telemetry.DistributedPack
-
   # ============================================================================
   # Run Lifecycle Events
   # ============================================================================

@@ -153,8 +153,7 @@ defmodule CodePuppyControl.Pack.Worker do
           started_at: System.monotonic_time(:millisecond)
         })
 
-      {:noreply,
-       %{state | leader_node: dispatch_msg.leader_node, active_runs: active_runs}}
+      {:noreply, %{state | leader_node: dispatch_msg.leader_node, active_runs: active_runs}}
     else
       {:error, reason} ->
         Logger.warning(
@@ -167,8 +166,7 @@ defmodule CodePuppyControl.Pack.Worker do
         if dispatch_msg[:leader_pid] do
           GenServer.cast(
             dispatch_msg.leader_pid,
-            {:result, dispatch_msg[:run_id] || "unknown",
-             %{status: :failure, error: reason}}
+            {:result, dispatch_msg[:run_id] || "unknown", %{status: :failure, error: reason}}
           )
         end
 
@@ -255,8 +253,9 @@ defmodule CodePuppyControl.Pack.Worker do
     if Enum.all?(required_keys, &Map.has_key?(dispatch_msg, &1)) do
       :ok
     else
-      {:error, "malformed_dispatch: missing required keys " <>
-        "#{inspect(required_keys -- Map.keys(dispatch_msg))}"}
+      {:error,
+       "malformed_dispatch: missing required keys " <>
+         "#{inspect(required_keys -- Map.keys(dispatch_msg))}"}
     end
   end
 
