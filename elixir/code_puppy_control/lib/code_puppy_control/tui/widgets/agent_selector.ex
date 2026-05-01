@@ -185,13 +185,21 @@ defmodule CodePuppyControl.TUI.Widgets.AgentSelector do
   end
 
   defp build_table(rows) do
-    if function_exported?(Owl.Table, :new, 1) do
+    if function_exported?(Owl.Table, :new, 1) and
+         not Application.get_env(:code_puppy_control, :force_build_table_fallback, false) do
       Owl.Table.new(rows)
     else
-      # Fallback: plain text rows
+      # Fallback: extract plain text from Owl.Data tags
       rows
       |> Enum.map(fn row ->
-        plain = row |> to_string()
+        plain =
+          row
+          |> Enum.map(fn
+            %Owl.Tag{data: data} -> data
+            other -> to_string(other)
+          end)
+          |> Enum.join("")
+
         ["  ", plain, "\n"]
       end)
     end
@@ -200,7 +208,8 @@ defmodule CodePuppyControl.TUI.Widgets.AgentSelector do
   # ── Private: Interactive Selection ────────────────────────────────────────
 
   defp interactive_select(agents, slugs, label) do
-    if function_exported?(Owl.IO, :select, 2) do
+    if function_exported?(Owl.IO, :select, 2) and
+         not Application.get_env(:code_puppy_control, :force_fallback_select, false) do
       owl_select(agents, slugs, label)
     else
       fallback_select(agents, slugs, label)

@@ -212,11 +212,17 @@ defmodule CodePuppyControl.TUI.Widgets.ModelSelector do
     if function_exported?(Owl.Table, :new, 1) do
       Owl.Table.new(rows)
     else
-      # Fallback: plain text rows
+      # Fallback: extract plain text from Owl.Data tags
       rows
       |> Enum.map(fn row ->
-        # Strip Owl tags for plain output
-        plain = row |> to_string()
+        plain =
+          row
+          |> Enum.map(fn
+            %Owl.Tag{data: data} -> data
+            other -> to_string(other)
+          end)
+          |> Enum.join("")
+
         ["  ", plain, "\n"]
       end)
     end
