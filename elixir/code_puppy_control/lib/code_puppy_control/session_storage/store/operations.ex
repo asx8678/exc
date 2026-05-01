@@ -85,7 +85,16 @@ defmodule CodePuppyControl.SessionStorage.Store.Operations do
 
   @spec do_delete_session(String.t()) :: :ok
   def do_delete_session(name) do
-    :ok = Sessions.delete_session(name)
+    # SQLite write is best-effort — ETS cleanup always happens
+    try do
+      Sessions.delete_session(name)
+    rescue
+      e ->
+        Logger.warning(
+          "Store: delete_session SQLite write failed for #{name}: #{inspect(e)}"
+        )
+    end
+
     :ets.delete(@session_table, name)
     had_terminal = match?([{^name, _}], :ets.lookup(@terminal_table, name))
     :ets.delete(@terminal_table, name)
