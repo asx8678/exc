@@ -35,7 +35,7 @@ defmodule CodePuppyControl.TUI.Renderer.Buffer do
   def flush_all_text_buffers(text_buffer) do
     text_buffer
     |> Enum.each(fn {_idx, chunks} ->
-      if chunks != [] do
+      if is_list(chunks) and chunks != [] do
         text = IO.iodata_to_binary(chunks)
         OwlOutput.owl_puts(Markdown.render(text))
       end
@@ -53,7 +53,7 @@ defmodule CodePuppyControl.TUI.Renderer.Buffer do
   def flush_all_thinking_buffers(thinking_buffer) do
     thinking_buffer
     |> Enum.each(fn {_idx, chunks} ->
-      if chunks != [] do
+      if is_list(chunks) and chunks != [] do
         text = IO.iodata_to_binary(chunks)
         OwlOutput.owl_puts(Owl.Data.tag(Markdown.render(text), :faint))
       end

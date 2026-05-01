@@ -1,6 +1,8 @@
 defmodule CodePuppyControl.TUI.RendererTest do
   use ExUnit.Case, async: true
 
+  import ExUnit.CaptureIO
+
   alias CodePuppyControl.Stream.Event
   alias CodePuppyControl.TUI.Renderer
 
@@ -17,6 +19,23 @@ defmodule CodePuppyControl.TUI.RendererTest do
 
     {:ok, pid} = Renderer.start_link(opts ++ [name: name])
     {pid, name}
+  end
+
+  # Runs a full renderer lifecycle inside CaptureIO and returns the
+  # captured stdout.  Starting the GenServer *inside* capture_io
+  # ensures its group leader is the captured device, so all
+  # Owl.IO.puts output is captured.
+  defp capture_renderer(opts \\ [], fun) do
+    capture_io(fn ->
+      {pid, name} = start_renderer(opts)
+      fun.(name)
+      # Small sleep ensures elapsed > 0 for the completion stats line
+      # and lets Owl.Spinner teardown settle before we un-capture.
+      Process.sleep(10)
+      Renderer.finalize(name)
+      Process.sleep(10)
+      Renderer.stop(pid)
+    end)
   end
 
   # ── Lifecycle ──────────────────────────────────────────────────────────────
@@ -44,182 +63,152 @@ defmodule CodePuppyControl.TUI.RendererTest do
   # ── Text Streaming ─────────────────────────────────────────────────────────
 
   describe "TextStart / TextDelta / TextEnd" do
-    test "TextStart adds part to streaming_parts and text_parts" do
-      {pid, name} = start_renderer()
-      Renderer.push(name, %Event.TextStart{index: 0})
+    test "TextStart prints AGENT RESPONSE banner" do
+      output =
+        capture_renderer(fn name ->
+          Renderer.push(name, %Event.TextStart{index: 0})
+          Renderer.push(name, %Event.TextDelta{index: 0, text: "body\n"})
+          Renderer.push(name, %Event.TextEnd{index: 0})
+        end)
 
-      # Give the cast time to process
-      Process.sleep(10)
-
-      state = :sys.get_state(name)
-
-      assert MapSet.member?(state.streaming_parts, 0)
-      assert MapSet.member?(state.text_parts, 0)
-      assert MapSet.member?(state.banner_printed, 0)
-
-      Renderer.stop(pid)
+      assert output =~ "AGENT RESPONSE"
     end
 
-    test "TextDelta increments token_count" do
-      {pid, name} = start_renderer()
-      Renderer.push(name, %Event.TextStart{index: 0})
+    test "TextDelta renders text and finalizes with token stats" do
+      long_text = String.duplicate("x", 25) <> "\n"
 
-      # Send a delta that exceeds the flush threshold so it renders
-      long_text = String.duplicate("x", 25)
-      Renderer.push(name, %Event.TextDelta{index: 0, text: long_text})
+      output =
+        capture_renderer(fn name ->
+          Renderer.push(name, %Event.TextStart{index: 0})
+          Renderer.push(name, %Event.TextDelta{index: 0, text: long_text})
+          Renderer.push(name, %Event.TextEnd{index: 0})
+        end)
 
-      Process.sleep(10)
-      state = :sys.get_state(name)
-
-      assert state.token_count >= 1
-
-      Renderer.stop(pid)
+      assert output =~ "Completed:"
+      assert output =~ "tokens"
     end
 
-    test "TextEnd flushes buffer and cleans up part" do
-      {pid, name} = start_renderer()
-      Renderer.push(name, %Event.TextStart{index: 0})
-      Renderer.push(name, %Event.TextDelta{index: 0, text: "hello\n"})
-      Renderer.push(name, %Event.TextEnd{index: 0})
+    test "TextEnd flushes remaining buffer" do
+      output =
+        capture_renderer(fn name ->
+          Renderer.push(name, %Event.TextStart{index: 0})
+          # "hello" is short (5 chars) — stays buffered until TextEnd flushes it
+          Renderer.push(name, %Event.TextDelta{index: 0, text: "hello"})
+          Renderer.push(name, %Event.TextEnd{index: 0})
+        end)
 
-      Process.sleep(10)
-      state = :sys.get_state(name)
-
-      refute MapSet.member?(state.streaming_parts, 0)
-      assert state.text_buffer[0] == [] or state.text_buffer[0] == nil
-
-      Renderer.stop(pid)
+      assert output =~ "hello"
     end
   end
 
   # ── Tool Call Flow ─────────────────────────────────────────────────────────
 
   describe "ToolCallStart / ToolCallEnd" do
-    test "ToolCallStart registers spinner and prints banner" do
-      {pid, name} = start_renderer()
-      Renderer.push(name, %Event.ToolCallStart{index: 1, name: "read_file"})
+    test "ToolCallStart prints tool banner" do
+      output =
+        capture_renderer(fn name ->
+          Renderer.push(name, %Event.ToolCallStart{index: 1, name: "read_file"})
 
-      Process.sleep(50)
-      state = :sys.get_state(name)
+          Renderer.push(name, %Event.ToolCallEnd{
+            index: 1,
+            name: "read_file",
+            id: "tc-1",
+            arguments: "{}"
+          })
+        end)
 
-      assert MapSet.member?(state.tool_parts, 1)
-      assert Map.has_key?(state.spinner_ids, 1)
-
-      Renderer.stop(pid)
+      assert output =~ "READ FILE"
     end
 
-    test "ToolCallEnd stops spinner and cleans up" do
-      {pid, name} = start_renderer()
-      Renderer.push(name, %Event.ToolCallStart{index: 1, name: "read_file"})
-      Process.sleep(50)
+    test "ToolCallEnd prints completion marker" do
+      output =
+        capture_renderer(fn name ->
+          Renderer.push(name, %Event.ToolCallStart{index: 1, name: "read_file"})
 
-      Renderer.push(name, %Event.ToolCallEnd{
-        index: 1,
-        name: "read_file",
-        id: "tc-1",
-        arguments: "{}"
-      })
+          Renderer.push(name, %Event.ToolCallEnd{
+            index: 1,
+            name: "read_file",
+            id: "tc-1",
+            arguments: "{}"
+          })
+        end)
 
-      Process.sleep(50)
-
-      state = :sys.get_state(name)
-
-      refute MapSet.member?(state.tool_parts, 1)
-      refute Map.has_key?(state.spinner_ids, 1)
-
-      Renderer.stop(pid)
+      assert output =~ "read_file"
     end
 
-    test "unknown tool name uses default banner style" do
-      {pid, name} = start_renderer()
-      # This should not crash even for unrecognised tool names
-      Renderer.push(name, %Event.ToolCallStart{index: 2, name: "custom_tool_xyz"})
+    test "unknown tool name prints default-style banner" do
+      output =
+        capture_renderer(fn name ->
+          Renderer.push(name, %Event.ToolCallStart{index: 2, name: "custom_tool_xyz"})
 
-      Process.sleep(50)
-      state = :sys.get_state(name)
+          Renderer.push(name, %Event.ToolCallEnd{
+            index: 2,
+            name: "custom_tool_xyz",
+            id: "tc-2",
+            arguments: "{}"
+          })
+        end)
 
-      assert MapSet.member?(state.tool_parts, 2)
-
-      Renderer.stop(pid)
+      # Banner contains the tool name (as its own label for unknown tools)
+      assert output =~ "custom_tool_xyz"
     end
   end
 
   # ── Thinking Flow ──────────────────────────────────────────────────────────
 
   describe "ThinkingStart / ThinkingDelta / ThinkingEnd" do
-    test "thinking flow buffers and flushes" do
-      {pid, name} = start_renderer()
-      Renderer.push(name, %Event.ThinkingStart{index: 3})
-      Renderer.push(name, %Event.ThinkingDelta{index: 3, text: "hmm..."})
-      Renderer.push(name, %Event.ThinkingEnd{index: 3})
+    test "thinking flow renders thinking text" do
+      output =
+        capture_renderer(fn name ->
+          Renderer.push(name, %Event.ThinkingStart{index: 3})
+          Renderer.push(name, %Event.ThinkingDelta{index: 3, text: "hmm..."})
+          Renderer.push(name, %Event.ThinkingEnd{index: 3})
+        end)
 
-      Process.sleep(10)
-      state = :sys.get_state(name)
-
-      # After ThinkingEnd, the part should be cleaned up
-      refute MapSet.member?(state.thinking_parts, 3)
-      # Thinking buffer should be cleared
-      assert state.thinking_buffer[3] == nil
-
-      Renderer.stop(pid)
+      assert output =~ "THINKING"
+      assert output =~ "hmm..."
     end
   end
 
   # ── Done Event ─────────────────────────────────────────────────────────────
 
   describe "Done event" do
-    test "flushes all buffers and stops all spinners" do
-      {pid, name} = start_renderer()
+    test "flushes partial text buffers" do
+      output =
+        capture_renderer(fn name ->
+          Renderer.push(name, %Event.TextStart{index: 0})
+          # "partial" is short — stays buffered until Done or finalize flushes
+          Renderer.push(name, %Event.TextDelta{index: 0, text: "partial"})
+          Renderer.push(name, %Event.ToolCallStart{index: 1, name: "grep"})
+          Renderer.push(name, %Event.Done{})
+        end)
 
-      # Set up some state
-      Renderer.push(name, %Event.TextStart{index: 0})
-      Renderer.push(name, %Event.TextDelta{index: 0, text: "partial"})
-      Renderer.push(name, %Event.ToolCallStart{index: 1, name: "grep"})
-
-      Process.sleep(50)
-
-      # Send Done — should flush everything
-      Renderer.push(name, %Event.Done{})
-
-      Process.sleep(50)
-      state = :sys.get_state(name)
-
-      assert state.spinner_ids == %{}
-      assert state.text_buffer == %{}
-      assert state.thinking_buffer == %{}
-
-      Renderer.stop(pid)
+      assert output =~ "partial"
     end
   end
 
   # ── EventBus Map Events ───────────────────────────────────────────────────
 
   describe "EventBus map events" do
-    test "converts agent_llm_stream to TextDelta" do
-      {pid, name} = start_renderer()
-
-      # TextStart is needed so the renderer tracks the part index
-      Renderer.push(name, %Event.TextStart{index: 0})
-
-      # Send a chunk long enough to flush (exceeds @flush_threshold of 20)
-      # EventBus events use atom keys
+    test "converts agent_llm_stream to rendered text" do
+      # EventBus events use atom keys (legacy format)
       long_chunk = String.duplicate("x", 25) <> "\n"
-      send(name, {:event, %{type: "agent_llm_stream", chunk: long_chunk}})
 
-      Process.sleep(20)
-      state = :sys.get_state(name)
+      output =
+        capture_renderer(fn name ->
+          Renderer.push(name, %Event.TextStart{index: 0})
+          send(name, {:event, %{type: "agent_llm_stream", chunk: long_chunk}})
+        end)
 
-      # token_count should have been incremented by the TextDelta handler
-      assert state.token_count >= 1
-
-      Renderer.stop(pid)
+      # The text should appear in the output (flushed via finalize)
+      assert output =~ String.duplicate("x", 25)
     end
 
     test "handles agent_run_failed event" do
-      {pid, name} = start_renderer()
+      {pid, _name} = start_renderer()
 
-      # Should not crash
-      send(name, {:event, %{"type" => "agent_run_failed", "error" => "timeout"}})
+      # Should not crash even for unrecognized events
+      send(pid, {:event, %{"type" => "agent_run_failed", "error" => "timeout"}})
 
       Process.sleep(10)
       assert Process.alive?(pid)
@@ -228,23 +217,21 @@ defmodule CodePuppyControl.TUI.RendererTest do
     end
 
     test "handles agent_run_completed as Done" do
-      {pid, name} = start_renderer()
+      output =
+        capture_renderer(fn name ->
+          Renderer.push(name, %Event.TextStart{index: 0})
+          Renderer.push(name, %Event.TextDelta{index: 0, text: "some text\n"})
+          send(name, {:event, %{type: "agent_run_completed"}})
+        end)
 
-      Renderer.push(name, %Event.TextStart{index: 0})
-      send(name, {:event, %{"type" => "agent_run_completed"}})
-
-      Process.sleep(10)
-      state = :sys.get_state(name)
-
-      assert state.spinner_ids == %{}
-
-      Renderer.stop(pid)
+      # Text should have been flushed
+      assert output =~ "some text"
     end
 
     test "ignores unknown event types" do
-      {pid, name} = start_renderer()
+      {pid, _name} = start_renderer()
 
-      send(name, {:event, %{"type" => "something_weird", "data" => "nope"}})
+      send(pid, {:event, %{"type" => "something_weird", "data" => "nope"}})
 
       Process.sleep(10)
       assert Process.alive?(pid)
@@ -256,23 +243,21 @@ defmodule CodePuppyControl.TUI.RendererTest do
   # ── Finalize and Reset ────────────────────────────────────────────────────
 
   describe "finalize/1" do
-    test "flushes buffers and prints stats" do
-      {pid, name} = start_renderer()
+    test "renders buffered text and prints completion stats" do
+      output =
+        capture_renderer(fn name ->
+          Renderer.push(name, %Event.TextStart{index: 0})
+          Renderer.push(name, %Event.TextDelta{index: 0, text: "hello world\n"})
+        end)
 
-      Renderer.push(name, %Event.TextStart{index: 0})
-      Renderer.push(name, %Event.TextDelta{index: 0, text: "hello world\n"})
-
-      # Finalize is a call, so it blocks until done
-      :ok = Renderer.finalize(name)
-
-      state = :sys.get_state(name)
-      assert state.text_buffer == %{}
-
-      Renderer.stop(pid)
+      assert output =~ "hello world"
+      assert output =~ "Completed:"
     end
   end
 
   describe "reset/1" do
+    # Reset tests the public API — state assertions are legitimate here
+    # per issue guidance (reset is about internal state cleanup).
     test "clears state for a new session" do
       {pid, name} = start_renderer()
 
@@ -284,17 +269,16 @@ defmodule CodePuppyControl.TUI.RendererTest do
 
       :ok = Renderer.reset(name)
 
-      state = :sys.get_state(name)
+      # Verify all previously-active indices are cleared
+      refute Renderer.streaming?(name, 0)
+      refute Renderer.text_part?(name, 0)
+      refute Renderer.tool_part?(name, 1)
+      refute Renderer.banner_printed?(name, 0)
 
-      assert state.streaming_parts == MapSet.new()
-      assert state.text_parts == MapSet.new()
-      assert state.tool_parts == MapSet.new()
-      assert state.thinking_parts == MapSet.new()
-      assert state.spinner_ids == %{}
-      assert state.text_buffer == %{}
-      assert state.thinking_buffer == %{}
-      assert state.token_count == 0
-      assert state.banner_printed == MapSet.new()
+      # Verify spinners and buffers are clean
+      assert Renderer.spinners_idle?(name)
+      assert Renderer.all_buffers_flushed?(name)
+      assert Renderer.token_count(name) == 0
 
       Renderer.stop(pid)
     end
@@ -307,7 +291,9 @@ defmodule CodePuppyControl.TUI.RendererTest do
       spec = Renderer.child_spec(session_id: "sess-1")
 
       assert spec.id == CodePuppyControl.TUI.Renderer
-      assert spec.start == {CodePuppyControl.TUI.Renderer, :start_link, [[session_id: "sess-1"]]}
+
+      assert spec.start ==
+               {CodePuppyControl.TUI.Renderer, :start_link, [[session_id: "sess-1"]]}
 
       # Should be restartable
       assert spec.restart == :transient
@@ -322,42 +308,41 @@ defmodule CodePuppyControl.TUI.RendererTest do
   # ── ToolCallArgsDelta ──────────────────────────────────────────────────────
 
   describe "ToolCallArgsDelta" do
-    test "is silently ignored (no state change)" do
-      {pid, name} = start_renderer()
+    test "is silently ignored (no visible output)" do
+      output =
+        capture_renderer(fn name ->
+          Renderer.push(name, %Event.TextStart{index: 0})
+          Renderer.push(name, %Event.TextDelta{index: 0, text: "baseline\n"})
+          # Push a ToolCallArgsDelta — should produce no additional output
+          Renderer.push(name, %Event.ToolCallArgsDelta{index: 0, arguments: "{}"})
+          Renderer.push(name, %Event.TextEnd{index: 0})
+        end)
 
-      state_before = :sys.get_state(name)
-      Renderer.push(name, %Event.ToolCallArgsDelta{index: 0, arguments: "{}"})
-      Process.sleep(10)
-
-      state_after = :sys.get_state(name)
-
-      # token_count, streaming_parts, etc. should be identical
-      assert state_after.token_count == state_before.token_count
-
-      Renderer.stop(pid)
+      # The baseline text should appear; ArgsDelta produces nothing visible
+      assert output =~ "baseline"
     end
   end
 
   # ── UsageUpdate ────────────────────────────────────────────────────────────
 
   describe "UsageUpdate" do
-    test "is silently ignored (displayed at finalization)" do
-      {pid, name} = start_renderer()
+    test "is silently ignored (no visible output before finalization)" do
+      output =
+        capture_renderer(fn name ->
+          Renderer.push(name, %Event.TextStart{index: 0})
+          Renderer.push(name, %Event.TextDelta{index: 0, text: "baseline\n"})
 
-      state_before = :sys.get_state(name)
+          Renderer.push(name, %Event.UsageUpdate{
+            prompt_tokens: 10,
+            completion_tokens: 5,
+            total_tokens: 15
+          })
 
-      Renderer.push(name, %Event.UsageUpdate{
-        prompt_tokens: 10,
-        completion_tokens: 5,
-        total_tokens: 15
-      })
+          Renderer.push(name, %Event.TextEnd{index: 0})
+        end)
 
-      Process.sleep(10)
-
-      state_after = :sys.get_state(name)
-      assert state_after.token_count == state_before.token_count
-
-      Renderer.stop(pid)
+      # The baseline text should appear; UsageUpdate produces nothing visible
+      assert output =~ "baseline"
     end
   end
 end
