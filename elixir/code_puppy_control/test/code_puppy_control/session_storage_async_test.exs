@@ -11,6 +11,7 @@ defmodule CodePuppyControl.SessionStorageAsyncTest do
 
   use ExUnit.Case, async: false
 
+  alias CodePuppyControl.Repo
   alias CodePuppyControl.SessionStorage
   alias CodePuppyControl.SessionStorage.AutosaveTracker
 
@@ -19,6 +20,13 @@ defmodule CodePuppyControl.SessionStorageAsyncTest do
   # ---------------------------------------------------------------------------
 
   setup do
+    # Several tests interact with the Store GenServer (which uses Ecto/Repo)
+    # when not providing :base_dir.  Check out a sandbox connection in
+    # {:shared, self()} mode so the Store's process can also use the Repo.
+    # (code_puppy-i1n)
+    :ok = Ecto.Adapters.SQL.Sandbox.checkout(Repo)
+    :ok = Ecto.Adapters.SQL.Sandbox.mode(Repo, {:shared, self()})
+
     tmp =
       Path.join(
         System.tmp_dir!(),

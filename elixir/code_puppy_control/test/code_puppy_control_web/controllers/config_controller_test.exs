@@ -99,7 +99,7 @@ defmodule CodePuppyControlWeb.ConfigControllerTest do
     test "returns 422 when value is a map (complex type)" do
       conn =
         build_conn()
-        |> put_json("/api/config/model", %{value: %{nested: true}})
+        |> put_json("/api/config/some_key", %{value: %{nested: true}})
 
       body = json_response(conn, 422)
       assert body["error"] =~ "must be a string, number, boolean, or null"
@@ -109,7 +109,7 @@ defmodule CodePuppyControlWeb.ConfigControllerTest do
     test "returns 422 when value is a list (complex type)" do
       conn =
         build_conn()
-        |> put_json("/api/config/model", %{value: [1, 2, 3]})
+        |> put_json("/api/config/some_key", %{value: [1, 2, 3]})
 
       body = json_response(conn, 422)
       assert body["error"] =~ "must be a string, number, boolean, or null"

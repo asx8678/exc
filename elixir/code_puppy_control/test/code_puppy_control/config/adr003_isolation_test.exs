@@ -16,6 +16,10 @@ defmodule CodePuppyControl.Config.ADR003IsolationTest do
   @home Path.expand("~")
 
   setup do
+    # (code_puppy-i1n) Ensure Config.Writer is alive — prior tests
+    # may have destabilised the supervision tree.
+    CodePuppyControl.TestSupport.Reset.ensure_gen_server_started(CodePuppyControl.Config.Writer)
+
     on_exit(fn ->
       System.delete_env("PUP_EX_HOME")
       System.delete_env("PUP_HOME")

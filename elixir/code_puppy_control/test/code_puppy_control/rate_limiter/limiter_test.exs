@@ -5,8 +5,23 @@ defmodule CodePuppyControl.RateLimiterTest do
   alias CodePuppyControl.RateLimiter.{Bucket, Adaptive}
 
   setup do
+    # (code_puppy-i1n) Ensure RateLimiter.Supervisor and its child are alive.
+    # If a prior test killed a supervised process, the supervisor subtree
+    # may be dead.  Restarting the supervisor recovers the RateLimiter.
+    CodePuppyControl.TestSupport.Reset.ensure_gen_server_started(
+      CodePuppyControl.RateLimiter.Supervisor
+    )
+
     if Process.whereis(RateLimiter) do
       RateLimiter.ping()
+    else
+      # Supervisor is alive but RateLimiter child might not be;
+      # restart_child recovers it from the child spec.
+      try do
+        Supervisor.restart_child(CodePuppyControl.RateLimiter.Supervisor, RateLimiter)
+      catch
+        :exit, _ -> :ok
+      end
     end
 
     RateLimiter.clear()

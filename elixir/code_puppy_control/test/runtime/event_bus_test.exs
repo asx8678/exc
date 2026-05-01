@@ -10,6 +10,12 @@ defmodule CodePuppyControl.Runtime.EventBusTest do
 
   alias CodePuppyControl.EventBus
 
+  # (code_puppy-i1n) PubSub must be alive for subscribe/broadcast tests.
+  setup_all do
+    CodePuppyControl.TestSupport.Reset.ensure_gen_server_started(CodePuppyControl.PubSub)
+    :ok
+  end
+
   # ---------------------------------------------------------------------------
   # Topic Helpers
   # ---------------------------------------------------------------------------

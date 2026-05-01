@@ -664,29 +664,37 @@ defmodule CodePuppyControl.CLI.SlashCommands.Commands.AddModelInteractiveTest do
     fixture_path = write_fixture_data!(tmp_dir)
 
     # The app supervisor starts ModelsDevParser.Registry. We need to stop
-    # it and restart with fixture data. To prevent the app supervisor from
-    # race-restarting it, we terminate AND delete the child spec, then
-    # start our own under the test supervisor.
+    # it and restart with fixture data. We terminate the child (keeping
+    # the child spec) so the supervisor can restart it later if the
+    # application tree recovers.  (code_puppy-i1n) Do NOT call
+    # Supervisor.delete_child/2 — permanently removing the child spec
+    # prevents the application supervisor from restarting it after a
+    # crash, which leaves ModelsDevParser.Registry permanently dead and
+    # cascades to every downstream test.
     case Process.whereis(ModelsDevParser.Registry) do
       nil ->
         :ok
 
       _pid ->
-        # Terminate the child and delete its spec from the app supervisor
-        # so it won't be auto-restarted while we start our own version.
         Supervisor.terminate_child(CodePuppyControl.Supervisor, ModelsDevParser.Registry)
-        Supervisor.delete_child(CodePuppyControl.Supervisor, ModelsDevParser.Registry)
     end
 
     # Re-add the child to the app supervisor after the test so other tests
     # that depend on the bundled data aren't affected.
     on_exit(fn ->
+      # If the ModelsDevParser.Registry is already alive (e.g. supervisor
+      # restarted it), do nothing. Otherwise, restart it from the child spec
+      # we preserved. (code_puppy-i1n)
       case Process.whereis(ModelsDevParser.Registry) do
         nil ->
-          Supervisor.restart_child(
-            CodePuppyControl.Supervisor,
-            ModelsDevParser.Registry
-          )
+          try do
+            Supervisor.restart_child(
+              CodePuppyControl.Supervisor,
+              ModelsDevParser.Registry
+            )
+          catch
+            :exit, _ -> :ok
+          end
 
         _pid ->
           :ok

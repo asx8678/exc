@@ -193,6 +193,11 @@ defmodule CodePuppyControl.Tool.RunnerPermissionTest do
   # ── Setup ─────────────────────────────────────────────────────────────────
 
   setup do
+    # (code_puppy-i1n) Ensure Callbacks.Registry is alive.
+    CodePuppyControl.TestSupport.Reset.ensure_gen_server_started(
+      CodePuppyControl.Callbacks.Registry
+    )
+
     Registry.clear()
     PolicyEngine.reset()
     Callbacks.clear(:file_permission)

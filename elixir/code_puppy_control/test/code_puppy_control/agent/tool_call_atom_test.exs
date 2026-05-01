@@ -178,6 +178,9 @@ defmodule CodePuppyControl.Agent.ToolCallAtomTest do
 
   describe "LLMAdapter: string tool names → atoms" do
     setup do
+      # (code_puppy-i1n) Ensure Tool.Registry is alive.
+      CodePuppyControl.TestSupport.Reset.ensure_gen_server_started(CodePuppyControl.Tool.Registry)
+
       prev = Application.get_env(:code_puppy_control, :llm_adapter_provider)
       Application.put_env(:code_puppy_control, :llm_adapter_provider, ProviderMock)
       ProviderMock.reset()
@@ -332,6 +335,9 @@ defmodule CodePuppyControl.Agent.ToolCallAtomTest do
 
   describe "Agent.Loop: string tool names resolved against allowed" do
     setup do
+      # (code_puppy-i1n) Ensure Tool.Registry is alive.
+      CodePuppyControl.TestSupport.Reset.ensure_gen_server_started(CodePuppyControl.Tool.Registry)
+
       {:ok, _pid} = LoopMockLLM.start_link()
       :ok = Registry.register(AtomFixTool)
 
@@ -424,6 +430,9 @@ defmodule CodePuppyControl.Agent.ToolCallAtomTest do
 
   describe "Tool.Runner: string tool names" do
     setup do
+      # (code_puppy-i1n) Ensure Tool.Registry is alive.
+      CodePuppyControl.TestSupport.Reset.ensure_gen_server_started(CodePuppyControl.Tool.Registry)
+
       Registry.clear()
       Registry.register(AtomFixTool)
 

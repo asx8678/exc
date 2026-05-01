@@ -22,6 +22,11 @@ defmodule CodePuppyControl.CLI.SlashCommands.Commands.AutosaveLoadTest do
     File.mkdir_p!(test_dir)
     on_exit(fn -> File.rm_rf!(test_dir) end)
 
+    # (code_puppy-i1n) Ensure Agent.State.Supervisor is alive.
+    CodePuppyControl.TestSupport.Reset.ensure_gen_server_started(
+      CodePuppyControl.Agent.State.Supervisor
+    )
+
     # Start RuntimeState if not running
     case Process.whereis(CodePuppyControl.RuntimeState) do
       nil -> start_supervised!(CodePuppyControl.RuntimeState)

@@ -49,7 +49,7 @@ defmodule CodePuppyControl.Application do
   # are forbidden in application startup because Mix may not be available
   # in a Burrito release. (code_puppy-5xd.6)
   @env Mix.env()
-  @test_supervisor_opts if @env == :test, do: [max_restarts: 100, max_seconds: 1], else: []
+  @test_supervisor_opts if @env == :test, do: [max_restarts: 1000, max_seconds: 60], else: []
   @exclude_cron_scheduler @env == :test
 
   @impl true

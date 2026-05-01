@@ -21,6 +21,7 @@ defmodule CodePuppyControl.Tools.CommandRunner.ExecutorPty do
 
   # Default timeout for commands (seconds)
   @default_timeout 60
+  @env Mix.env()
 
   # ---------------------------------------------------------------------------
   # Public API
@@ -256,11 +257,24 @@ defmodule CodePuppyControl.Tools.CommandRunner.ExecutorPty do
   end
 
   defp emit_shell_output(data) do
-    Phoenix.PubSub.broadcast(
-      CodePuppyControl.PubSub,
-      "shell:output",
-      {:shell_output, data}
-    )
+    # (code_puppy-i1n) Guard against PubSub being unavailable (e.g. during
+    # test suite shutdown or supervision tree restart).  A missing PubSub
+    # registry raises ArgumentError; we log and continue rather than
+    # crashing the collect_pty_loop process and cascading via EXIT signals.
+    try do
+      Phoenix.PubSub.broadcast(
+        CodePuppyControl.PubSub,
+        "shell:output",
+        {:shell_output, data}
+      )
+    rescue
+      e in ArgumentError ->
+        unless @env == :test do
+          Logger.warning("Shell output PubSub broadcast failed: #{Exception.message(e)}")
+        end
+
+        :ok
+    end
   end
 
   # ---------------------------------------------------------------------------
