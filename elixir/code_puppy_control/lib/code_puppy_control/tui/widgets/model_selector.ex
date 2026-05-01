@@ -20,9 +20,8 @@ defmodule CodePuppyControl.TUI.Widgets.ModelSelector do
 
   - `list_models/0` — queries `ModelFactory.list_available/0` and enriches
     each entry with metadata from `ModelRegistry.get_config/1`.
-  - `select/1` — renders a table of models, then uses `Owl.IO.select/2`
-    for interactive picking. Falls back to `IO.gets/1` when Owl isn't
-    available (e.g. piped input).
+  - `select/1` — renders a table of models, then prompts for selection
+    via `IO.gets/1`-based input (number, exact name, or fuzzy match).
   """
 
   alias CodePuppyControl.ModelFactory
@@ -209,35 +208,26 @@ defmodule CodePuppyControl.TUI.Widgets.ModelSelector do
   defp provider_bg(_), do: :black_background
 
   defp build_table(rows) do
-    if function_exported?(Owl.Table, :new, 1) do
-      Owl.Table.new(rows)
-    else
-      # Fallback: plain text rows
-      rows
-      |> Enum.map(fn row ->
-        # Strip Owl tags for plain output
-        plain = row |> to_string()
-        ["  ", plain, "\n"]
-      end)
-    end
+    rows
+    |> Enum.map(fn row ->
+      # render_model_row returns lists of Owl-tagged data.
+      # Convert each tagged element to chardata, then join.
+      line =
+        row
+        |> Enum.map(&Owl.Data.to_chardata/1)
+        |> IO.iodata_to_binary()
+
+      ["  ", line, "\n"]
+    end)
   end
 
   # ── Private: Interactive Selection ────────────────────────────────────────
 
   defp interactive_select(items, label) do
-    if function_exported?(Owl.IO, :select, 2) do
-      owl_select(items, label)
-    else
-      fallback_select(items, label)
-    end
-  end
-
-  defp owl_select(items, label) do
-    try do
-      Owl.IO.select(items, label: Owl.Data.tag(" #{label}", [:bright, :yellow]))
-    rescue
-      _ -> fallback_select(items, label)
-    end
+    # Owl.IO.select/2 requires an interactive terminal (arrow-key navigation)
+    # and hangs in non-TTY contexts (piped input, capture_io).
+    # Use the IO.gets-based fallback which works everywhere.
+    fallback_select(items, label)
   end
 
   defp fallback_select(items, label) do
