@@ -62,6 +62,8 @@ defmodule CodePuppyControl.Pack.Worker.Application do
 
   @worker_mode_key :pack_worker_mode
   @worker_config_section "worker"
+  @required_apps [:logger, :phoenix_pubsub, :finch, :telemetry]
+  @passthrough_opts [:connect_fn, :monitor_fn]
 
   # ── Public API ──────────────────────────────────────────────────────────
 
@@ -154,6 +156,7 @@ defmodule CodePuppyControl.Pack.Worker.Application do
     config = worker_config(opts)
 
     with :ok <- validate_config(config),
+         :ok <- ensure_required_apps_started(),
          :ok <- maybe_set_cookie(config) do
       Application.put_env(:code_puppy_control, @worker_mode_key, true)
 
@@ -199,7 +202,7 @@ defmodule CodePuppyControl.Pack.Worker.Application do
       cookie: resolve_cookie(opts),
       max_concurrent_runs: resolve_int(opts, :max_concurrent_runs, "max_concurrent_runs", 2),
       available_models: Keyword.get(opts, :available_models, [])
-    ]
+    ] ++ Keyword.take(opts, @passthrough_opts)
   end
 
   # ── Application Callback ────────────────────────────────────────────────
@@ -230,14 +233,17 @@ defmodule CodePuppyControl.Pack.Worker.Application do
     case Keyword.get(opts, :leader) do
       nil -> cfg_atom("leader")
       val when is_atom(val) -> val
-      val when is_binary(val) -> String.to_atom(val)
+      val when is_binary(val) -> String.to_atom(String.trim(val))
+      _other -> nil
     end
   end
 
   defp resolve_cookie(opts) do
     case Keyword.get(opts, :cookie) do
       nil -> cfg_string("cookie")
-      val -> val
+      val when is_atom(val) -> val
+      val when is_binary(val) -> val
+      _other -> nil
     end
   end
 
@@ -277,8 +283,14 @@ defmodule CodePuppyControl.Pack.Worker.Application do
 
   # ── Private: Validation ─────────────────────────────────────────────────
 
+  @doc """
+  Validates a resolved worker config.
+
+  Returns `:ok` if the config is valid, or `{:error, reason}` if not.
+  Public so tests can assert on validation without starting the tree.
+  """
   @spec validate_config(keyword()) :: :ok | {:error, term()}
-  defp validate_config(config) do
+  def validate_config(config) do
     cond do
       is_nil(config[:leader]) ->
         {:error, :missing_leader}
@@ -311,6 +323,7 @@ defmodule CodePuppyControl.Pack.Worker.Application do
 
   defp worker_genserver_opts(config) do
     [
+      name: :pack_worker,
       max_concurrent_runs: config[:max_concurrent_runs],
       available_models: config[:available_models]
     ]
@@ -327,6 +340,17 @@ defmodule CodePuppyControl.Pack.Worker.Application do
 
     # Allow test injection of mock functions
     Keyword.merge(base_opts, Keyword.take(config, [:connect_fn, :monitor_fn]))
+  end
+
+  # ── Private: Dependency Boot ────────────────────────────────────────────
+
+  defp ensure_required_apps_started do
+    Enum.reduce_while(@required_apps, :ok, fn app, :ok ->
+      case Application.ensure_all_started(app) do
+        {:ok, _} -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, {:dependency_start_failed, app, reason}}}
+      end
+    end)
   end
 
   # ── Private: Leader Connection ──────────────────────────────────────────

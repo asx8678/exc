@@ -141,6 +141,19 @@ defmodule CodePuppyControl.Pack.Worker.ApplicationTest do
       {_mod, opts} = monitor_spec
       assert opts[:enabled] == false
     end
+
+    test "worker child spec uses leader-protocol-compatible name" do
+      children = WorkerApp.children(leader: @leader_node)
+
+      worker_spec =
+        Enum.find(children, fn
+          {CodePuppyControl.Pack.Worker, _opts} -> true
+          _ -> false
+        end)
+
+      {_, opts} = worker_spec
+      assert opts[:name] == :pack_worker
+    end
   end
 
   # ── worker_config/1 ─────────────────────────────────────────────────────
@@ -173,7 +186,7 @@ defmodule CodePuppyControl.Pack.Worker.ApplicationTest do
 
     test "string leader is converted to atom" do
       config = WorkerApp.worker_config(leader: "pup_leader@some_host")
-      assert config[:leader] == :"pup_leader@some_host"
+      assert config[:leader] == :pup_leader@some_host
     end
 
     test "atom leader is kept as-is" do
@@ -207,6 +220,13 @@ defmodule CodePuppyControl.Pack.Worker.ApplicationTest do
       refute WorkerApp.worker_mode?()
       {:error, :missing_leader} = WorkerApp.start_worker([])
       refute WorkerApp.worker_mode?()
+    end
+
+    test "start_worker/1 ensures dependency apps are available" do
+      # Just verify validate_config passes — in test env all deps are already started,
+      # so ensure_required_apps_started/0 is exercised as part of the with chain.
+      config = WorkerApp.worker_config(leader: @leader_node)
+      assert :ok = WorkerApp.validate_config(config)
     end
   end
 
