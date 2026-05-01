@@ -161,11 +161,73 @@ Prerequisites before launching the Python-to-Elixir port.
 
 > **Phase H reality audit (code_puppy-djs.1) is ✅ COMPLETE.** See [audit document](docs/triage/phase-h-reality-audit-2026-04-29.md). The audit is separate from djs.4 implementation.
 
+## Phase I: Distributed packs (multi-node Erlang cluster)
+
+> Tracking: code_puppy-yge.2 (research/design branch `feature/yge-2-distributed-packs`)
+> Design doc: [docs/distributed-packs.md](docs/distributed-packs.md)
+
+Goal: Enable pack orchestration across multiple Erlang nodes using Erlang
+built-in distribution (no external dependencies). A Pack Leader running on
+the operator's workstation can dispatch sub-agents to remote worker nodes.
+
+### Phase I.0: Design + prototype (this branch)
+
+- [x] Write comprehensive design document at `docs/distributed-packs.md`
+- [x] Create prototype modules under `lib/code_puppy_control/pack/`:
+  - `DistributedSupervisor` — DynamicSupervisor managing per-node children
+  - `RemoteNodeSupervisor` — One-for-one supervisor per remote node
+  - `RemoteNodeProxy` — GenServer tracking connection state + dispatching
+  - `NodeMonitor` — Heartbeat loop for node up/down/reconnect
+  - `NamingService` — ETS-backed capability index for worker selection
+  - `Worker` — Worker-side GenServer accepting leader dispatch
+  - `Worker.Application` — Lightweight OTP application for worker nodes
+  - `SubAgentPool` — DynamicSupervisor for sub-agent processes
+
+### Phase I.1: Skeleton integration
+
+- [ ] Wire `NodeMonitor` + `DistributedSupervisor` into root supervision tree
+      (disabled by default via `packs.distributed.enabled = false`)
+- [ ] Add Registry tables for `:via` tuple routing
+- [ ] Add configuration keys to `puppy.cfg` spec
+- [ ] Wire telemetry events into the existing `Telemetry` module
+
+### Phase I.2: Worker-mode application
+
+- [ ] Create `CodePuppyControl.Pack.Worker.Application` as a startable OTP app
+- [ ] Support `--sname` / `--name` + `--cookie` CLI flags for workers
+- [ ] Worker detects and advertises capabilities on leader connect
+- [ ] Add `/pack cluster` slash command for cluster status/management
+- [ ] Integration test: one leader + one worker on localhost
+
+### Phase I.3: Capability-aware dispatch
+
+- [ ] Pack Leader can query NamingService for eligible workers
+- [ ] `cp_invoke_agent("terrier", params, node: :worker@host)` syntax
+- [ ] Default: dispatch locally (backward compatible)
+- [ ] Graceful degradation if no remote workers match
+
+### Phase I.4: Automatic load balancing
+
+- [ ] Round-robin across workers with matching capabilities
+- [ ] Per-worker slot tracking (respects `max_concurrent_runs`)
+- [ ] Disconnect grace period with in-flight run management
+- [ ] Fallback to local dispatch on remote node failure
+
+### Phase I.5: Production hardening
+
+- [ ] TLS for Erlang distribution (`-proto_dist inet_tls`)
+- [ ] Ephemeral vs. persistent worker modes
+- [ ] Sub-agent result streaming (progress updates during execution)
+- [ ] Telemetry dashboard for cluster status
+
+> **Rollback:** At any phase, set `packs.distributed.enabled = false` and
+> the cluster code is a no-op. The existing local pack parallelism behavior
+> is preserved.
+
 ## Deferred / ideas
 
 - [ ] Replace lefthook with Git-native hooks once ported
 - [ ] Phoenix LiveView admin UI for pack orchestration
-- [ ] Distributed packs (multi-node Erlang cluster)
 
 ## Closed
 
