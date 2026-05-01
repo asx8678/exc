@@ -149,6 +149,10 @@ defmodule CodePuppyControl.Application do
       # ADR-004 Phase H feature flags — reads ~/.code_puppy_ex/flags.json
       # on startup; must start before any component queries flags.
       CodePuppyControl.FeatureFlags,
+      # ADR-004 tri-state runtime selector — reads PUP_RUNTIME env var and
+      # delegates per-capability routing to FeatureFlags in :auto mode.
+      # Must start after FeatureFlags so :auto mode can query flags.
+      CodePuppyControl.RuntimeSelector,
       CodePuppyControl.RequestTracker,
       # Renderer registry — avoids String.to_atom for per-session renderers
       {Registry, keys: :unique, name: CodePuppyControl.REPL.RendererRegistry},
