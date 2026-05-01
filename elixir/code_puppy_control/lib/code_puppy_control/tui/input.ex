@@ -180,7 +180,7 @@ defmodule CodePuppyControl.TUI.Input do
   def terminate(_reason, state) do
     if state.reader_task do
       if Process.alive?(state.reader_task) do
-        Task.shutdown(state.reader_task, :brutal_kill)
+        Process.exit(state.reader_task, :kill)
       end
     end
 
