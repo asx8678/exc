@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # pre-push — tracked native hook
 # Mirrors the lefthook.yml pre-push block (elixir compile/test, python ruff/smoke)
-# Last sync: 2025-05-01
+# Last sync: 2025-05-12
 #
 # Uses NUL-delimited git output + bash arrays to avoid unsafe filename handling.
 # Handles new branches (0000… remote sha) by computing range via merge-base.
+# Compatible with Bash 3.2 (macOS default).
 
 set -euo pipefail
 
@@ -12,17 +13,16 @@ PROJECT_ROOT="$(git rev-parse --show-toplevel)"
 
 # --- helpers ----------------------------------------------------------------
 
-die() {
-  printf >&2 'ERROR: %s\n' "$*"
-  exit 1
-}
-
 info() {
   printf '==> %s\n' "$*"
 }
 
 warn() {
   printf >&2 'WARNING: %s\n' "$*"
+}
+
+pass() {
+  printf '  \xe2\x9c\x93 %s\n' "$*"
 }
 
 # --- parse stdin (one line per pushed ref) ---------------------------------
@@ -48,15 +48,13 @@ while IFS=' ' read -r local_ref local_sha remote_ref remote_sha; do
     done
 
     if [[ -n "$base" ]]; then
-      merge_base="$(git merge-base "$base" HEAD 2>/dev/null || true)"
+      merge_base="$(git merge-base "$base" "$local_sha" 2>/dev/null || true)"
       if [[ -n "$merge_base" && "$merge_base" != "$local_sha" ]]; then
-        ranges+=( "${merge_base}..HEAD" )
-      else
-        ranges+=( "HEAD" )
+        ranges+=( "${merge_base}..${local_sha}" )
       fi
     else
-      # no remote base found — just check what's staged vs HEAD
-      ranges+=( "HEAD" )
+      empty_tree="$(git hash-object -t tree /dev/null 2>/dev/null || echo '4b825dc642cb6eb9a060e54bf899d153036d4c65')"
+      ranges+=( "${empty_tree}..${local_sha}" )
     fi
   else
     ranges+=( "${remote_sha}..${local_sha}" )
@@ -68,23 +66,26 @@ if [[ ${#ranges[@]} -eq 0 ]]; then
   exit 0
 fi
 
-# --- gather changed files across all ranges ---------------------------------
+# --- gather changed files across all ranges (Bash 3.2 compatible) ----------
 
+# all_files is explicitly initialized to avoid set -u errors on empty
 all_files=()
-for range in "${ranges[@]}"; do
+for range in ${ranges[@]:+"${ranges[@]}"}; do
   while IFS= read -r -d '' f; do
     all_files+=( "$f" )
   done < <(git diff --name-only -z --diff-filter=ACMR "$range" -- . 2>/dev/null || true)
 done
 
-# deduplicate
-declare -A seen
+# --- deduplicate (Bash 3.2 compatible — no declare -A) ----------------------
+
 deduped=()
-for f in "${all_files[@]}"; do
-  if [[ -z "${seen[$f]:-}" ]]; then
-    seen[$f]=1
-    deduped+=( "$f" )
-  fi
+for f in ${all_files[@]:+"${all_files[@]}"}; do
+  skip=
+  for existing in ${deduped[@]:+"${deduped[@]}"}; do
+    [[ "$existing" == "$f" ]] && { skip=1; break; }
+  done
+  [[ -n "$skip" ]] && continue
+  deduped+=( "$f" )
 done
 
 [[ ${#deduped[@]} -eq 0 ]] && { info 'no changed files — skipping checks'; exit 0; }
@@ -93,107 +94,117 @@ done
 
 py_files=()
 elixir_files=()
-test_files=()
 review_files=()
 
-for f in "${deduped[@]}"; do
-  # Python files (anywhere)
+for f in ${deduped[@]:+"${deduped[@]}"}; do
   if [[ "$f" == *.py ]]; then
     py_files+=( "$f" )
   fi
-
-  # Elixir files — only under elixir/ (matches lefthook.yml)
   if grep -qE '^elixir/.*\.(ex|exs)$' <<<"$f"; then
     elixir_files+=( "$f" )
   fi
-
-  # Test files — must contain /test/ and be _test.exs (matches lefthook.yml)
   if grep -qE '(^|/)test/.*_test\.exs$' <<<"$f"; then
-    test_files+=( "$f" )
     review_files+=( "$f" )
   fi
 done
 
-# --- Python checks ----------------------------------------------------------
+# --- accumulator for gate failures -----------------------------------------
+
+failed=0
+
+# --- Python checks (BLOCKING) ----------------------------------------------
 
 if [[ ${#py_files[@]} -gt 0 ]]; then
-  # detect tooling (arrays for safe command construction)
   if command -v uv >/dev/null 2>&1; then
     ruff_cmd=(uv run ruff)
   else
     ruff_cmd=(ruff)
   fi
 
-  info "Running ruff on ${#py_files[@]} Python file(s) ..."
-  if ! "${ruff_cmd[@]}" check -- "${py_files[@]}" 2>/dev/null; then
-    warn "ruff check found issues (advisory — push continues)"
+  echo '--- python-ruff ---'
+  info "ruff check on ${#py_files[@]} Python file(s) ..."
+  if ! "${ruff_cmd[@]}" check -- "${py_files[@]}"; then
+    warn 'ruff check failed'
+    failed=1
+  else
+    pass 'ruff check OK'
   fi
 
-  if [[ "$PROJECT_ROOT" != "$(git rev-parse --show-toplevel)" ]]; then
-    cd "$PROJECT_ROOT"
-  fi
-
-  # smoke import check for code_puppy package files
   code_puppy_files=()
   for f in "${py_files[@]}"; do
     [[ "$f" == code_puppy/* ]] && code_puppy_files+=( "$f" )
   done
 
   if [[ ${#code_puppy_files[@]} -gt 0 ]]; then
-    info 'Running Python smoke import check ...'
+    echo '--- python-smoke-import ---'
+    info 'Python smoke import check ...'
+    smoke_ok=0
     if command -v uv >/dev/null 2>&1; then
-      smoke_cmd=(uv run python -c "import code_puppy; import code_puppy.agents.agent_pack_leader")
+      uv run python -c "import code_puppy; import code_puppy.agents.agent_pack_leader" && smoke_ok=1
     else
-      smoke_cmd=(python -c "import code_puppy; import code_puppy.agents.agent_pack_leader")
+      python -c "import code_puppy; import code_puppy.agents.agent_pack_leader" && smoke_ok=1
     fi
-    if ! "${smoke_cmd[@]}" 2>/dev/null; then
-      warn 'Python smoke import failed (advisory — push continues)'
+    if [[ "$smoke_ok" -ne 1 ]]; then
+      warn 'Python smoke import failed'
+      failed=1
     else
-      info 'Python smoke import OK'
+      pass 'Python smoke import OK'
     fi
   fi
 else
-  info 'No Python files changed — skipping Python checks'
+  pass 'No Python files changed — skipping Python checks'
 fi
 
-# --- Elixir checks ----------------------------------------------------------
+# --- Elixir checks (BLOCKING) ----------------------------------------------
 
 if [[ ${#elixir_files[@]} -gt 0 ]]; then
   elixir_dir="$PROJECT_ROOT/elixir/code_puppy_control"
   if [[ -d "$elixir_dir" ]]; then
-    info "Running Elixir compile (warnings-as-errors) ..."
-    if ! (cd "$elixir_dir" && mix compile --warnings-as-errors 2>/dev/null); then
-      warn 'Elixir compile found warnings (advisory — push continues)'
+    echo '--- elixir-compile ---'
+    info 'Elixir compile (warnings-as-errors) ...'
+    if ! (cd "$elixir_dir" && mix compile --warnings-as-errors); then
+      warn 'Elixir compile failed'
+      failed=1
     else
-      info 'Elixir compile OK'
+      pass 'Elixir compile OK'
     fi
 
-    info "Running Elixir fast tests ..."
-    if ! (cd "$elixir_dir" && mix test --exclude slow --exclude integration --max-failures 5 2>/dev/null); then
-      warn 'Elixir fast tests found failures (advisory — push continues)'
+    echo '--- elixir-test-fast ---'
+    info 'Elixir fast tests ...'
+    if ! (cd "$elixir_dir" && mix test --exclude slow --exclude integration --max-failures 5); then
+      warn 'Elixir fast tests failed'
+      failed=1
     else
-      info 'Elixir fast tests OK'
+      pass 'Elixir fast tests OK'
     fi
   else
-    warn "Elixir directory not found at $elixir_dir — skipping Elixir checks"
+    warn "Elixir directory not found at $elixir_dir"
   fi
 else
-  info 'No Elixir files changed — skipping Elixir checks'
+  pass 'No Elixir files changed — skipping Elixir checks'
 fi
 
-# --- Advisory: test file review --------------------------------------------
+# --- test-review (ADVISORY — does not block) --------------------------------
 
 if [[ ${#review_files[@]} -gt 0 ]]; then
-  printf '📋 Advisory: Test file review\n'
-  printf '─────────────────────────────────────\n'
+  echo '--- test-review (advisory) ---'
+  info "Reviewing ${#review_files[@]} test file(s) ..."
   if [[ -x "$PROJECT_ROOT/scripts/review-tests.sh" ]]; then
-    "$PROJECT_ROOT/scripts/review-tests.sh" "${review_files[@]}" 2>&1 || \
+    "$PROJECT_ROOT/scripts/review-tests.sh" "${review_files[@]}" || \
       warn 'Review found issues (advisory — push continues)'
   else
-    printf 'review-tests.sh not found — skipping automated review\n'
-    printf 'Run manually: ./scripts/review-tests.sh <test_files>\n'
+    info 'review-tests.sh not found — skipping'
   fi
-  printf '─────────────────────────────────────\n'
+else
+  pass 'No test files changed — skipping test review'
 fi
 
-info 'pre-push checks completed'
+# --- final verdict ---------------------------------------------------------
+
+echo ''
+if [[ "$failed" -ne 0 ]]; then
+  warn 'Some blocking gates failed — push aborted'
+  exit 1
+fi
+
+pass 'All pre-push checks passed'

@@ -5,8 +5,9 @@
 # creates chaining scripts that delegate to the tracked scripts in
 # scripts/git-hooks/.
 #
-# A chaining script preserves any existing beads logic in the hooks path,
-# appending a call to the tracked script after the beads block.
+# The chaining scripts use runtime repo-root resolution (git rev-parse)
+# rather than install-time relative paths, so they work even if the
+# hooks directory is not inside the repo tree.
 
 set -euo pipefail
 
@@ -35,8 +36,14 @@ confirm() {
 
 # --- discover hooks path ----------------------------------------------------
 
-HOOKS_PATH="$(git rev-parse --git-path hooks 2>/dev/null)" \
+HOOKS_PATH="$(git -C "$PROJECT_ROOT" rev-parse --git-path hooks 2>/dev/null)" \
   || die "not inside a git repository"
+
+# Make the hooks path absolute
+case "$HOOKS_PATH" in
+  /*) ;;
+  *) HOOKS_PATH="$PROJECT_ROOT/$HOOKS_PATH" ;;
+esac
 
 if [[ ! -d "$HOOKS_PATH" ]]; then
   if confirm "hooks path '$HOOKS_PATH' does not exist — create it?"; then
@@ -48,6 +55,8 @@ if [[ ! -d "$HOOKS_PATH" ]]; then
 fi
 
 info "active hooks path: $HOOKS_PATH"
+info "project root: $PROJECT_ROOT"
+info "tracked hooks: $TRACKED_DIR"
 
 # --- verify tracked scripts exist -------------------------------------------
 
@@ -64,15 +73,9 @@ done
 
 # --- install chaining scripts -----------------------------------------------
 
-# Install chaining hook, preserving any existing beads logic
 install_chain_with_beads() {
   local hook="$1"
   local chaining="$HOOKS_PATH/$hook"
-  local tracked="$TRACKED_DIR/$hook"
-  local rel_tracked
-
-  rel_tracked="$(realpath --relative-to="$HOOKS_PATH" "$tracked" 2>/dev/null)" \
-    || rel_tracked="$tracked"
 
   if [[ -f "$chaining" ]]; then
     # If it already has the beads block + chaining, just ensure it's executable
@@ -86,10 +89,11 @@ install_chain_with_beads() {
     # If it has beads block but no chaining, append chaining
     if grep -q 'BEGIN BEADS INTEGRATION' "$chaining" 2>/dev/null; then
       info "appending chaining to existing beads hook: $chaining"
-      cat >> "$chaining" <<CHAINEOF
+      cat >> "$chaining" <<-CHAINEOF
 
 # Chain to tracked script (added by scripts/install-git-hooks.sh)
-_script="$rel_tracked"
+_root="\$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+_script="\$_root/scripts/git-hooks/$hook"
 if [ -x "\$_script" ]; then
   exec "\$_script" "\$@"
 fi
@@ -103,21 +107,22 @@ CHAINEOF
     cp "$chaining" "${chaining}.bak"
   fi
 
-  # Create fresh chaining script (with beads integration stub if bd is available)
-  cat > "$chaining" <<CHAINEOF
+  # Create fresh chaining script with runtime repo-root resolution
+  cat > "$chaining" <<-CHAINEOF
 #!/usr/bin/env sh
 # Chaining hook installed by scripts/install-git-hooks.sh
 # Last sync: $(date +%Y-%m-%d)
-# Delegates to tracked script at $rel_tracked
+# Delegates to tracked script in the source tree via git rev-parse.
 
-_script="$rel_tracked"
+_root="\$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+_script="\$_root/scripts/git-hooks/$hook"
 if [ -x "\$_script" ]; then
   exec "\$_script" "\$@"
 fi
 CHAINEOF
 
   chmod +x "$chaining"
-  info "installed chaining hook: $chaining -> $tracked"
+  info "installed chaining hook: $chaining -> $TRACKED_DIR/$hook"
 }
 
 install_chain_with_beads "pre-commit"
