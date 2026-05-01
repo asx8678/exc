@@ -49,6 +49,9 @@ defmodule CodePuppyControl.TUI.Renderer do
   # Rate update throttle (5 Hz → 200ms)
   @rate_update_interval_ms 200
 
+  # Default character count threshold before buffer is flushed to terminal
+  @default_flush_threshold 20
+
   # ── State ──────────────────────────────────────────────────────────────────
 
   defstruct [
@@ -75,7 +78,7 @@ defmodule CodePuppyControl.TUI.Renderer do
     # Rate throttle
     last_rate_update: 0,
     # Flush buffered text when it exceeds this character count
-    flush_threshold: 20
+    flush_threshold: @default_flush_threshold
   ]
 
   @type t :: %__MODULE__{
@@ -110,7 +113,8 @@ defmodule CodePuppyControl.TUI.Renderer do
     * `:run_id` — subscribe to run topic
     * `:name` — GenServer name registration
     * `:subscribe_global` — subscribe to global topic when no session/run id
-    * `:flush_threshold` — character count at which buffered text is flushed (default: 20)
+    * `:flush_threshold` — character count threshold before buffer is
+       flushed to terminal (default: `#{@default_flush_threshold}`)
   """
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts) do
@@ -186,7 +190,7 @@ defmodule CodePuppyControl.TUI.Renderer do
       run_id: run_id,
       start_time: System.monotonic_time(:millisecond),
       topics: [],
-      flush_threshold: Keyword.get(opts, :flush_threshold, 20)
+      flush_threshold: Keyword.get(opts, :flush_threshold, @default_flush_threshold)
     }
 
     state =
