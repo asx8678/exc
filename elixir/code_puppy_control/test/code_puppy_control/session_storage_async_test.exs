@@ -140,20 +140,19 @@ defmodule CodePuppyControl.SessionStorageAsyncTest do
       assert loaded == original_history
     end
 
-    test "when Store is available, routes to Store (not FileBackend)", %{
-      base_dir: dir
-    } do
+    test "when Store is available, routes to Store (not FileBackend)" do
       # (code_puppy-ctj.1) After the save_session_async fix, Store-available
       # path no longer forces FileBackend. Verify the session lands in Store.
       history = [%{"role" => "user", "content" => "store-route-test"}]
 
-      :ok = SessionStorage.save_session_async("store-route-test", history, base_dir: dir)
+      # No base_dir: [] — without it, save_session_async routes to Store
+      :ok = SessionStorage.save_session_async("store-route-test", history, [])
 
       # Wait for the background Task to complete
       Process.sleep(150)
 
-      # Session should exist in Store (not just FileBackend)
-      assert SessionStorage.session_exists?("store-route-test", base_dir: dir)
+      # Session should exist in Store (no base_dir = Store path)
+      assert SessionStorage.session_exists?("store-route-test")
     end
 
     test "when Store is unavailable, resolves base_dir before Task spawn", %{
