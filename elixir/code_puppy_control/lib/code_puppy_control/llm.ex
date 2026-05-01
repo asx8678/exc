@@ -38,35 +38,36 @@ defmodule CodePuppyControl.LLM do
   Options are forwarded to the provider. The `:model` option defaults to the
   model name from the registry config.
 
-  ## ADR-004 Feature-Flag Gate
+  ## ADR-004 Runtime Selector Gate
 
   All public LLM facade chat entry points are gated on the `:llm_client`
-  capability via `CodePuppyControl.FeatureFlags.enabled?/1` before provider
-  resolution or rate-limiter acquisition.
+  capability via `CodePuppyControl.RuntimeSelector.select_runtime/1` before
+  provider resolution or rate-limiter acquisition.
 
   Each routing decision emits telemetry at
   `[:code_puppy, :llm, :route_decision]` with measurements `%{count: 1}` and
-  metadata `%{path: :elixir | :disabled, model: model_name, variant: variant}`.
+  metadata `%{path: :elixir | :python_fallback, model: model_name, variant: variant}`.
   The `variant` metadata is one of `:chat_handle`, `:chat_opts`,
   `:stream_chat_handle`, or `:stream_chat_opts`.
 
-  When disabled, the facade short-circuits without calling providers and
-  returns `{:error, :elixir_llm_disabled}`. This is the first production
-  consumer smoke test for ADR-004 feature flags (`code_puppy-djs.4.8`). The
-  full runtime selector remains out of scope and lives in `code_puppy-bwt`.
-  Note: the `:path` metadata value space is currently `:elixir | :disabled`.
-  When the runtime selector lands in `code_puppy-bwt`, this vocabulary will
-  expand (e.g. `:python_fallback`, `:dual_run`). Consumers building dashboards
-  on this event should allowlist known values rather than exhaustively
-  pattern-match.
+  When the selector returns `:python` (whether due to forced mode, feature
+  flag disabled, or GenServer fallback), the facade short-circuits without
+  calling providers and returns `{:error, :elixir_llm_disabled}`. This is the
+  `code_puppy-bwt` runtime selector integration, superseding the djs.4.8
+  direct feature-flag gate.
+
+  Note: the `:path` metadata value space is currently `:elixir | :python_fallback`.
+  Future expansions may add `:dual_run` or other values. Consumers building
+  dashboards on this event should allowlist known values rather than
+  exhaustively pattern-match.
   """
 
   alias CodePuppyControl.Auth.RuntimeConnection
-  alias CodePuppyControl.FeatureFlags
   alias CodePuppyControl.LLM.Provider
   alias CodePuppyControl.ModelFactory.Handle
   alias CodePuppyControl.ModelRegistry
   alias CodePuppyControl.RateLimiter
+  alias CodePuppyControl.RuntimeSelector
 
   require Logger
 
@@ -225,22 +226,24 @@ defmodule CodePuppyControl.LLM do
   # ── Private ───────────────────────────────────────────────────────────────
 
   defp with_feature_flag(variant, model_name, fun) do
-    if FeatureFlags.enabled?(:llm_client) do
-      :telemetry.execute(
-        [:code_puppy, :llm, :route_decision],
-        %{count: 1},
-        %{path: :elixir, model: model_name, variant: variant}
-      )
+    case RuntimeSelector.select_runtime(:llm_client) do
+      :elixir ->
+        :telemetry.execute(
+          [:code_puppy, :llm, :route_decision],
+          %{count: 1},
+          %{path: :elixir, model: model_name, variant: variant}
+        )
 
-      fun.()
-    else
-      :telemetry.execute(
-        [:code_puppy, :llm, :route_decision],
-        %{count: 1},
-        %{path: :disabled, model: model_name, variant: variant}
-      )
+        fun.()
 
-      {:error, :elixir_llm_disabled}
+      :python ->
+        :telemetry.execute(
+          [:code_puppy, :llm, :route_decision],
+          %{count: 1},
+          %{path: :python_fallback, model: model_name, variant: variant}
+        )
+
+        {:error, :elixir_llm_disabled}
     end
   end
 

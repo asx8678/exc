@@ -1,7 +1,7 @@
 defmodule CodePuppyControl.LLM.FeatureFlagRoutingTest do
   use ExUnit.Case, async: false
 
-  alias CodePuppyControl.{FeatureFlags, LLM}
+  alias CodePuppyControl.{FeatureFlags, LLM, RuntimeSelector}
   alias CodePuppyControl.ModelFactory.Handle
 
   @event [:code_puppy, :llm, :route_decision]
@@ -10,6 +10,16 @@ defmodule CodePuppyControl.LLM.FeatureFlagRoutingTest do
     prior = FeatureFlags.enabled?(:llm_client)
     test_pid = self()
     handler_id = "ff-route-test-#{System.unique_integer([:positive])}"
+
+    # Ensure RuntimeSelector is running so select_runtime works in the gate.
+    # Start it in :auto mode so FeatureFlags.set() still controls routing.
+    case Process.whereis(RuntimeSelector) do
+      nil ->
+        start_supervised!({RuntimeSelector, name: RuntimeSelector})
+
+      _pid ->
+        :ok
+    end
 
     :ok =
       :telemetry.attach(
@@ -65,7 +75,7 @@ defmodule CodePuppyControl.LLM.FeatureFlagRoutingTest do
       assert result == {:error, :elixir_llm_disabled}
 
       assert_receive {:telemetry, @event, %{count: 1},
-                      %{path: :disabled, model: "test-model", variant: :chat_opts}}
+                      %{path: :python_fallback, model: "test-model", variant: :chat_opts}}
 
       refute_receive {:telemetry, @event, _, _}, 50
     end
@@ -109,7 +119,7 @@ defmodule CodePuppyControl.LLM.FeatureFlagRoutingTest do
       refute_receive {:stream_event, _event}
 
       assert_receive {:telemetry, @event, %{count: 1},
-                      %{path: :disabled, model: "test-model", variant: :stream_chat_opts}}
+                      %{path: :python_fallback, model: "test-model", variant: :stream_chat_opts}}
 
       refute_receive {:telemetry, @event, _, _}, 50
     end
@@ -123,7 +133,7 @@ defmodule CodePuppyControl.LLM.FeatureFlagRoutingTest do
                {:error, :elixir_llm_disabled}
 
       assert_receive {:telemetry, @event, %{count: 1},
-                      %{path: :disabled, model: "", variant: :chat_opts}}
+                      %{path: :python_fallback, model: "", variant: :chat_opts}}
 
       refute_receive {:telemetry, @event, _, _}, 50
     end
@@ -139,7 +149,7 @@ defmodule CodePuppyControl.LLM.FeatureFlagRoutingTest do
       refute_receive {:stream_event, _event}
 
       assert_receive {:telemetry, @event, %{count: 1},
-                      %{path: :disabled, model: "", variant: :stream_chat_opts}}
+                      %{path: :python_fallback, model: "", variant: :stream_chat_opts}}
 
       refute_receive {:telemetry, @event, _, _}, 50
     end
@@ -171,7 +181,7 @@ defmodule CodePuppyControl.LLM.FeatureFlagRoutingTest do
                )
 
       assert_receive {:telemetry, @event, %{count: 1},
-                      %{path: :disabled, model: "h", variant: :chat_handle}}
+                      %{path: :python_fallback, model: "h", variant: :chat_handle}}
 
       refute_receive {:telemetry, @event, _, _}, 50
     end
@@ -208,7 +218,7 @@ defmodule CodePuppyControl.LLM.FeatureFlagRoutingTest do
       refute_receive {:stream_event, _event}
 
       assert_receive {:telemetry, @event, %{count: 1},
-                      %{path: :disabled, model: "h", variant: :stream_chat_handle}}
+                      %{path: :python_fallback, model: "h", variant: :stream_chat_handle}}
 
       refute_receive {:telemetry, @event, _, _}, 50
     end
