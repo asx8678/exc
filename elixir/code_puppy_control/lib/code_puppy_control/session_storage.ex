@@ -50,14 +50,27 @@ defmodule CodePuppyControl.SessionStorage do
           auto_saved: boolean()
         }
 
-  @type session_data :: %{
-          format: String.t(),
-          payload: %{
-            messages: history(),
-            compacted_hashes: compacted_hashes()
-          },
-          metadata: session_metadata()
+  @typedoc """
+  Full session data with string keys (matching JSON decode / Store return shape).
+
+  Shape:
+
+      %{
+        "format" => String.t(),
+        "payload" => %{
+          "messages" => history(),
+          "compacted_hashes" => compacted_hashes()
+        },
+        "metadata" => %{
+          "session_name" => session_name(),
+          "timestamp" => String.t(),
+          "message_count" => non_neg_integer(),
+          "total_tokens" => total_tokens(),
+          "auto_saved" => boolean()
         }
+      }
+  """
+  @type session_data :: %{required(String.t()) => term()}
 
   # ---------------------------------------------------------------------------
   # Directory Management
