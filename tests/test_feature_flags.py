@@ -1,10 +1,9 @@
-"""Tests for the Python mirror of Elixir feature flags (percentage-based rollout)."""
+"""Tests for the Python mirror of Elixir feature flags (core boolean behaviour)."""
 
 from __future__ import annotations
 
 import json
 import logging
-import random
 from pathlib import Path
 from typing import cast
 
@@ -13,7 +12,7 @@ import pytest
 from code_puppy import feature_flags
 from code_puppy.feature_flags import CAPABILITIES, FeatureFlagClient
 
-EXPECTED_CAPABILITIES = {
+EXPECTED_CAPABILITIES: dict[str, str] = {
     "llm_client": "Route LLM client calls to Elixir",
     "base_agent": "Route agent execution to Elixir",
     "tools": "Route tool dispatch to Elixir",
@@ -116,7 +115,7 @@ class TestPathResolution:
 
 
 # ---------------------------------------------------------------------------
-# File loading
+# File loading — core boolean behaviour
 # ---------------------------------------------------------------------------
 
 
@@ -126,7 +125,8 @@ class TestFileLoading:
         _assert_all_zero(client)
         entries = client.list()
         assert entries == [
-            (name, 0, description) for name, description in EXPECTED_CAPABILITIES.items()
+            (name, 0, description)
+            for name, description in EXPECTED_CAPABILITIES.items()
         ]
 
     def test_empty_file_defaults_all_zero(self, tmp_path: Path) -> None:
@@ -247,49 +247,6 @@ class TestFileLoading:
         assert client.percentage("tools") == 100
         assert caplog.text.count("expected boolean or integer") == 1
 
-    # --- Percentage parsing from JSON ---
-
-    def test_integer_percentage_parsed_correctly(self, tmp_path: Path) -> None:
-        path = _flags_path(tmp_path)
-        _write_json(path, {"elixir.llm_client": 25, "elixir.cli": 75})
-        client = FeatureFlagClient(path=path)
-        assert client.percentage("llm_client") == 25
-        assert client.percentage("cli") == 75
-
-    def test_mixed_bool_and_int_in_json(self, tmp_path: Path) -> None:
-        path = _flags_path(tmp_path)
-        _write_json(
-            path,
-            {
-                "elixir.llm_client": True,
-                "elixir.base_agent": 0,
-                "elixir.tools": 50,
-            },
-        )
-        client = FeatureFlagClient(path=path)
-        assert client.percentage("llm_client") == 100
-        assert client.percentage("base_agent") == 0
-        assert client.percentage("tools") == 50
-
-    def test_integer_outside_range_warns_and_defaults_to_zero(
-        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        path = _flags_path(tmp_path)
-        _write_json(path, {"elixir.cli": 999})
-        with caplog.at_level(logging.WARNING, logger=feature_flags.__name__):
-            client = FeatureFlagClient(path=path)
-        assert client.percentage("cli") == 0
-        assert "expected boolean or integer 0..100" in caplog.text
-
-    def test_negative_integer_warns_and_defaults_to_zero(
-        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        path = _flags_path(tmp_path)
-        _write_json(path, {"elixir.cli": -5})
-        with caplog.at_level(logging.WARNING, logger=feature_flags.__name__):
-            client = FeatureFlagClient(path=path)
-        assert client.percentage("cli") == 0
-
 
 # ---------------------------------------------------------------------------
 # Client API — percentage(), enabled(), is_enabled(), set()
@@ -332,24 +289,24 @@ class TestClientApi:
         client = FeatureFlagClient(path=path)
         assert client.percentage("cli") == 0
 
-        _write_json(path, {"elixir.cli": 50})
+        _write_json(path, {"elixir.cli": True})
         assert client.percentage("cli") == 0
 
         client.reload()
-        assert client.percentage("cli") == 50
+        assert client.percentage("cli") == 100
 
     def test_reload_from_corrupted_file_resets_to_all_zero(
         self, tmp_path: Path
     ) -> None:
         path = _flags_path(tmp_path)
-        path.write_text('{"elixir.cli": 100}', encoding="utf-8")
+        path.write_text('{"elixir.cli": true}', encoding="utf-8")
         client = FeatureFlagClient(path=path)
         assert client.percentage("cli") == 100
         path.write_bytes(b"\xff\xfe\xfd\xfc")
         client.reload()
         assert client.percentage("cli") == 0
 
-    # --- set() with various types ---
+    # --- set() with bool values ---
 
     def test_set_bool_true_persists_as_100(self, tmp_path: Path) -> None:
         path = _flags_path(tmp_path)
@@ -362,24 +319,6 @@ class TestClientApi:
         client = FeatureFlagClient(path=path)
         client.set("cli", False)
         assert client.percentage("cli") == 0
-
-    def test_set_int_75_stores_as_75(self, tmp_path: Path) -> None:
-        path = _flags_path(tmp_path)
-        client = FeatureFlagClient(path=path)
-        client.set("cli", 75)
-        assert client.percentage("cli") == 75
-
-    def test_set_int_0_stores_as_0(self, tmp_path: Path) -> None:
-        path = _flags_path(tmp_path)
-        client = FeatureFlagClient(path=path)
-        client.set("cli", 0)
-        assert client.percentage("cli") == 0
-
-    def test_set_int_100_stores_as_100(self, tmp_path: Path) -> None:
-        path = _flags_path(tmp_path)
-        client = FeatureFlagClient(path=path)
-        client.set("cli", 100)
-        assert client.percentage("cli") == 100
 
     def test_set_writes_canonical_keys_and_pretty_newline(self, tmp_path: Path) -> None:
         path = _flags_path(tmp_path)
@@ -394,30 +333,30 @@ class TestClientApi:
         assert decoded["elixir.cli"] is True
         assert decoded["elixir.llm_client"] is False
 
-    def test_canonical_write_format_50_percent(self, tmp_path: Path) -> None:
+    def test_canonical_write_format_is_pinned(self, tmp_path: Path) -> None:
         path = _flags_path(tmp_path)
         client = FeatureFlagClient(path=path)
-        client.set("cli", 50)
+        client.set("cli", True)
         raw = path.read_text(encoding="utf-8")
-        assert '"elixir.cli": 50' in raw
-        assert raw.endswith("\n")
+        assert raw == (
+            "{\n"
+            '  "elixir.base_agent": false,\n'
+            '  "elixir.cli": true,\n'
+            '  "elixir.llm_client": false,\n'
+            '  "elixir.plugins": false,\n'
+            '  "elixir.tools": false\n'
+            "}\n"
+        )
 
     def test_set_updates_in_memory_without_reload(self, tmp_path: Path) -> None:
         client = FeatureFlagClient(path=_flags_path(tmp_path))
-        client.set("ELIXIR.TOOLS", 80)
-        assert client.percentage("tools") == 80
+        client.set("ELIXIR.TOOLS", True)
+        assert client.percentage("tools") == 100
 
     def test_set_non_bool_non_int_value_raises_type_error(self, tmp_path: Path) -> None:
         client = FeatureFlagClient(path=_flags_path(tmp_path))
         with pytest.raises(TypeError, match="must be bool or int"):
             client.set("cli", "yes")  # type: ignore[arg-type]
-
-    def test_set_int_out_of_range_raises_value_error(self, tmp_path: Path) -> None:
-        client = FeatureFlagClient(path=_flags_path(tmp_path))
-        with pytest.raises(ValueError, match="must be 0..100"):
-            client.set("cli", 101)
-        with pytest.raises(ValueError, match="must be 0..100"):
-            client.set("cli", -1)
 
     def test_set_unknown_capability_raises_value_error(self, tmp_path: Path) -> None:
         client = FeatureFlagClient(path=_flags_path(tmp_path))
@@ -427,7 +366,7 @@ class TestClientApi:
     def test_reset_writes_all_false_to_disk_and_memory(self, tmp_path: Path) -> None:
         path = _flags_path(tmp_path)
         client = FeatureFlagClient(path=path)
-        client.set("llm_client", 100)
+        client.set("llm_client", True)
         client.reset()
 
         _assert_all_zero(client)
@@ -439,7 +378,7 @@ class TestClientApi:
     def test_reset_after_sets_round_trips(self, tmp_path: Path) -> None:
         path = _flags_path(tmp_path)
         client = FeatureFlagClient(path=path)
-        client.set("llm_client", 100)
+        client.set("llm_client", True)
         client.set("tools", 50)
         client.reset()
         client.reload()
@@ -448,9 +387,9 @@ class TestClientApi:
     def test_multiple_sets_persist_final_state(self, tmp_path: Path) -> None:
         path = _flags_path(tmp_path)
         client = FeatureFlagClient(path=path)
-        client.set("llm_client", 100)
+        client.set("llm_client", True)
         client.set("tools", 50)
-        client.set("llm_client", 0)
+        client.set("llm_client", False)
 
         assert client.percentage("llm_client") == 0
         assert client.percentage("tools") == 50
@@ -482,86 +421,31 @@ class TestClientApi:
         assert not flags_path.exists()
         assert client.percentage("cli") == 0
 
-    # --- is_enabled() backward compat ---
+    # --- is_enabled() backward compat (deterministic) ---
 
-    def test_is_enabled_backward_compat(self, tmp_path: Path) -> None:
+    def test_is_enabled_deterministic_zero(self, tmp_path: Path) -> None:
         path = _flags_path(tmp_path)
         client = FeatureFlagClient(path=path)
-        client.set("cli", True)
+        client.set("cli", 0)
+        assert client.is_enabled("cli") is False
+
+    def test_is_enabled_deterministic_one(self, tmp_path: Path) -> None:
+        path = _flags_path(tmp_path)
+        client = FeatureFlagClient(path=path)
+        client.set("cli", 1)
         assert client.is_enabled("cli") is True
-        assert client.is_enabled("cli") == client.enabled("cli")
 
-
-# ---------------------------------------------------------------------------
-# Probabilistic enabled() behaviour
-# ---------------------------------------------------------------------------
-
-
-class TestProbabilisticEnabled:
-    def test_zero_percent_always_returns_false(self, tmp_path: Path) -> None:
+    def test_is_enabled_deterministic_twenty_five(self, tmp_path: Path) -> None:
         path = _flags_path(tmp_path)
-        _write_json(path, {"elixir.llm_client": 0})
         client = FeatureFlagClient(path=path)
-        for _ in range(100):
-            assert client.enabled("llm_client") is False
+        client.set("cli", 25)
+        assert client.is_enabled("cli") is True
 
-    def test_one_hundred_percent_always_returns_true(self, tmp_path: Path) -> None:
+    def test_is_enabled_deterministic_one_hundred(self, tmp_path: Path) -> None:
         path = _flags_path(tmp_path)
-        _write_json(path, {"elixir.llm_client": 100})
         client = FeatureFlagClient(path=path)
-        for _ in range(100):
-            assert client.enabled("llm_client") is True
-
-    def test_fifty_percent_roughly_half(self, tmp_path: Path) -> None:
-        path = _flags_path(tmp_path)
-        _write_json(path, {"elixir.llm_client": 50})
-        client = FeatureFlagClient(path=path)
-
-        # Deterministic seed for reproducibility
-        random.seed(42)
-        true_count = sum(client.enabled("llm_client") for _ in range(1000))
-        # With 50% probability, 1000 trials should land in 400..600
-        assert 400 <= true_count <= 600, (
-            f"Expected ~500, got {true_count} (seed=42)"
-        )
-
-    def test_twenty_five_percent_roughly_quarter(self, tmp_path: Path) -> None:
-        path = _flags_path(tmp_path)
-        _write_json(path, {"elixir.llm_client": 25})
-        client = FeatureFlagClient(path=path)
-
-        random.seed(42)
-        true_count = sum(client.enabled("llm_client") for _ in range(1000))
-        # With 25% probability, 1000 trials should land in 175..325
-        assert 175 <= true_count <= 325, (
-            f"Expected ~250, got {true_count} (seed=42)"
-        )
-
-    def test_seventy_five_percent_roughly_three_quarters(self, tmp_path: Path) -> None:
-        path = _flags_path(tmp_path)
-        _write_json(path, {"elixir.llm_client": 75})
-        client = FeatureFlagClient(path=path)
-
-        random.seed(42)
-        true_count = sum(client.enabled("llm_client") for _ in range(1000))
-        # With 75% probability, 1000 trials should land in 675..825
-        assert 675 <= true_count <= 825, (
-            f"Expected ~750, got {true_count} (seed=42)"
-        )
-
-    def test_boolean_true_backward_compat(self, tmp_path: Path) -> None:
-        path = _flags_path(tmp_path)
-        _write_json(path, {"elixir.cli": True})
-        client = FeatureFlagClient(path=path)
-        for _ in range(50):
-            assert client.enabled("cli") is True
-
-    def test_boolean_false_backward_compat(self, tmp_path: Path) -> None:
-        path = _flags_path(tmp_path)
-        _write_json(path, {"elixir.cli": False})
-        client = FeatureFlagClient(path=path)
-        for _ in range(50):
-            assert client.enabled("cli") is False
+        client.set("cli", 100)
+        assert client.is_enabled("cli") is True
 
 
 # ---------------------------------------------------------------------------
@@ -587,6 +471,14 @@ class TestModuleLevelApi:
         assert feature_flags.enabled("cli") is True
         feature_flags.reload()
         assert feature_flags.enabled("cli") is False
+
+    def test_module_level_is_enabled(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.setenv("PUP_EX_HOME", str(tmp_path))
+        feature_flags.reset()
+        feature_flags.set_flag("cli", 25)
+        assert feature_flags.is_enabled("cli") is True
 
     def test_set_flag_with_int_percentage(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -630,4 +522,4 @@ class TestResilience:
             client = FeatureFlagClient(path=path)
             client.reload()
             client.reload()
-        assert caplog.text.count("expected boolean or integer") == 2  # one per unique key
+        assert caplog.text.count("expected boolean or integer") == 2

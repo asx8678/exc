@@ -183,8 +183,12 @@ class FeatureFlagClient:
         return random.randint(1, 100) <= pct
 
     def is_enabled(self, capability: str) -> bool:
-        """Backward-compatible alias for :meth:`enabled`."""
-        return self.enabled(capability)
+        """Backward-compatible deterministic check: any non-zero rollout is enabled.
+
+        Unlike :meth:`enabled` (which is probabilistic for percentages 1..99),
+        this method returns ``True`` whenever the rollout percentage is > 0.
+        """
+        return self.percentage(capability) > 0
 
     def percentage(self, capability: str) -> int:
         """Return the rollout percentage (0..100) for ``capability``.
@@ -369,6 +373,11 @@ def enabled(capability: str) -> bool:
     return _get_default_client().enabled(capability)
 
 
+def is_enabled(capability: str) -> bool:
+    """Return whether ``capability`` has any non-zero rollout (deterministic)."""
+    return _get_default_client().is_enabled(capability)
+
+
 def list_flags() -> list[FlagEntry]:
     """Return all feature flags from the default client."""
     return _get_default_client().list()
@@ -399,6 +408,7 @@ __all__ = [
     "enabled",
     "elixir_home_dir",
     "flags_file",
+    "is_enabled",
     "json_key",
     "list_flags",
     "reload",
