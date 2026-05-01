@@ -173,15 +173,14 @@ the operator's workstation can dispatch sub-agents to remote worker nodes.
 ### Phase I.0: Design + prototype (this branch)
 
 - [x] Write comprehensive design document at `docs/distributed-packs.md`
-- [x] Create prototype modules under `lib/code_puppy_control/pack/`:
-  - `DistributedSupervisor` — DynamicSupervisor managing per-node children
-  - `RemoteNodeSupervisor` — One-for-one supervisor per remote node
-  - `RemoteNodeProxy` — GenServer tracking connection state + dispatching
-  - `NodeMonitor` — Heartbeat loop for node up/down/reconnect
-  - `NamingService` — ETS-backed capability index for worker selection
-  - `Worker` — Worker-side GenServer accepting leader dispatch
-  - `Worker.Application` — Lightweight OTP application for worker nodes
-  - `SubAgentPool` — DynamicSupervisor for sub-agent processes
+- [x] Create prototype design sketches under `docs/prototypes/pack/` (moved from
+      compiled code per critic feedback — see `code_puppy-yge.2` issues)
+  - Reference modules: `DistributedSupervisor`, `RemoteNodeSupervisor`,
+    `RemoteNodeProxy`, `NodeMonitor`, `NamingService`, `Worker`,
+    `Worker.Application`, `SubAgentPool` — all under `docs/prototypes/pack/`
+  - Note: Prototypes are **design references only** — not compiled code.
+    Phase I.1 will build proper OTP skeletons with tests from the
+design doc.
 
 ### Phase I.1: Skeleton integration
 
