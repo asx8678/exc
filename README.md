@@ -1,14 +1,13 @@
+> **Note:** As of Phase H cutover, Code Puppy runs on **Elixir only**.
+> The Python codebase has been removed. See ADR-004 for migration history.
+
 <div align="center">
 
 **🐶✨The sassy AI code agent that makes IDEs look outdated** ✨🐶
 
-[![Version](https://img.shields.io/pypi/v/code-puppy?style=for-the-badge&logo=python&label=Version&color=purple)](https://pypi.org/project/code-puppy/)
-[![Downloads](https://img.shields.io/badge/Downloads-170k%2B-brightgreen?style=for-the-badge&logo=download)](https://pypi.org/project/code-puppy/)
-[![Python](https://img.shields.io/badge/Python-3.11--3.14-blue?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
 [![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
 
 [![100% Open Source](https://img.shields.io/badge/100%25-Open%20Source-blue?style=for-the-badge)](https://github.com/mpfaffenberger/code_puppy)
-[![Pydantic AI](https://img.shields.io/badge/Pydantic-AI-success?style=for-the-badge)](https://github.com/pydantic/pydantic-ai)
 
 [![100% privacy](https://img.shields.io/badge/FULL-Privacy%20commitment-blue?style=for-the-badge)](https://github.com/mpfaffenberger/code_puppy/blob/main/README.md#code-puppy-privacy-commitment)
 
@@ -23,17 +22,6 @@
 *"Who needs an IDE when you have 1024 angry puppies?"* - Someone, probably.
 
 </div>
-
-```
-    ███████╗ █████╗ ███████╗████████╗    ██████╗ ██╗   ██╗██████╗ ██████╗ ██╗   ██╗
-    ██╔════╝██╔══██╗██╔════╝╚══██╔══╝    ██╔══██╗██║   ██║██╔══██╗██╔══██╗╚██╗ ██╔╝
-    █████╗  ███████║███████╗   ██║       ██████╔╝██║   ██║██████╔╝██████╔╝ ╚████╔╝ 
-    ██╔══╝  ██╔══██║╚════██║   ██║       ██╔═══╝ ██║   ██║██╔═══╝ ██╔═══╝   ╚██╔╝  
-    ██║     ██║  ██║███████║   ██║       ██║     ╚██████╔╝██║     ██║        ██║   
-    ╚═╝     ╚═╝  ╚═╝╚══════╝   ╚═╝       ╚═╝      ╚═════╝ ╚═╝     ╚═╝        ╚═╝   
-```
-
-**🚀 Now with Python 3.14 Free-Threading Support! 🚀**
 
 ---
 
@@ -57,7 +45,7 @@ This fork adds significant capabilities to the original code_puppy, transforming
 
 | Feature | Description | Speedup/Impact |
 |---------|-------------|----------------|
-| ⚡ Native Acceleration | Pure Elixir + Python architecture for high-performance operations | 10-50x faster |
+| ⚡ Pure Elixir Runtime | Full Elixir/BEAM backend for all operations | 10-50x faster |
 | 🐕 Pack Parallelism | 8-agent concurrent execution with intelligent queuing | 8x throughput |
 | 📚 Progressive Skills | Metadata-only skill injection until needed | Zero context cost |
 | 🔍 Supervisor Review | Quality-gated multi-agent review loops | Higher quality |
@@ -71,51 +59,27 @@ This fork adds significant capabilities to the original code_puppy, transforming
 
 📋 **Full changelog**: See [FORK_CHANGELOG.md](FORK_CHANGELOG.md) for complete documentation of all features, modifications, and performance benchmarks.
 
-## Quick start
+## Quick Start
+
+### From Source (Elixir)
 
 ```bash
-uvx --from codepp code-puppy -i
-````
+# Clone and build
+git clone https://github.com/mpfaffenberger/code_puppy.git
+cd code_puppy/elixir/code_puppy_control
+mix deps.get
+mix compile
 
-## Installation
-
-### UV (Recommended)
-
-#### macOS / Linux
-
-```bash
-# Install UV if you don't have it
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# This fork is published to PyPI as `codepp`. The installed script is still
-# called `code-puppy`, so `uvx --from codepp code-puppy` runs this build.
-uvx --from codepp code-puppy
-```
-
-#### Windows
-
-On Windows, we recommend installing code-puppy as a global tool for the best experience with keyboard shortcuts (Ctrl+C/Ctrl+X cancellation):
-
-```powershell
-# Install UV if you don't have it (run in PowerShell as Admin)
-powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-
-# This fork is published to PyPI as `codepp`; the installed command is code-puppy.
-uvx --from codepp code-puppy
+# Run
+mix run --no-halt
 ```
 
 ### Local Development
 
-For local development with graceful multi-service shutdown:
-
 ```bash
-./scripts/run_dev.sh           # start dev services (placeholder - see issue code_puppy-ac5)
+./scripts/run_dev.sh           # start dev services
 ./scripts/run_dev.sh --help    # see options
 ```
-
-## Changelog (By Kittylog!)
-
-[📋 View the full changelog on Kittylog](https://kittylog.app/c/mpfaffenberger/code_puppy)
 
 ## Usage
 
@@ -199,28 +163,13 @@ Please review this code for security issues." > .claude/commands/review.md
 /review with focus on authentication
 ```
 
-## ⚡ Fast Puppy (Native Acceleration)
+## ⚡ Architecture
 
-Code Puppy uses a **pure Elixir + Python architecture** for high-performance operations:
+Code Puppy runs on a **pure Elixir/BEAM runtime**:
 
-| Capability | Backend | Purpose |
-|------------|---------|---------|
-| `message_core` | Elixir | Message serialization, hashing, pruning |
-| `file_ops` | Elixir | Fast file listing, grep, reading |
-| `repo_index` | Elixir | Repository indexing |
-| `parse` | Elixir | Tree-sitter code parsing |
-
-**Architecture:**
 ```
 ┌─────────────────────────────────────────────────┐
-│                   Python Layer                   │
-│   Code Puppy agents, LLM clients, plugins       │
-│   Communications via JSON-RPC over stdio        │
-└──────────────────────┬──────────────────────────┘
-                       │ JSON-RPC (Content-Length framed)
-┌──────────────────────▼──────────────────────────┐
-│                  Elixir Layer                    │
-│   CodePuppyControl (BEAM/OTP)                   │
+│              CodePuppyControl (BEAM/OTP)        │
 │   • Message processing & pruning               │
 │   • Token estimation                           │
 │   • File operations (list, read, grep)         │
@@ -229,95 +178,22 @@ Code Puppy uses a **pure Elixir + Python architecture** for high-performance ope
 │   • Agent session management                   │
 │   • Scheduler (Oban)                           │
 │   • Model registry                             │
+│   • WebSocket/terminal interface               │
+│   • Plugin system (callback hooks)             │
 └─────────────────────────────────────────────────┘
 ```
-
-**Quick Start:**
-```bash
-# Check current status
-/fast_puppy
-
-# Switch profile (primary action)
-/fast_puppy profile elixir_first   # Use Elixir backend (default)
-/fast_puppy profile python_only    # Pure Python mode (no Elixir)
-
-# Enable/disable capabilities
-/fast_puppy enable message_core
-/fast_puppy disable parse
-
-# Detailed diagnostics
-/fast_puppy status
-```
-
-Python fallback is always available - Elixir backend provides optional acceleration.
-
-### Automatic Elixir Control Plane (Zero Config)
-
-On first startup, the Elixir control plane is automatically started if available:
-
-- **Elixir control plane**: Started via Docker or local Elixir if available
-- **Graceful fallback**: No Elixir? No problem - degrades to pure Python
 
 ### `/fast_puppy` Commands
 
 ```
 /fast_puppy                        → show status for all capabilities
 /fast_puppy status                 → detailed per-capability status
-/fast_puppy profile <name>         → switch runtime profile
-/fast_puppy enable <capability>    → enable a capability
-/fast_puppy disable <capability>   → disable a capability
-```
-
-### Opt-Out (Air-Gapped CI, etc.)
-
-To disable Elixir auto-start, set in `~/.code_puppy/puppy.cfg`:
-
-```ini
-enable_elixir_control=false
-```
-
-### 🚀 Python 3.14 Free-Threaded Support (No-GIL)
-
-**Code Puppy is Python 3.14 ready!** Take advantage of the new free-threaded mode for true parallelism.
-
-| Python Version | GIL Status | Parallelism |
-|----------------|------------|-------------|
-| Python 3.11-3.12 | Standard GIL | Full functionality, standard concurrency |
-| Python 3.13t | Experimental free-threading | Enhanced parallelism (experimental) |
-| **Python 3.14t** | **Production free-threading** | **True parallel execution across cores** |
-
-#### Running with Free-Threading
-
-```bash
-# Option 1: Use the free-threaded Python 3.14 interpreter directly
-python3.14t -m code_puppy
-
-# Option 2: Set the environment variable before launch
-PYTHON_GIL=0 pup
-
-# Option 3: Set in puppy.cfg (advisory — logged at startup)
-free_threading=true
-```
-
-#### What You Get with Python 3.14 Free-Threading
-
-- **True Parallelism**: Multiple threads can execute Python bytecode simultaneously
-- **Pack Parallelism Boost**: Run 8+ agents truly in parallel, not just concurrently
-- **No Code Changes Required**: Works transparently with existing Code Puppy features
-
-#### Checking Your Setup
-
-```bash
-# Verify free-threading is active
-python3.14t -c "import sys; print(f'Free-threading: {not sys._is_gil_enabled()}')"
-
-# Check Code Puppy's Elixir backend status
-/fast_puppy status
 ```
 
 ## Requirements
 
-- Python 3.11+
+- Erlang/OTP 27+
+- Elixir 1.18+
 - OpenAI API key (for GPT models)
 - Cerebras API key (for Cerebras models)
 - Anthropic key (for Claude models)
