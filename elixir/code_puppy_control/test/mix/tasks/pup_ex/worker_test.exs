@@ -152,7 +152,7 @@ defmodule Mix.Tasks.PupEx.WorkerTest do
       opts = [leader: "leader@host", cookie: "secret", max_concurrent_runs: 4]
       result = Worker.build_worker_opts(opts)
 
-      assert result[:leader] == :"leader@host"
+      assert result[:leader] == :leader@host
       assert result[:cookie] == "secret"
       assert result[:max_concurrent_runs] == 4
     end
@@ -168,17 +168,25 @@ defmodule Mix.Tasks.PupEx.WorkerTest do
     test "includes only provided keys" do
       result = Worker.build_worker_opts(leader: "my_leader@host")
 
-      assert result[:leader] == :"my_leader@host"
+      assert result[:leader] == :my_leader@host
       refute Keyword.has_key?(result, :cookie)
       refute Keyword.has_key?(result, :max_concurrent_runs)
     end
   end
 
   describe "start_distribution/1" do
-    test "returns :ok when no name flags provided and node not alive" do
-      # Without --sname or --name, the task trusts the user already started
-      # distribution (or is running from puppy.cfg)
-      assert :ok = Worker.start_distribution([])
+    test "returns error when no --sname/--name and node not distributed" do
+      # Node.alive?() is false in test env (no distribution started)
+      assert {:error, message} = Worker.start_distribution([])
+      assert message =~ "not distributed"
+      assert message =~ "--sname or --name"
+    end
+
+    test "error message does not leak cookie value" do
+      # Even if cookie is in the opts, the distribution error shouldn't expose it
+      opts = [cookie: "super_secret_cookie_value", leader: "leader@host"]
+      assert {:error, message} = Worker.start_distribution(opts)
+      refute message =~ "super_secret_cookie_value"
     end
   end
 end

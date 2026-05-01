@@ -142,12 +142,12 @@ defmodule Mix.Tasks.PupEx.Worker do
         start_node(name, :longnames)
 
       true ->
-        # No name flags — assume distribution is already configured
+        # No name flags — distribution must already be configured
         # (e.g. via elixir --sname or puppy.cfg)
         if Node.alive?() do
           :ok
         else
-          :ok
+          {:error, "Node is not distributed. Pass --sname or --name to enable distribution."}
         end
     end
   end
@@ -183,7 +183,14 @@ defmodule Mix.Tasks.PupEx.Worker do
         System.halt(1)
     end
 
-    maybe_set_cookie(opts)
+    case maybe_set_cookie(opts) do
+      :ok ->
+        :ok
+
+      {:error, message} ->
+        Mix.shell().error(message)
+        System.halt(1)
+    end
 
     worker_opts = build_worker_opts(opts)
 
@@ -203,7 +210,16 @@ defmodule Mix.Tasks.PupEx.Worker do
   defp maybe_set_cookie(opts) do
     case Keyword.get(opts, :cookie) do
       nil -> :ok
-      cookie -> Node.set_cookie(String.to_atom(cookie))
+      cookie -> safe_set_cookie(cookie)
+    end
+  end
+
+  defp safe_set_cookie(cookie_str) do
+    try do
+      Node.set_cookie(String.to_atom(cookie_str))
+      :ok
+    rescue
+      _ -> {:error, "Failed to set distribution cookie (invalid value)"}
     end
   end
 
