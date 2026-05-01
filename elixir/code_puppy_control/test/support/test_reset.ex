@@ -37,7 +37,6 @@ defmodule CodePuppyControl.TestSupport.Reset do
   require Logger
 
   alias CodePuppyControl.TestSupport.Reset
-  alias CodePuppyControl.TestSupport.Reset.ServerStart
 
   @doc """
   Reset everything — call in test setup to ensure test isolation.
@@ -80,10 +79,71 @@ defmodule CodePuppyControl.TestSupport.Reset do
   # Ensure All Servers Started (CRITICAL - must be first!)
   # ============================================================================
 
-  defdelegate ensure_all_servers_started(), to: ServerStart
-  defdelegate ensure_workflow_state_started(), to: ServerStart
-  defdelegate ensure_pubsub_started(), to: ServerStart
-  defdelegate ensure_gen_server_started(module), to: ServerStart
+  @doc """
+  Ensures all required GenServers are started before resetting.
+
+  This prevents test failures when GenServer.reset functions are called
+  but the GenServer is not running.
+  """
+  @spec ensure_all_servers_started() :: :ok
+  def ensure_all_servers_started do
+    # Core application servers
+    ensure_gen_server_started(CodePuppyControl.Repo)
+    ensure_gen_server_started(CodePuppyControl.EventStore)
+    ensure_gen_server_started(CodePuppyControl.RuntimeState)
+    ensure_gen_server_started(CodePuppyControl.PolicyEngine)
+    ensure_gen_server_started(CodePuppyControl.AgentModelPinning)
+    ensure_gen_server_started(CodePuppyControl.ModelRegistry)
+    ensure_gen_server_started(CodePuppyControl.ModelAvailability)
+    ensure_gen_server_started(CodePuppyControl.ModelPacks)
+    ensure_gen_server_started(CodePuppyControl.Tools.AgentCatalogue)
+    ensure_gen_server_started(CodePuppyControl.RoundRobinModel)
+    ensure_gen_server_started(CodePuppyControl.RequestTracker)
+    ensure_gen_server_started(CodePuppyControl.Tools.CommandRunner.ProcessManager)
+
+    # Concurrency limiter (needs supervisor started first)
+    ensure_gen_server_started(CodePuppyControl.Concurrency.Supervisor)
+    ensure_gen_server_started(CodePuppyControl.Concurrency.Limiter)
+
+    # Parser registry
+    ensure_gen_server_started(CodePuppyControl.Parsing.ParserRegistry)
+
+    :ok
+  end
+
+  @doc """
+  Ensure a single GenServer is started.
+
+  If the GenServer is not running, attempts to start it.
+  Handles already_started errors gracefully.
+  """
+  @spec ensure_gen_server_started(module()) :: :ok
+  def ensure_gen_server_started(module) do
+    case Process.whereis(module) do
+      nil ->
+        # Try to start it
+        try do
+          case apply(module, :start_link, [[]]) do
+            {:ok, _pid} ->
+              :ok
+
+            {:error, {:already_started, _pid}} ->
+              :ok
+
+            {:error, reason} ->
+              Logger.warning("Failed to start #{inspect(module)}: #{inspect(reason)}")
+              :ok
+          end
+        catch
+          :exit, reason ->
+            Logger.warning("Exit starting #{inspect(module)}: #{inspect(reason)}")
+            :ok
+        end
+
+      _pid ->
+        :ok
+    end
+  end
 
   # ============================================================================
   # DynamicSupervisor Management
@@ -216,11 +276,6 @@ defmodule CodePuppyControl.TestSupport.Reset do
       # RoundRobinModel: reset rotation state (ensure started first)
       reset_with_restart(RoundRobinModel, :reset, [])
 
-      # Callbacks.Registry: clear test-installed callbacks so hooks from one
-      # test cannot leak into command-security or tool-runner checks. Re-register
-      # core Workflow.State handlers after clearing. (code_puppy-i1n)
-      reset_callbacks()
-
       # EventStore: clear all events
       safe_call(EventStore, :clear_all)
 
@@ -277,17 +332,6 @@ defmodule CodePuppyControl.TestSupport.Reset do
       # Ensure ProcessManager is running, then kill all tracked processes
       Reset.ensure_gen_server_started(CommandRunner.ProcessManager)
       safe_call(CommandRunner.ProcessManager, :kill_all)
-    end
-
-    defp reset_callbacks do
-      Reset.ensure_gen_server_started(CodePuppyControl.Callbacks.Registry)
-
-      try do
-        CodePuppyControl.Callbacks.clear()
-        CodePuppyControl.Workflow.State.register_callback_handlers()
-      catch
-        :exit, _ -> :ok
-      end
     end
 
     defp reset_code_context do
