@@ -17,7 +17,15 @@ defmodule CodePuppyControl.FeatureFlags.Flags do
   | `elixir.cli`           | Route CLI/REPL to Elixir          |
 
   These map directly to the ADR-004 Phase H flag spec.
+
+  ## Percentage-based Rollout
+
+  Flag values can be boolean (`true`/`false`) or an integer 0..100 representing
+  the percentage of requests that should route to Elixir. `true` is equivalent
+  to 100, `false` to 0.
   """
+
+  @type flag_value :: boolean() | 0..100
 
   @known_capabilities [
     {:llm_client, "Route LLM client calls to Elixir"},

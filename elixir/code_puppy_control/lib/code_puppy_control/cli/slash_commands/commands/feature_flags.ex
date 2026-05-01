@@ -173,17 +173,19 @@ defmodule CodePuppyControl.CLI.SlashCommands.Commands.FeatureFlags do
     end
   end
 
-  defp print_flag_row({capability, true, description}) do
+  defp print_flag_row({capability, true, _percentage, description}) do
     IO.puts(
       "    ✓ #{IO.ANSI.green()}#{String.pad_trailing(to_string(capability), 12)}#{IO.ANSI.reset()} " <>
         "enabled  #{description}"
     )
   end
 
-  defp print_flag_row({capability, false, description}) do
+  defp print_flag_row({capability, false, percentage, description}) do
+    pct_str = if percentage > 0, do: "(#{percentage}%)", else: ""
+
     IO.puts(
       "    ○ #{IO.ANSI.faint()}#{String.pad_trailing(to_string(capability), 12)}#{IO.ANSI.reset()} " <>
-        "disabled #{IO.ANSI.faint()}#{description}#{IO.ANSI.reset()}"
+        "disabled #{pct_str}#{IO.ANSI.faint()}#{description}#{IO.ANSI.reset()}"
     )
   end
 

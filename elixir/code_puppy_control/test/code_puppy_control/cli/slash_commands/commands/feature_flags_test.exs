@@ -123,7 +123,7 @@ defmodule CodePuppyControl.CLI.SlashCommands.Commands.FeatureFlagsTest do
                        1_000
 
         assert metadata.source == :slash_command
-        assert metadata.flags == %{tools: true}
+        assert metadata.flags == %{tools: 100}
 
         refute_receive {:telemetry, [:code_puppy, :feature_flags, :invalid], _measurements,
                         _metadata},
@@ -164,7 +164,7 @@ defmodule CodePuppyControl.CLI.SlashCommands.Commands.FeatureFlagsTest do
                        1_000
 
         assert set_metadata.source == :api
-        assert set_metadata.flags == %{plugins: true}
+        assert set_metadata.flags == %{plugins: 100}
       after
         :telemetry.detach(handler_id)
       end

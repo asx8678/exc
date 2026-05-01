@@ -272,6 +272,54 @@ defmodule CodePuppyControl.RuntimeSelectorTest do
                       %{capability: :tools, selected: :elixir, mode: :auto}}
     end
 
+    test "includes percentage metadata in telemetry for :auto mode" do
+      FeatureFlags.set(:base_agent, 75, source: :test)
+
+      server = start_fresh_selector(mode: :auto)
+      test_pid = self()
+
+      :telemetry.attach_many(
+        "rs-test-pct-meta",
+        [[:code_puppy, :runtime, :select]],
+        fn _event_name, _measurements, metadata, _config ->
+          send(test_pid, {:telemetry_pct, metadata})
+        end,
+        nil
+      )
+
+      on_exit(fn ->
+        :telemetry.detach("rs-test-pct-meta")
+      end)
+
+      select_for(server, :base_agent)
+
+      assert_receive {:telemetry_pct, %{capability: :base_agent, percentage: 75, mode: :auto}}
+    end
+
+    test "percentage metadata is absent in :python mode" do
+      server = start_fresh_selector(mode: :python)
+      test_pid = self()
+
+      :telemetry.attach_many(
+        "rs-test-pct-python",
+        [[:code_puppy, :runtime, :select]],
+        fn _event_name, _measurements, metadata, _config ->
+          send(test_pid, {:telemetry_pct_py, metadata})
+        end,
+        nil
+      )
+
+      on_exit(fn ->
+        :telemetry.detach("rs-test-pct-python")
+      end)
+
+      select_for(server, :llm_client)
+
+      # :python and :elixir modes don't include percentage (only :auto does)
+      assert_receive {:telemetry_pct_py, metadata}
+      refute Map.has_key?(metadata, :percentage)
+    end
+
     test "emits select event with :python in python mode" do
       server = start_fresh_selector(mode: :python)
       test_pid = self()
