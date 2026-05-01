@@ -266,6 +266,153 @@ defmodule CodePuppyControl.FeatureFlagsTest do
     end
   end
 
+  describe "percentage-based rollout" do
+    test "percentage/1 returns 0 when flag is false" do
+      server = start_fresh_flags_server()
+      :ok = set_via_server(server, :llm_client, false)
+      assert GenServer.call(server, {:percentage, :llm_client}) == 0
+    end
+
+    test "percentage/1 returns 100 when flag is true" do
+      server = start_fresh_flags_server()
+      :ok = set_via_server(server, :tools, true)
+      assert GenServer.call(server, {:percentage, :tools}) == 100
+    end
+
+    test "percentage/1 returns integer for 50%% flag" do
+      server = start_fresh_flags_server()
+      :ok = set_via_server(server, :base_agent, 50)
+      assert GenServer.call(server, {:percentage, :base_agent}) == 50
+    end
+
+    test "set/2 accepts integer 0..100" do
+      server = start_fresh_flags_server()
+      :ok = set_via_server(server, :plugins, 25)
+      assert GenServer.call(server, {:percentage, :plugins}) == 25
+
+      # 0 works (disabled)
+      :ok = set_via_server(server, :plugins, 0)
+      assert GenServer.call(server, {:percentage, :plugins}) == 0
+
+      # 100 works (fully enabled)
+      :ok = set_via_server(server, :plugins, 100)
+      assert GenServer.call(server, {:percentage, :plugins}) == 100
+
+      # 1 works (barely enabled)
+      :ok = set_via_server(server, :plugins, 1)
+      assert GenServer.call(server, {:percentage, :plugins}) == 1
+
+      # 99 works (nearly enabled)
+      :ok = set_via_server(server, :plugins, 99)
+      assert GenServer.call(server, {:percentage, :plugins}) == 99
+    end
+
+    test "probabilistic: 0%% is always false" do
+      server = start_fresh_flags_server()
+      :ok = set_via_server(server, :cli, 0)
+
+      results = for _ <- 1..100, do: GenServer.call(server, {:enabled?, :cli})
+      assert Enum.all?(results, &(&1 == false))
+    end
+
+    test "probabilistic: 100%% is always true" do
+      server = start_fresh_flags_server()
+      :ok = set_via_server(server, :tools, 100)
+
+      results = for _ <- 1..100, do: GenServer.call(server, {:enabled?, :tools})
+      assert Enum.all?(results, &(&1 == true))
+    end
+
+    test "probabilistic: 50%% converges within 30%% margin over 1000 trials" do
+      server = start_fresh_flags_server()
+      :ok = set_via_server(server, :llm_client, 50)
+
+      results = for _ <- 1..1000, do: GenServer.call(server, {:enabled?, :llm_client})
+      pct = Enum.count(results, &(&1 == true)) / length(results) * 100
+
+      # With 1000 trials, a true 50% coin should land between 35% and 65%
+      # with > 99.9% probability (margin > 4 sigma).
+      assert pct >= 35 and pct <= 65,
+             "Expected ~50% enabled, got #{Float.round(pct, 1)}% over 1000 trials"
+    end
+
+    test "list includes percentage metadata" do
+      server = start_fresh_flags_server()
+      :ok = set_via_server(server, :cli, 75)
+
+      entries = GenServer.call(server, :list)
+      {_, enabled?, pct, _} = Enum.find(entries, fn {c, _, _, _} -> c == :cli end)
+
+      assert pct == 75
+      # 75% is probabilistic, but could be true or false — just check it's boolean
+      assert is_boolean(enabled?)
+    end
+  end
+
+  describe "file loading: percentage values" do
+    test "loads integer 0..100 values from flags.json", %{flags_path: path} do
+      File.write!(
+        path,
+        Jason.encode!(%{
+          "elixir.llm_client" => 0,
+          "elixir.base_agent" => 50,
+          "elixir.tools" => 100
+        })
+      )
+
+      server = start_fresh_flags_server()
+      assert GenServer.call(server, {:percentage, :llm_client}) == 0
+      assert GenServer.call(server, {:percentage, :base_agent}) == 50
+      assert GenServer.call(server, {:percentage, :tools}) == 100
+    end
+
+    test "mixed boolean and integer values in same file", %{flags_path: path} do
+      File.write!(
+        path,
+        Jason.encode!(%{
+          "elixir.llm_client" => true,
+          "elixir.base_agent" => false,
+          "elixir.tools" => 50
+        })
+      )
+
+      server = start_fresh_flags_server()
+      assert GenServer.call(server, {:percentage, :llm_client}) == 100
+      assert GenServer.call(server, {:percentage, :base_agent}) == 0
+      assert GenServer.call(server, {:percentage, :tools}) == 50
+    end
+
+    test "rejects negative percentages with warning", %{flags_path: path} do
+      File.write!(
+        path,
+        Jason.encode!(%{"elixir.llm_client" => -5})
+      )
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          server = start_fresh_flags_server()
+          assert GenServer.call(server, {:percentage, :llm_client}) == 0
+        end)
+
+      assert log =~ "expected boolean or 0..100 integer"
+    end
+
+    test "rejects >100 percentages with warning", %{flags_path: path} do
+      File.write!(
+        path,
+        Jason.encode!(%{"elixir.tools" => 150})
+      )
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          server = start_fresh_flags_server()
+          assert GenServer.call(server, {:percentage, :tools}) == 0
+        end)
+
+      assert log =~ "expected boolean or 0..100 integer"
+    end
+  end
+
   describe "disk persistence" do
     test "set writes JSON with elixir. prefixed keys", %{flags_path: path} do
       server = start_fresh_flags_server()
@@ -292,6 +439,20 @@ defmodule CodePuppyControl.FeatureFlagsTest do
       {:ok, decoded} = Jason.decode(raw)
       assert decoded["elixir.llm_client"] == false
       assert decoded["elixir.tools"] == true
+    end
+
+    test "serializes percentage values: 0→false, 100→true, 1..99→integer", %{flags_path: path} do
+      server = start_fresh_flags_server()
+      :ok = set_via_server(server, :llm_client, 0)
+      :ok = set_via_server(server, :base_agent, 100)
+      :ok = set_via_server(server, :tools, 50)
+
+      {:ok, raw} = File.read(path)
+      {:ok, decoded} = Jason.decode(raw)
+
+      assert decoded["elixir.llm_client"] == false
+      assert decoded["elixir.base_agent"] == true
+      assert decoded["elixir.tools"] == 50
     end
   end
 

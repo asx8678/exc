@@ -110,8 +110,11 @@ defmodule CodePuppyControl.RuntimeSelector do
 
   @impl true
   def handle_call({:select_runtime, capability}, _from, %{mode: mode} = state) do
-    selected = resolve_runtime(mode, capability)
-    metadata = %{capability: capability, selected: selected, mode: mode}
+    {selected, extra_metadata} = resolve_runtime(mode, capability)
+
+    metadata =
+      %{capability: capability, selected: selected, mode: mode}
+      |> Map.merge(extra_metadata)
 
     :telemetry.execute(
       [:code_puppy, :runtime, :select],
@@ -167,13 +170,18 @@ defmodule CodePuppyControl.RuntimeSelector do
   # Resolve which runtime handles a capability given the current mode.
   # In :auto mode, delegates to FeatureFlags.enabled?/1.
   # Returns :python on any error (safe default — keeps Python path active).
-  defp resolve_runtime(:python, _capability), do: :python
-  defp resolve_runtime(:elixir, _capability), do: :elixir
+  # Returns {runtime, extra_metadata} with extra_metadata containing
+  # percentage info for :auto mode.
+  defp resolve_runtime(:python, _capability), do: {:python, %{}}
+  defp resolve_runtime(:elixir, _capability), do: {:elixir, %{}}
 
   defp resolve_runtime(:auto, capability) do
     # FeatureFlags.enabled?/1 raises ArgumentError for unknown capabilities.
     # We catch that here and fall back to :python (safe default).
-    CodePuppyControl.FeatureFlags.enabled?(capability)
+    enabled = CodePuppyControl.FeatureFlags.enabled?(capability)
+    percentage = CodePuppyControl.FeatureFlags.percentage(capability)
+    runtime = if enabled, do: :elixir, else: :python
+    {runtime, %{percentage: percentage}}
   rescue
     e in ArgumentError ->
       Logger.warning(
@@ -181,10 +189,7 @@ defmodule CodePuppyControl.RuntimeSelector do
           "#{Exception.message(e)}. Falling back to :python."
       )
 
-      :python
-  else
-    true -> :elixir
-    false -> :python
+      {:python, %{}}
   end
 
   defp emit_telemetry(action, mode, extra_metadata \\ %{}) do

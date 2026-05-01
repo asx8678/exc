@@ -13,26 +13,31 @@ defmodule CodePuppyControl.FeatureFlags do
   ## File Format
 
       {
-        "elixir.llm_client": false,
-        "elixir.base_agent": false,
-        "elixir.tools": false,
+        "elixir.llm_client": 0,
+        "elixir.base_agent": 100,
+        "elixir.tools": 25,
         "elixir.plugins": false,
         "elixir.cli": false
       }
 
-  Unknown keys in the file are silently ignored. Missing keys default
-  to `false`.
+  Values can be boolean (`true`/`false`) or integer 0..100. `true` is
+  equivalent to 100, `false` to 0. Unknown keys are silently ignored.
+  Missing keys default to 0 (disabled).
 
   ## Usage
 
-      # Check if a capability is enabled
+      # Check if a capability is enabled (probabilistic for percentages 1..99)
       CodePuppyControl.FeatureFlags.enabled?(:llm_client)
 
-      # List all capabilities with their status
+      # Get the percentage for a capability
+      CodePuppyControl.FeatureFlags.percentage(:llm_client)
+
+      # List all capabilities with their status and percentage
       CodePuppyControl.FeatureFlags.list()
 
-      # Set a capability at runtime (writes to disk)
+      # Set a capability at runtime (boolean or 0..100)
       CodePuppyControl.FeatureFlags.set(:llm_client, true)
+      CodePuppyControl.FeatureFlags.set(:llm_client, 25)
   """
 
   use GenServer
@@ -46,12 +51,16 @@ defmodule CodePuppyControl.FeatureFlags do
   @default_source :api
   @valid_sources [:api, :slash_command, :config_file, :test]
 
-  @type set_error :: String.t() | :unknown
+  @type set_error :: String.t() | :unknown | {:invalid_value, term()}
 
   # ── Client API ──────────────────────────────────────────────────────────
 
   @doc """
   Returns `true` if the given capability is enabled.
+
+  Uses probabilistic evaluation when the percentage is between 1 and 99:
+  `:rand.uniform(100) <= percentage`. 100 always returns `true`, 0 always
+  `false`.
 
   Capabilities default to `false` if the flags file is missing, malformed,
   or the key is absent. If the GenServer is unavailable, returns `false`
@@ -71,12 +80,31 @@ defmodule CodePuppyControl.FeatureFlags do
   end
 
   @doc """
-  Returns a list of all capabilities with their current status.
+  Returns the percentage (0..100) for a given capability.
 
-  Each entry is `{capability_atom, status_boolean, description_string}`.
+  Capabilities default to 0 if the flags file is missing, malformed,
+  or the key is absent. If the GenServer is unavailable, returns 0.
+
+  Raises `ArgumentError` for unknown capabilities.
+  """
+  @spec percentage(atom()) :: 0..100
+  def percentage(capability) when is_atom(capability) do
+    unless Flags.known?(capability) do
+      raise ArgumentError, "Unknown feature-flag capability: #{inspect(capability)}"
+    end
+
+    GenServer.call(__MODULE__, {:percentage, capability})
+  catch
+    :exit, _ -> 0
+  end
+
+  @doc """
+  Returns a list of all capabilities with their current status and percentage.
+
+  Each entry is `{capability_atom, enabled_boolean, percentage_integer, description_string}`.
   Falls back to all-disabled if the GenServer is unavailable.
   """
-  @spec list() :: [{atom(), boolean(), String.t()}]
+  @spec list() :: [{atom(), boolean(), 0..100, String.t()}]
   def list do
     GenServer.call(__MODULE__, :list)
   catch
@@ -84,10 +112,11 @@ defmodule CodePuppyControl.FeatureFlags do
   end
 
   @doc """
-  Enables or disables a capability at runtime.
+  Sets a capability value at runtime.
 
-  Persists the change to `flags.json`. Accepts both `:llm_client` atoms
-  and `"elixir.llm_client"` strings.
+  Accepts boolean (`true`/`false`) or integer 0..100. Persists the change
+  to `flags.json`. Accepts both `:llm_client` atoms and `"elixir.llm_client"`
+  strings.
 
   This legacy arity falls back to source `:api`. Use `set/3` for operator
   or integration code so audit telemetry records the source explicitly.
@@ -96,20 +125,28 @@ defmodule CodePuppyControl.FeatureFlags do
 
   Returns `:ok` on success, `{:error, reason}` on failure.
   """
-  @spec set(atom() | String.t(), boolean()) :: :ok | {:error, set_error()}
+  @spec set(atom() | String.t(), boolean() | 0..100) :: :ok | {:error, set_error()}
   def set(capability, value) when is_boolean(value) do
+    set(capability, bool_to_pct(value), [])
+  end
+
+  def set(capability, value) when is_integer(value) and value in 0..100 do
     set(capability, value, [])
   end
 
   @doc """
-  Enables or disables a capability at runtime with source metadata.
+  Sets a capability value at runtime with source metadata.
 
   Valid sources include `:api`, `:slash_command`, `:config_file`, and `:test`.
   Invalid source values are observable via `:invalid` telemetry while the write
   still falls back to `:api`.
   """
-  @spec set(atom() | String.t(), boolean(), keyword()) :: :ok | {:error, set_error()}
+  @spec set(atom() | String.t(), boolean() | 0..100, keyword()) :: :ok | {:error, set_error()}
   def set(capability, value, opts) when is_boolean(value) and is_list(opts) do
+    set(capability, bool_to_pct(value), opts)
+  end
+
+  def set(capability, value, opts) when is_integer(value) and value in 0..100 and is_list(opts) do
     source = source_from_opts(opts, @default_source)
 
     with {:ok, resolved} <- Flags.resolve(capability) do
@@ -156,22 +193,32 @@ defmodule CodePuppyControl.FeatureFlags do
 
   @impl true
   def handle_call({:enabled?, capability}, _from, %{flags: flags} = state) do
-    result = Map.get(flags, capability, false)
+    pct = Map.get(flags, capability, 0)
+    result = pct_enabled?(pct)
 
     :telemetry.execute(
       [:code_puppy_control, :feature_flags, :check],
       %{duration: 0},
-      %{capability: capability, enabled: result}
+      %{capability: capability, enabled: result, percentage: pct}
     )
 
     {:reply, result, state}
   end
 
   @impl true
+  def handle_call({:percentage, capability}, _from, %{flags: flags} = state) do
+    pct = Map.get(flags, capability, 0)
+    {:reply, pct, state}
+  end
+
+  @impl true
   def handle_call(:list, _from, %{flags: flags} = state) do
     result =
       Flags.all()
-      |> Enum.map(fn {name, desc} -> {name, Map.get(flags, name, false), desc} end)
+      |> Enum.map(fn {name, desc} ->
+        pct = Map.get(flags, name, 0)
+        {name, pct_enabled?(pct), pct, desc}
+      end)
 
     {:reply, result, state}
   end
@@ -210,12 +257,30 @@ defmodule CodePuppyControl.FeatureFlags do
 
   # ── Private ─────────────────────────────────────────────────────────────
 
+  # Normalize a raw value to integer 0..100.
+  defp normalize_value(true), do: 100
+  defp normalize_value(false), do: 0
+  defp normalize_value(value) when is_integer(value) and value in 0..100, do: value
+
+  # Convert boolean to percentage.
+  defp bool_to_pct(true), do: 100
+  defp bool_to_pct(false), do: 0
+
+  # Probabilistic check: percentage == 0 → false, 100 → true, else random.
+  defp pct_enabled?(0), do: false
+  defp pct_enabled?(100), do: true
+
+  defp pct_enabled?(pct) when is_integer(pct) and pct >= 1 and pct <= 99 do
+    :rand.uniform(100) <= pct
+  end
+
   defp set_flag(capability, value, flags, state, source) do
-    new_flags = Map.put(flags, capability, value)
+    normalized = normalize_value(value)
+    new_flags = Map.put(flags, capability, normalized)
 
     case persist_to_disk(new_flags) do
       :ok ->
-        emit_telemetry(:set, %{capability => value}, source)
+        emit_telemetry(:set, %{capability => normalized}, source)
         {:reply, :ok, %{state | flags: new_flags}}
 
       {:error, reason} ->
@@ -227,13 +292,13 @@ defmodule CodePuppyControl.FeatureFlags do
 
   defp default_flags do
     Flags.names()
-    |> Enum.map(fn name -> {name, false} end)
+    |> Enum.map(fn name -> {name, 0} end)
     |> Enum.into(%{})
   end
 
   defp default_list do
     Flags.all()
-    |> Enum.map(fn {name, desc} -> {name, false, desc} end)
+    |> Enum.map(fn {name, desc} -> {name, false, 0, desc} end)
   end
 
   defp load_from_disk do
@@ -251,10 +316,11 @@ defmodule CodePuppyControl.FeatureFlags do
   defp decode_json(raw) when byte_size(raw) < 2, do: {:error, :empty}
   defp decode_json(raw), do: Jason.decode(raw)
 
-  # Merge decoded JSON map into defaults. Unknown keys and non-boolean
-  # values are silently ignored (with a warning for non-boolean values
-  # on known keys). `Flags.resolve/1` handles prefix-stripping and
-  # atom matching safely — no `String.to_atom/1` or
+  # Merge decoded JSON map into defaults. Accepts boolean (converted to
+  # 0/100) and integer 0..100 values. Unknown keys and non-boolean/
+  # non-valid-integer values are silently ignored (with a warning for
+  # invalid values on known keys). `Flags.resolve/1` handles prefix-stripping
+  # and atom matching safely — no `String.to_atom/1` or
   # `String.to_existing_atom/1` is used here, preventing atom-table
   # pollution from untrusted JSON input.
   defp parse_flags_map(decoded) when is_map(decoded) do
@@ -263,12 +329,15 @@ defmodule CodePuppyControl.FeatureFlags do
     Enum.reduce(decoded, defaults, fn {key, value}, acc ->
       case Flags.resolve(key) do
         {:ok, atom} when is_boolean(value) ->
+          Map.put(acc, atom, if(value, do: 100, else: 0))
+
+        {:ok, atom} when is_integer(value) and value >= 0 and value <= 100 ->
           Map.put(acc, atom, value)
 
         {:ok, _atom} ->
-          # Non-boolean value — skip with warning
           Logger.warning(
-            "FeatureFlags: expected boolean for #{key}, got #{inspect(value)}. Ignoring."
+            "FeatureFlags: expected boolean or 0..100 integer for #{key}, " <>
+              "got #{inspect(value)}. Ignoring."
           )
 
           acc
@@ -316,12 +385,22 @@ defmodule CodePuppyControl.FeatureFlags do
   end
 
   # Converts internal atom-keyed map to the JSON wire format
-  # with "elixir." prefixed string keys.
+  # with "elixir." prefixed string keys. Internal 0..100 integers are
+  # normalized back to booleans at the boundaries (0→false, 100→true,
+  # 1..99 stays integer) for human-readable JSON.
   defp serialize_flags(flags) do
     flags
-    |> Enum.map(fn {capability, value} -> {Flags.json_key(capability), value} end)
+    |> Enum.map(fn {capability, value} ->
+      {Flags.json_key(capability), serialize_value(value)}
+    end)
     |> Enum.into(%{})
   end
+
+  # Serialize internal percentage to JSON wire value.
+  # 0 → false, 100 → true, 1..99 → integer.
+  defp serialize_value(0), do: false
+  defp serialize_value(100), do: true
+  defp serialize_value(v) when is_integer(v) and v in 1..99, do: v
 
   defp source_from_opts(opts, default) do
     case Keyword.fetch(opts, :source) do
