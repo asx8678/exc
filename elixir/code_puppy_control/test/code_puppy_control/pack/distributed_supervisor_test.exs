@@ -230,6 +230,74 @@ defmodule CodePuppyControl.Pack.DistributedSupervisorTest do
     end
   end
 
+  # ── Restart resilience (Bug #1) ─────────────────────────────────────────
+
+  describe "restart resilience" do
+    test "add_node handles stale pid after child restart" do
+      {:ok, sup_pid} =
+        DistributedSupervisor.add_node(@test_node,
+          supervisor_name: @ds_name,
+          proxy_opts: mock_proxy_opts()
+        )
+
+      assert DistributedSupervisor.list_nodes(@ds_name) == [@test_node]
+
+      # Monitor the child so we can detect when it dies
+      ref = Process.monitor(sup_pid)
+
+      # Kill the child supervisor abnormally so DynamicSupervisor restarts it
+      Process.exit(sup_pid, :kill)
+
+      # Wait for the DOWN notification
+      assert_receive {:DOWN, ^ref, :process, ^sup_pid, _reason}, 500
+
+      # Give DynamicSupervisor time to restart (transient restart for abnormal exit)
+      Process.sleep(300)
+
+      # After restart, the old pid is dead, so list_nodes returns empty
+      assert DistributedSupervisor.list_nodes(@ds_name) == [],
+             "stale pid filtered from list_nodes"
+
+      # DynamicSupervisor has 1 child (the restarted one)
+      counts = DynamicSupervisor.count_children(@ds_name)
+
+      assert counts.active == 1,
+             "DynamicSupervisor should have restarted the child"
+
+      # Re-adding the node detects the stale pid and creates a fresh entry
+      assert {:ok, new_pid} =
+               DistributedSupervisor.add_node(@test_node,
+                 supervisor_name: @ds_name,
+                 proxy_opts: mock_proxy_opts()
+               )
+
+      assert Process.alive?(new_pid)
+      assert new_pid != sup_pid, "should be a new pid after restart"
+
+      # Node is listable again with the new pid
+      assert DistributedSupervisor.list_nodes(@ds_name) == [@test_node]
+    end
+
+    test "remove_node handles stale pid gracefully" do
+      {:ok, sup_pid} =
+        DistributedSupervisor.add_node(@test_node,
+          supervisor_name: @ds_name,
+          proxy_opts: mock_proxy_opts()
+        )
+
+      ref = Process.monitor(sup_pid)
+      Process.exit(sup_pid, :kill)
+      assert_receive {:DOWN, ^ref, :process, ^sup_pid, _reason}, 500
+      Process.sleep(300)
+
+      # remove_node with stale pid should clean up ETS
+      assert :ok = DistributedSupervisor.remove_node(@test_node, @ds_name)
+
+      # Node is gone
+      assert DistributedSupervisor.list_nodes(@ds_name) == []
+    end
+  end
+
   # ── Helpers ──────────────────────────────────────────────────────────────
 
   defp find_proxy_pid(sup_pid) do

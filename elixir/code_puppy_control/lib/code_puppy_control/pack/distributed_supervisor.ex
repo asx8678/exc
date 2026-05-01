@@ -18,9 +18,17 @@ defmodule CodePuppyControl.Pack.DistributedSupervisor do
   ```
 
   An ETS table (`:pack_distributed_supervisor_nodes` by default) stores the
-  node_name → supervisor_pid mapping for O(1) lookups. DynamicSupervisor
-  does not expose child IDs via `which_children/1`, so we maintain our own
-  index.
+  node_name → supervisor_pid mapping for O(1) lookups.
+
+  ## Stale-pid Recovery
+
+  When DynamicSupervisor restarts a child (abnormal exit, transient restart),
+  the new child gets a new pid but the ETS entry still has the old pid.
+  `add_node/2` detects stale pids and re-creates the entry. `list_nodes/1`
+  filters dead pids. `remove_node/2` cleans up stale entries gracefully.
+
+  Callers (NodeMonitor) re-call `add_node/2` on the next heartbeat, which
+  handles stale-pid recovery automatically.
 
   ## Lifecycle
 
@@ -74,15 +82,6 @@ defmodule CodePuppyControl.Pack.DistributedSupervisor do
 
   Returns `{:ok, pid}` on success, or `{:error, {:already_present, pid}}`
   if the node is already tracked, or `{:error, reason}` on failure.
-
-  ## Arguments
-
-  - `node_name` — the remote Erlang node atom
-  - `supervisor_or_opts` — either an atom (supervisor name, defaults to
-    `__MODULE__`) or a keyword list with:
-      - `:supervisor_name` — DynamicSupervisor name (default: `__MODULE__`)
-      - `:proxy_opts` — keyword list forwarded to `RemoteNodeProxy` (for
-        testing; e.g., `monitor_fn`, `handshake_fn`, `name`)
   """
   @spec add_node(node()) :: {:ok, pid()} | {:error, term()}
   @spec add_node(node(), atom() | keyword()) :: {:ok, pid()} | {:error, term()}
@@ -91,7 +90,6 @@ defmodule CodePuppyControl.Pack.DistributedSupervisor do
     {supervisor_name, proxy_opts} = parse_supervisor_arg(supervisor_or_opts)
     ets_table = ets_name(supervisor_name)
 
-    # Check if already tracked in ETS
     case :ets.lookup(ets_table, node_name) do
       [{^node_name, existing_pid}] when is_pid(existing_pid) ->
         if Process.alive?(existing_pid) do
@@ -102,7 +100,7 @@ defmodule CodePuppyControl.Pack.DistributedSupervisor do
 
           {:error, {:already_present, existing_pid}}
         else
-          # Stale entry — clean up and retry
+          # Stale entry from a previous restart — clean up and retry
           :ets.delete(ets_table, node_name)
           do_add_node(node_name, supervisor_name, ets_table, proxy_opts)
         end
@@ -118,9 +116,6 @@ defmodule CodePuppyControl.Pack.DistributedSupervisor do
   Called by `NodeMonitor` when a node disconnects. Terminates the
   `RemoteNodeSupervisor` child and its `RemoteNodeProxy`. In-flight
   runs on the disconnected node are marked as failed by the proxy.
-
-  The second argument is the supervisor name (atom), defaulting to
-  `__MODULE__`. Pass a custom name when using a test supervisor.
   """
   @spec remove_node(node()) :: :ok | {:error, :not_found}
   @spec remove_node(node(), atom()) :: :ok | {:error, :not_found}
@@ -130,30 +125,41 @@ defmodule CodePuppyControl.Pack.DistributedSupervisor do
 
     case :ets.lookup(ets_table, node_name) do
       [{^node_name, pid}] when is_pid(pid) ->
-        case DynamicSupervisor.terminate_child(supervisor_name, pid) do
-          :ok ->
-            :ets.delete(ets_table, node_name)
+        if Process.alive?(pid) do
+          case DynamicSupervisor.terminate_child(supervisor_name, pid) do
+            :ok ->
+              :ets.delete(ets_table, node_name)
 
-            Logger.info("[DistributedSupervisor] removed node #{inspect(node_name)}")
+              Logger.info("[DistributedSupervisor] removed node #{inspect(node_name)}")
 
-            :telemetry.execute(
-              [:code_puppy, :distributed_pack, :node, :removed],
-              %{count: DynamicSupervisor.count_children(supervisor_name).active},
-              %{node: node_name}
-            )
+              :telemetry.execute(
+                [:code_puppy, :distributed_pack, :node, :removed],
+                %{count: DynamicSupervisor.count_children(supervisor_name).active},
+                %{node: node_name}
+              )
 
-            :ok
+              :ok
 
-          {:error, reason} ->
-            # Child may have already exited — clean up ETS anyway
-            :ets.delete(ets_table, node_name)
+            {:error, reason} ->
+              :ets.delete(ets_table, node_name)
 
-            Logger.debug(
-              "[DistributedSupervisor] terminate_child for #{inspect(node_name)} " <>
-                "returned #{inspect(reason)} (cleaned up ETS)"
-            )
+              Logger.debug(
+                "[DistributedSupervisor] terminate_child for #{inspect(node_name)} " <>
+                  "returned #{inspect(reason)} (cleaned up ETS)"
+              )
 
-            :ok
+              :ok
+          end
+        else
+          # Stale pid — just clean up ETS
+          :ets.delete(ets_table, node_name)
+
+          Logger.debug(
+            "[DistributedSupervisor] stale pid for #{inspect(node_name)}, " <>
+              "cleaned up ETS"
+          )
+
+          :ok
         end
 
       _ ->
@@ -169,8 +175,6 @@ defmodule CodePuppyControl.Pack.DistributedSupervisor do
   Delegates to `RemoteNodeProxy.dispatch/3` on the proxy for the given node.
   Returns `{:ok, run_id}` on successful dispatch, or `{:error, reason}` if
   the node is not connected or the dispatch was rejected.
-
-  The fourth argument is the supervisor name, defaulting to `__MODULE__`.
   """
   @spec dispatch(node(), atom(), map()) :: {:ok, String.t()} | {:error, term()}
   @spec dispatch(node(), atom(), map(), atom()) :: {:ok, String.t()} | {:error, term()}
@@ -190,7 +194,7 @@ defmodule CodePuppyControl.Pack.DistributedSupervisor do
   @doc """
   Returns a list of all currently supervised remote node atoms.
 
-  The `supervisor_name` argument defaults to `__MODULE__`.
+  Filters out stale pids (dead processes from DynamicSupervisor restarts).
   """
   @spec list_nodes() :: [node()]
   @spec list_nodes(atom()) :: [node()]
@@ -205,8 +209,6 @@ defmodule CodePuppyControl.Pack.DistributedSupervisor do
 
   @doc """
   Returns the current cluster status summary.
-
-  The `supervisor_name` argument defaults to `__MODULE__`.
   """
   @spec status() :: %{
           connected: [node()],
@@ -236,8 +238,6 @@ defmodule CodePuppyControl.Pack.DistributedSupervisor do
     name = Keyword.get(opts, :name, @default_name)
     ets_table = ets_name(name)
 
-    # Create ETS table for node_name → supervisor_pid mapping.
-    # Handle existing table from a previous run.
     case :ets.whereis(ets_table) do
       :undefined ->
         :ets.new(ets_table, [:set, :public, :named_table, read_concurrency: true])
@@ -251,14 +251,9 @@ defmodule CodePuppyControl.Pack.DistributedSupervisor do
 
   # ── Private ──────────────────────────────────────────────────────────────
 
-  # Derives the ETS table name from the supervisor registration name.
-  @spec ets_name(atom()) :: atom()
   defp ets_name(@default_name), do: @default_ets
   defp ets_name(name) when is_atom(name), do: :"#{name}_nodes"
 
-  # Normalizes the second argument to add_node/2 into a {supervisor_name, proxy_opts} tuple.
-  # Accepts either an atom (supervisor name) or a keyword list.
-  @spec parse_supervisor_arg(atom() | keyword()) :: {atom(), keyword()}
   defp parse_supervisor_arg(supervisor_name) when is_atom(supervisor_name) do
     {supervisor_name, []}
   end
@@ -269,8 +264,6 @@ defmodule CodePuppyControl.Pack.DistributedSupervisor do
     {supervisor_name, proxy_opts}
   end
 
-  # Starts a RemoteNodeSupervisor child and stores the mapping in ETS.
-  @spec do_add_node(node(), atom(), atom(), keyword()) :: {:ok, pid()} | {:error, term()}
   defp do_add_node(node_name, supervisor_name, ets_table, proxy_opts) do
     child_spec = build_child_spec(node_name, proxy_opts)
 
@@ -291,7 +284,6 @@ defmodule CodePuppyControl.Pack.DistributedSupervisor do
         {:ok, pid}
 
       {:error, {:already_started, pid}} ->
-        # Already running — ensure ETS is in sync
         :ets.insert(ets_table, {node_name, pid})
 
         Logger.debug(
@@ -311,12 +303,6 @@ defmodule CodePuppyControl.Pack.DistributedSupervisor do
     end
   end
 
-  # Builds the child spec for a RemoteNodeSupervisor.
-  # Uses RemoteNodeSupervisor.child_spec/1 when no proxy_opts are given
-  # (production path). When proxy_opts are provided (testing), uses the
-  # keyword-list variant to forward them through, and also sets name: nil
-  # to avoid via-tuple registration conflicts in test supervisors.
-  @spec build_child_spec(node(), keyword()) :: map()
   defp build_child_spec(node_name, []) do
     RemoteNodeSupervisor.child_spec(node_name)
   end
@@ -329,9 +315,6 @@ defmodule CodePuppyControl.Pack.DistributedSupervisor do
     )
   end
 
-  # Finds the RemoteNodeProxy pid for a given node by looking up the
-  # supervisor pid in ETS and walking its children.
-  @spec find_proxy_pid(node(), atom()) :: {:ok, pid()} | {:error, :not_found}
   defp find_proxy_pid(node_name, ets_table) do
     case :ets.lookup(ets_table, node_name) do
       [{^node_name, sup_pid}] when is_pid(sup_pid) ->

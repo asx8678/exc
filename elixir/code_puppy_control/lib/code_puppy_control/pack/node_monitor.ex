@@ -15,7 +15,8 @@ defmodule CodePuppyControl.Pack.NodeMonitor do
 
   1. Read the configured worker list from Application env.
   2. For each configured worker:
-     - If not connected and not in grace period, attempt `Node.connect/1`.
+     - If not already connected, attempt `Node.connect/1` **asynchronously**
+       via a Task with the configured `connect_timeout`.
      - On success, update ETS + state and call `DistributedSupervisor.add_node/1`.
      - On failure, log and increment retry count.
   3. For each connected node no longer in config, remove it.
@@ -23,8 +24,16 @@ defmodule CodePuppyControl.Pack.NodeMonitor do
   ## Grace Period
 
   When a node disconnects, it enters a grace period (`disconnect_timeout`,
-  default 30s) during which reconnection is attempted on each heartbeat.
-  If the grace period expires, the node is removed from supervision.
+  default 30s) during which `Node.connect/1` is retried **on every heartbeat**.
+  If the grace period expires, the node becomes `:lost` — but the configured
+  worker remains eligible for future retry (needs a new `:nodeup` event or
+  re-check trigger).
+
+  ## Async Connection
+
+  `Node.connect/1` can block on slow or unreachable hosts. The monitor spawns
+  a `Task` for each connection attempt, respecting `connect_timeout`. The
+  GenServer is never blocked waiting on a connect.
 
   ## ETS Table
 
@@ -86,7 +95,9 @@ defmodule CodePuppyControl.Pack.NodeMonitor do
           enabled: boolean(),
           node_states: %{node() => node_state()},
           proxy_opts: keyword(),
-          supervisor_name: atom()
+          supervisor_name: atom(),
+          connect_fn: (node() -> boolean() | :ignored),
+          monitor_fn: (node(), boolean() -> boolean())
         }
 
   # ── Public API ────────────────────────────────────────────────────────────
@@ -158,7 +169,9 @@ defmodule CodePuppyControl.Pack.NodeMonitor do
       enabled: config.enabled,
       node_states: %{},
       proxy_opts: config.proxy_opts,
-      supervisor_name: config.supervisor_name
+      supervisor_name: config.supervisor_name,
+      connect_fn: config.connect_fn,
+      monitor_fn: config.monitor_fn
     }
 
     if state.enabled do
@@ -193,7 +206,9 @@ defmodule CodePuppyControl.Pack.NodeMonitor do
 
   @impl true
   def handle_continue(:initial_connect, state) do
-    state = attempt_all_connections(state)
+    # Don't connect immediately — defer to first heartbeat.
+    # This gives tests time to inject {:nodeup}/{:nodedown} messages
+    # before any async connect tasks race with them.
     schedule_heartbeat(state.heartbeat_interval)
     {:noreply, state}
   end
@@ -291,6 +306,12 @@ defmodule CodePuppyControl.Pack.NodeMonitor do
   end
 
   @impl true
+  def handle_info({:connect_result, node_atom, worker_name, result}, state) do
+    state = handle_connect_result(state, node_atom, worker_name, result)
+    {:noreply, state}
+  end
+
+  @impl true
   def handle_info(_msg, state) do
     {:noreply, state}
   end
@@ -336,7 +357,9 @@ defmodule CodePuppyControl.Pack.NodeMonitor do
           Keyword.get(app_config, :connect_timeout, @default_connect_timeout)
         ),
       proxy_opts: Keyword.get(opts, :proxy_opts, []),
-      supervisor_name: Keyword.get(opts, :supervisor_name, DistributedSupervisor)
+      supervisor_name: Keyword.get(opts, :supervisor_name, DistributedSupervisor),
+      connect_fn: Keyword.get(opts, :connect_fn, &Node.connect/1),
+      monitor_fn: Keyword.get(opts, :monitor_fn, &Node.monitor/2)
     }
   end
 
@@ -371,23 +394,58 @@ defmodule CodePuppyControl.Pack.NodeMonitor do
         node_connected?(acc.node_states, node_atom) ->
           acc
 
-        # In grace period — skip (let it expire first)
-        in_grace_period?(acc.node_states, node_atom) ->
-          acc
-
-        # Grace period expired — don't retry until next nodeup event
+        # Lost (grace expired) — skip, needs fresh :nodeup or recheck
         node_lost?(acc.node_states, node_atom) ->
           acc
 
-        # Try to connect
+        # Disconnected (including in grace period) — try async connect
         true ->
-          attempt_connect(acc, node_atom, worker_name)
+          attempt_connect_async(acc, node_atom, worker_name)
       end
     end)
   end
 
-  defp attempt_connect(state, node_atom, worker_name) do
-    case Node.connect(node_atom) do
+  defp attempt_connect_async(state, node_atom, worker_name) do
+    caller = self()
+    timeout = state.connect_timeout
+
+    # Spawn an unlinked temp process for async connect — Node.connect/1 can
+    # block on slow/unreachable hosts, so we don't want to block the GenServer.
+    # The connect_timeout from config is respected via Task.yield/2.
+    Task.start(fn ->
+      result =
+        Task.async(fn -> state.connect_fn.(node_atom) end)
+        |> Task.yield(timeout)
+        |> case do
+          {:ok, {:ok, connect_result}} -> connect_result
+          {:ok, connect_result} -> connect_result
+          nil -> :connect_timeout
+        end
+
+      send(caller, {:connect_result, node_atom, worker_name, result})
+    end)
+
+    state
+  end
+
+  defp handle_connect_result(state, node_atom, worker_name, result) do
+    # Don't overwrite :connected from a {:nodeup} event
+    if node_connected?(state.node_states, node_atom) do
+      Logger.debug("[NodeMonitor] connect result for #{worker_name} ignored — already connected")
+
+      state
+    else
+      do_handle_connect_result(state, node_atom, worker_name, result)
+    end
+  end
+
+  defp do_handle_connect_result(state, node_atom, worker_name, result) do
+    existing = Map.get(state.node_states, node_atom, %{})
+
+    # Preserve existing grace_until — don't overwrite it with nil
+    preserved_grace = existing[:grace_until]
+
+    case result do
       true ->
         Logger.info("[NodeMonitor] connected to worker #{worker_name}")
 
@@ -400,13 +458,28 @@ defmodule CodePuppyControl.Pack.NodeMonitor do
         :ets.insert(@ets_table, {node_atom, new_state})
         node_states = Map.put(state.node_states, node_atom, new_state)
 
-        # Notify DistributedSupervisor (best-effort)
         safe_add_node(node_atom, state)
 
         %{state | node_states: node_states}
 
+      :connect_timeout ->
+        retries = (existing[:retry_count] || 0) + 1
+
+        Logger.debug("[NodeMonitor] connect timeout for #{worker_name} (attempt #{retries})")
+
+        failed_state = %{
+          status: :disconnected,
+          grace_until: preserved_grace,
+          retry_count: retries
+        }
+
+        :ets.insert(@ets_table, {node_atom, failed_state})
+        node_states = Map.put(state.node_states, node_atom, failed_state)
+
+        %{state | node_states: node_states}
+
       false ->
-        retries = (Map.get(state.node_states, node_atom, %{})[:retry_count] || 0) + 1
+        retries = (existing[:retry_count] || 0) + 1
 
         Logger.debug(
           "[NodeMonitor] failed to connect to worker #{worker_name} (attempt #{retries})"
@@ -414,7 +487,7 @@ defmodule CodePuppyControl.Pack.NodeMonitor do
 
         failed_state = %{
           status: :disconnected,
-          grace_until: nil,
+          grace_until: preserved_grace,
           retry_count: retries
         }
 
@@ -424,8 +497,7 @@ defmodule CodePuppyControl.Pack.NodeMonitor do
         %{state | node_states: node_states}
 
       :ignored ->
-        # Distribution not started — treat as connection failure
-        retries = (Map.get(state.node_states, node_atom, %{})[:retry_count] || 0) + 1
+        retries = (existing[:retry_count] || 0) + 1
 
         Logger.debug(
           "[NodeMonitor] distribution not started, cannot connect to " <>
@@ -434,7 +506,7 @@ defmodule CodePuppyControl.Pack.NodeMonitor do
 
         failed_state = %{
           status: :disconnected,
-          grace_until: nil,
+          grace_until: preserved_grace,
           retry_count: retries
         }
 
@@ -504,17 +576,6 @@ defmodule CodePuppyControl.Pack.NodeMonitor do
     end
   end
 
-  defp in_grace_period?(node_states, node_atom) do
-    case Map.get(node_states, node_atom) do
-      %{status: :disconnected, grace_until: grace_until}
-      when is_integer(grace_until) ->
-        System.monotonic_time(:millisecond) < grace_until
-
-      _ ->
-        false
-    end
-  end
-
   defp node_lost?(node_states, node_atom) do
     case Map.get(node_states, node_atom) do
       %{status: :lost} -> true
@@ -523,15 +584,19 @@ defmodule CodePuppyControl.Pack.NodeMonitor do
   end
 
   defp categorize_nodes(node_states) do
-    # Filter out :lost nodes (grace period expired, no longer tracked)
+    now = System.monotonic_time(:millisecond)
+
     active =
       Enum.reject(node_states, fn {_, s} -> s.status == :lost end)
 
     {connected, others} =
       Enum.split_with(active, fn {_, s} -> s.status == :connected end)
 
+    # Split disconnected into grace-period (future grace_until) and plain disconnected
     {disconnected, grace} =
-      Enum.split_with(others, fn {_, s} -> s.status == :disconnected end)
+      Enum.split_with(others, fn {_, s} ->
+        s.status != :disconnected or not is_integer(s.grace_until) or now >= s.grace_until
+      end)
 
     {
       Enum.map(connected, fn {n, _} -> n end),
@@ -541,30 +606,111 @@ defmodule CodePuppyControl.Pack.NodeMonitor do
   end
 
   # Best-effort call to DistributedSupervisor.add_node/2.
-  # Catches any error (e.g., supervisor not started, already_present).
   # Passes proxy_opts from state so test mocks work without distribution.
   # Uses supervisor_name from state so tests can use custom supervisors.
+  # Expected errors (already_present, supervisor not started) are logged at debug.
+  # Unexpected errors are logged at warning.
   defp safe_add_node(node_name, state) do
     opts = [supervisor_name: state.supervisor_name, proxy_opts: state.proxy_opts]
 
-    try do
-      DistributedSupervisor.add_node(node_name, opts)
-    rescue
-      _ -> :ok
-    catch
-      _, _ -> :ok
+    case DistributedSupervisor.add_node(node_name, opts) do
+      {:ok, _pid} ->
+        :ok
+
+      {:error, {:already_present, _pid}} ->
+        Logger.debug(
+          "[NodeMonitor] node #{inspect(node_name)} already present in DistributedSupervisor"
+        )
+
+        :ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "[NodeMonitor] safe_add_node for #{inspect(node_name)} returned error: " <>
+            "#{inspect(reason)}"
+        )
+
+        :ok
     end
+  rescue
+    e in RuntimeError ->
+      Logger.debug(
+        "[NodeMonitor] safe_add_node for #{inspect(node_name)}: #{Exception.message(e)}"
+      )
+
+      :ok
+
+    e ->
+      Logger.warning(
+        "[NodeMonitor] safe_add_node for #{inspect(node_name)} raised: #{Exception.message(e)}"
+      )
+
+      :ok
+  catch
+    :exit, reason ->
+      Logger.debug(
+        "[NodeMonitor] safe_add_node for #{inspect(node_name)} exited: #{inspect(reason)}"
+      )
+
+      :ok
+
+    kind, reason ->
+      Logger.warning(
+        "[NodeMonitor] safe_add_node for #{inspect(node_name)} caught #{kind}: #{inspect(reason)}"
+      )
+
+      :ok
   end
 
   # Best-effort call to DistributedSupervisor.remove_node/2.
   # Uses supervisor_name from state for test isolation.
   defp safe_remove_node(node_name, state) do
-    try do
-      DistributedSupervisor.remove_node(node_name, state.supervisor_name)
-    rescue
-      _ -> :ok
-    catch
-      _, _ -> :ok
+    case DistributedSupervisor.remove_node(node_name, state.supervisor_name) do
+      :ok ->
+        :ok
+
+      {:error, :not_found} ->
+        Logger.debug(
+          "[NodeMonitor] node #{inspect(node_name)} not found in DistributedSupervisor for removal"
+        )
+
+        :ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "[NodeMonitor] safe_remove_node for #{inspect(node_name)} returned error: " <>
+            "#{inspect(reason)}"
+        )
+
+        :ok
     end
+  rescue
+    e in RuntimeError ->
+      Logger.debug(
+        "[NodeMonitor] safe_remove_node for #{inspect(node_name)}: #{Exception.message(e)}"
+      )
+
+      :ok
+
+    e ->
+      Logger.warning(
+        "[NodeMonitor] safe_remove_node for #{inspect(node_name)} raised: #{Exception.message(e)}"
+      )
+
+      :ok
+  catch
+    :exit, reason ->
+      Logger.debug(
+        "[NodeMonitor] safe_remove_node for #{inspect(node_name)} exited: #{inspect(reason)}"
+      )
+
+      :ok
+
+    kind, reason ->
+      Logger.warning(
+        "[NodeMonitor] safe_remove_node for #{inspect(node_name)} caught #{kind}: #{inspect(reason)}"
+      )
+
+      :ok
   end
 end
