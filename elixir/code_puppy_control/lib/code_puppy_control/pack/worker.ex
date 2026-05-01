@@ -13,6 +13,19 @@ defmodule CodePuppyControl.Pack.Worker do
   capabilities map describes which sub-agents, models, and features the
   worker supports. See `default_capabilities/0` for the shape.
 
+  ## Dispatch Guards
+
+  The worker validates incoming dispatch messages before processing:
+
+  1. **Shape validation** — dispatch messages missing required keys
+     (`run_id`, `sub_agent`, `params`, `leader_node`, `leader_pid`) are
+     rejected with a telemetry exception and a failure result sent to
+     the leader.
+  2. **Duplicate run_id** — dispatches for `run_id`s already in
+     `active_runs` are rejected to prevent double-execution.
+  3. **Semantic validation** — sub_agent, model preference, and concurrency
+     limits are checked via `validate_dispatch/4`.
+
   ## Message Protocol
 
   | Direction | Pattern | Purpose |
@@ -109,49 +122,65 @@ defmodule CodePuppyControl.Pack.Worker do
   end
 
   @impl true
-  def handle_cast(
-        {:dispatch,
-         %{
-           run_id: run_id,
-           sub_agent: sub_agent,
-           params: params,
-           leader_node: leader_node,
-           leader_pid: leader_pid
-         }},
-        state
-      ) do
-    case validate_dispatch(run_id, sub_agent, params, state) do
-      :ok ->
-        Logger.info(
-          "Dispatch accepted: run_id=#{run_id}, sub_agent=#{sub_agent}, " <>
-            "leader=#{inspect(leader_node)}"
-        )
+  def handle_cast({:dispatch, dispatch_msg}, state) when is_map(dispatch_msg) do
+    with :ok <- validate_dispatch_shape(dispatch_msg),
+         :ok <- validate_duplicate_run_id(dispatch_msg.run_id, state),
+         :ok <-
+           validate_dispatch(
+             dispatch_msg.run_id,
+             dispatch_msg.sub_agent,
+             dispatch_msg.params,
+             state
+           ) do
+      Logger.info(
+        "Dispatch accepted: run_id=#{dispatch_msg.run_id}, " <>
+          "sub_agent=#{dispatch_msg.sub_agent}, " <>
+          "leader=#{inspect(dispatch_msg.leader_node)}"
+      )
 
-        Telemetry.distributed_dispatch_start(run_id, sub_agent, Node.self())
+      Telemetry.distributed_dispatch_start(
+        dispatch_msg.run_id,
+        dispatch_msg.sub_agent,
+        Node.self()
+      )
 
-        active_runs =
-          Map.put(state.active_runs, run_id, %{
-            sub_agent: sub_agent,
-            params: params,
-            leader_node: leader_node,
-            leader_pid: leader_pid,
-            started_at: System.monotonic_time(:millisecond)
-          })
+      active_runs =
+        Map.put(state.active_runs, dispatch_msg.run_id, %{
+          sub_agent: dispatch_msg.sub_agent,
+          params: dispatch_msg.params,
+          leader_node: dispatch_msg.leader_node,
+          leader_pid: dispatch_msg.leader_pid,
+          started_at: System.monotonic_time(:millisecond)
+        })
 
-        {:noreply, %{state | leader_node: leader_node, active_runs: active_runs}}
-
+      {:noreply,
+       %{state | leader_node: dispatch_msg.leader_node, active_runs: active_runs}}
+    else
       {:error, reason} ->
         Logger.warning(
-          "Dispatch rejected: run_id=#{run_id}, sub_agent=#{sub_agent}, reason=#{reason}"
+          "Dispatch rejected: reason=#{reason}, " <>
+            "dispatch=#{inspect(dispatch_msg)}"
         )
 
-        Telemetry.distributed_dispatch_exception(run_id, reason)
+        Telemetry.distributed_dispatch_exception(dispatch_msg[:run_id] || "unknown", reason)
 
-        # Reply to leader about the rejection
-        GenServer.cast(leader_pid, {:result, run_id, %{status: :failure, error: reason}})
+        if dispatch_msg[:leader_pid] do
+          GenServer.cast(
+            dispatch_msg.leader_pid,
+            {:result, dispatch_msg[:run_id] || "unknown",
+             %{status: :failure, error: reason}}
+          )
+        end
 
         {:noreply, state}
     end
+  end
+
+  @impl true
+  def handle_cast({:dispatch, dispatch_msg}, state) do
+    # Catch-all for non-map dispatch messages (malformed)
+    Logger.warning("PackWorker: rejected non-map dispatch: #{inspect(dispatch_msg)}")
+    {:noreply, state}
   end
 
   @impl true
@@ -216,6 +245,27 @@ defmodule CodePuppyControl.Pack.Worker do
       {:unix, :darwin} -> :macos
       {:win32, _} -> :windows
       _ -> :linux
+    end
+  end
+
+  @doc false
+  defp validate_dispatch_shape(dispatch_msg) do
+    required_keys = [:run_id, :sub_agent, :params, :leader_node, :leader_pid]
+
+    if Enum.all?(required_keys, &Map.has_key?(dispatch_msg, &1)) do
+      :ok
+    else
+      {:error, "malformed_dispatch: missing required keys " <>
+        "#{inspect(required_keys -- Map.keys(dispatch_msg))}"}
+    end
+  end
+
+  @doc false
+  defp validate_duplicate_run_id(run_id, state) do
+    if Map.has_key?(state.active_runs, run_id) do
+      {:error, "duplicate_run_id: #{run_id}"}
+    else
+      :ok
     end
   end
 

@@ -70,6 +70,81 @@ defmodule CodePuppyControl.Pack.WorkerTest do
   end
 
   describe "dispatch validation" do
+    test "rejects dispatch with missing run_id" do
+      {:ok, pid} =
+        Worker.start_link(
+          name: :worker_test_dispatch_no_run_id,
+          host_os: :linux,
+          max_concurrent_runs: 5
+        )
+
+      test_pid = self()
+
+      # Dispatch message missing run_id
+      malformed = %{
+        sub_agent: :terrier,
+        params: %{task_description: "test"},
+        leader_node: node(),
+        leader_pid: test_pid
+      }
+
+      GenServer.cast(pid, {:dispatch, malformed})
+
+      # Sync: wait for cast to be processed
+      _ = :sys.get_state(pid)
+
+      assert_receive {:"$gen_cast", {:result, "unknown", result}}, 500
+      assert result.status == :failure
+      assert String.contains?(result.error, "malformed_dispatch")
+    end
+
+    test "rejects non-map dispatch messages" do
+      {:ok, pid} =
+        Worker.start_link(
+          name: :worker_test_dispatch_non_map,
+          host_os: :linux
+        )
+
+      # Should not crash — catch-all handles non-map
+      GenServer.cast(pid, {:dispatch, "not a map"})
+
+      _ = :sys.get_state(pid)
+      assert :pong == GenServer.call(pid, :ping)
+    end
+
+    test "rejects duplicate run_id dispatch" do
+      {:ok, pid} =
+        Worker.start_link(
+          name: :worker_test_dispatch_duplicate,
+          host_os: :linux,
+          max_concurrent_runs: 5
+        )
+
+      test_pid = self()
+
+      # First dispatch should succeed
+      GenServer.cast(
+        pid,
+        {:dispatch,
+         dispatch_map("run-dup", :terrier, %{task_description: "test"}, node(), test_pid)}
+      )
+
+      _ = :sys.get_state(pid)
+
+      # Second dispatch with same run_id should be rejected
+      GenServer.cast(
+        pid,
+        {:dispatch,
+         dispatch_map("run-dup", :terrier, %{task_description: "test2"}, node(), test_pid)}
+      )
+
+      _ = :sys.get_state(pid)
+
+      assert_receive {:"$gen_cast", {:result, "run-dup", result}}, 500
+      assert result.status == :failure
+      assert String.contains?(result.error, "duplicate_run_id")
+    end
+
     test "rejects unknown sub_agent types" do
       {:ok, pid} =
         Worker.start_link(

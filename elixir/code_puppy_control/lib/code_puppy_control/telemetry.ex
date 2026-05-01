@@ -73,6 +73,9 @@ defmodule CodePuppyControl.Telemetry do
       Telemetry.distributed_dispatch_start(run_id, :terrier, target_node)
       Telemetry.distributed_dispatch_stop(run_id, :ok, duration_ms)
 
+  See `CodePuppyControl.Telemetry.DistributedPack` for the submodule with
+  the actual implementations.
+
   ## Metrics Handling
 
   Attach handlers to these events using `:telemetry.attach/4` or `:telemetry.attach_many/4`:
@@ -120,6 +123,8 @@ defmodule CodePuppyControl.Telemetry do
 
   @typedoc "Capability map"
   @type capabilities :: map()
+
+  alias CodePuppyControl.Telemetry.DistributedPack
 
   # ============================================================================
   # Run Lifecycle Events
@@ -461,188 +466,61 @@ defmodule CodePuppyControl.Telemetry do
   end
 
   # ============================================================================
-  # Distributed Pack Events
+  # Distributed Pack Events (delegated to DistributedPack submodule)
   # ============================================================================
 
-  @doc """
-  Emits a distributed pack node connected event.
-
-  Should be called when a worker node connects to the pack cluster.
-
-  ## Examples
-
-      Telemetry.distributed_node_connected(Node.self(), %{sub_agents: [:terrier]})
-  """
-  @spec distributed_node_connected(dist_node(), capabilities()) :: :ok
-  def distributed_node_connected(node, capabilities) do
-    :telemetry.execute(
-      [:code_puppy, :distributed_pack, :node, :connected],
-      %{
-        system_time: System.system_time(:millisecond),
-        monotonic_time: System.monotonic_time(:millisecond)
-      },
-      %{
-        node: node,
-        capabilities: capabilities
-      }
-    )
-  end
+  # Distributed pack telemetry helpers live in CodePuppyControl.Telemetry.DistributedPack
+  # to keep this module under the 600-line cap. These delegations preserve
+  # backward compatibility for callers using Telemetry.distributed_*.
 
   @doc """
-  Emits a distributed pack node disconnected event.
-
-  Should be called when a worker node disconnects from the pack cluster.
-  Includes the list of active run IDs that were in-flight on that node.
-
-  ## Examples
-
-      Telemetry.distributed_node_disconnected(Node.self(), [], :normal)
-      Telemetry.distributed_node_disconnected(:"worker@host", ["run-1", "run-2"], :noconnection)
+  Delegates to `DistributedPack.node_connected/2`.
   """
-  @spec distributed_node_disconnected(dist_node(), [dist_run_id()], term()) :: :ok
-  def distributed_node_disconnected(node, active_runs, reason) do
-    :telemetry.execute(
-      [:code_puppy, :distributed_pack, :node, :disconnected],
-      %{
-        system_time: System.system_time(:millisecond),
-        monotonic_time: System.monotonic_time(:millisecond)
-      },
-      %{
-        node: node,
-        active_runs: active_runs,
-        reason: reason
-      }
-    )
-  end
+  defdelegate distributed_node_connected(node, capabilities),
+    to: CodePuppyControl.Telemetry.DistributedPack,
+    as: :node_connected
 
   @doc """
-  Emits a distributed pack node reconnected event.
-
-  Should be called when a previously disconnected worker node reconnects
-  within the configured grace period.
-
-  ## Examples
-
-      Telemetry.distributed_node_reconnected(Node.self(), 30_000)
+  Delegates to `DistributedPack.node_disconnected/3`.
   """
-  @spec distributed_node_reconnected(dist_node(), non_neg_integer()) :: :ok
-  def distributed_node_reconnected(node, grace_period_ms) do
-    :telemetry.execute(
-      [:code_puppy, :distributed_pack, :node, :reconnected],
-      %{
-        system_time: System.system_time(:millisecond),
-        monotonic_time: System.monotonic_time(:millisecond)
-      },
-      %{
-        node: node,
-        grace_period_ms: grace_period_ms
-      }
-    )
-  end
+  defdelegate distributed_node_disconnected(node, active_runs, reason),
+    to: CodePuppyControl.Telemetry.DistributedPack,
+    as: :node_disconnected
 
   @doc """
-  Emits a distributed pack dispatch start event.
-
-  Should be called when the leader dispatches a sub-agent run to a worker node.
-
-  ## Examples
-
-      Telemetry.distributed_dispatch_start("run-123", :terrier, Node.self())
+  Delegates to `DistributedPack.node_reconnected/2`.
   """
-  @spec distributed_dispatch_start(dist_run_id(), sub_agent(), dist_node()) :: :ok
-  def distributed_dispatch_start(run_id, sub_agent, target_node) do
-    :telemetry.execute(
-      [:code_puppy, :distributed_pack, :dispatch, :start],
-      %{
-        system_time: System.system_time(:millisecond),
-        monotonic_time: System.monotonic_time(:millisecond)
-      },
-      %{
-        run_id: run_id,
-        sub_agent: sub_agent,
-        target_node: target_node
-      }
-    )
-  end
+  defdelegate distributed_node_reconnected(node, grace_period_ms),
+    to: CodePuppyControl.Telemetry.DistributedPack,
+    as: :node_reconnected
 
   @doc """
-  Emits a distributed pack dispatch stop event.
-
-  Should be called when a dispatched sub-agent run completes (success, error,
-  or cancelled).
-
-  ## Examples
-
-      Telemetry.distributed_dispatch_stop("run-123", :ok, 1_500)
-      Telemetry.distributed_dispatch_stop("run-123", :error, 500)
+  Delegates to `DistributedPack.dispatch_start/3`.
   """
-  @spec distributed_dispatch_stop(dist_run_id(), atom(), non_neg_integer()) :: :ok
-  def distributed_dispatch_stop(run_id, status, duration_ms) do
-    :telemetry.execute(
-      [:code_puppy, :distributed_pack, :dispatch, :stop],
-      %{
-        duration_ms: duration_ms,
-        system_time: System.system_time(:millisecond)
-      },
-      %{
-        run_id: run_id,
-        status: status,
-        duration_ms: duration_ms
-      }
-    )
-  end
+  defdelegate distributed_dispatch_start(run_id, sub_agent, target_node),
+    to: CodePuppyControl.Telemetry.DistributedPack,
+    as: :dispatch_start
 
   @doc """
-  Emits a distributed pack dispatch exception event.
-
-  Should be called when a dispatched sub-agent run encounters an error.
-
-  ## Examples
-
-      Telemetry.distributed_dispatch_exception("run-123", "unsupported_sub_agent")
+  Delegates to `DistributedPack.dispatch_stop/3`.
   """
-  @spec distributed_dispatch_exception(dist_run_id(), String.t()) :: :ok
-  def distributed_dispatch_exception(run_id, error) do
-    :telemetry.execute(
-      [:code_puppy, :distributed_pack, :dispatch, :exception],
-      %{
-        system_time: System.system_time(:millisecond),
-        monotonic_time: System.monotonic_time(:millisecond)
-      },
-      %{
-        run_id: run_id,
-        error: error
-      }
-    )
-  end
+  defdelegate distributed_dispatch_stop(run_id, status, duration_ms),
+    to: CodePuppyControl.Telemetry.DistributedPack,
+    as: :dispatch_stop
 
   @doc """
-  Emits a distributed pack capabilities updated event.
-
-  Should be called when a worker node's capabilities change (e.g., model
-  availability changes).
-
-  ## Examples
-
-      Telemetry.distributed_capabilities_updated(Node.self(), %{
-        sub_agents: [:terrier, :watchdog],
-        available_models: ["claude-sonnet-4-20250514"]
-      })
+  Delegates to `DistributedPack.dispatch_exception/2`.
   """
-  @spec distributed_capabilities_updated(dist_node(), capabilities()) :: :ok
-  def distributed_capabilities_updated(node, capabilities) do
-    :telemetry.execute(
-      [:code_puppy, :distributed_pack, :capabilities, :updated],
-      %{
-        system_time: System.system_time(:millisecond),
-        monotonic_time: System.monotonic_time(:millisecond)
-      },
-      %{
-        node: node,
-        capabilities: capabilities
-      }
-    )
-  end
+  defdelegate distributed_dispatch_exception(run_id, error),
+    to: CodePuppyControl.Telemetry.DistributedPack,
+    as: :dispatch_exception
+
+  @doc """
+  Delegates to `DistributedPack.capabilities_updated/2`.
+  """
+  defdelegate distributed_capabilities_updated(node, capabilities),
+    to: CodePuppyControl.Telemetry.DistributedPack,
+    as: :capabilities_updated
 
   # ============================================================================
   # Span Tracking
