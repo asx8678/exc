@@ -208,7 +208,8 @@ defmodule CodePuppyControl.Rollout.MetricsTest do
       Metrics.record_error(:cli, :elixir)
 
       summary = Metrics.summary()
-      assert %{elixir: %{successes: 0, errors: 1, rate: 0.0}} = summary[:cli]
+      assert %{elixir: %{successes: 0, errors: 1, rate: rate}} = summary[:cli]
+      assert rate == 0.0
     end
   end
 
@@ -366,7 +367,8 @@ defmodule CodePuppyControl.Rollout.MetricsTest do
 
       summary = Metrics.summary()
 
-      assert %{elixir: %{successes: 0, errors: 1, rate: 0.0}} = summary[:llm_client]
+      assert %{elixir: %{successes: 0, errors: 1, rate: rate}} = summary[:llm_client]
+      assert rate == 0.0
       assert %{python: %{successes: 1, errors: 0, rate: 1.0}} = summary[:llm_client]
     end
 
