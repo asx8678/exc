@@ -1,0 +1,21 @@
+<div class="admin-shell">
+  <.sidebar active={assigns[:active_nav]} />
+  <main class="admin-main" id="admin-main" phx-hook={assigns[:hook]}>
+    <header>
+      <div>
+        <h1>{assigns[:page_title] || "CodePuppy Admin"}</h1>
+        <div :if={assigns[:crumbs]} class="crumbs">{@crumbs}</div>
+      </div>
+      <div class="muted mono">{assigns[:status_line]}</div>
+    </header>
+
+    <%= if Phoenix.Flash.get(@flash, :error) do %>
+      <div class="flash flash-error">{Phoenix.Flash.get(@flash, :error)}</div>
+    <% end %>
+    <%= if Phoenix.Flash.get(@flash, :info) do %>
+      <div class="flash flash-info">{Phoenix.Flash.get(@flash, :info)}</div>
+    <% end %>
+
+    {@inner_content}
+  </main>
+</div>

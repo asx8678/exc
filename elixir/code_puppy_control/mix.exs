@@ -39,6 +39,10 @@ defmodule CodePuppyControl.MixProject do
       {:phoenix, "~> 1.7"},
       {:phoenix_ecto, "~> 4.5"},
       {:phoenix_pubsub, "~> 2.1"},
+      # LiveView admin UI (code_puppy-yge.3) — optional surface, never owns runtime state.
+      {:phoenix_live_view, "~> 1.0"},
+      {:phoenix_html, "~> 4.0"},
+      {:lazy_html, ">= 0.1.0", only: :test},
       {:jason, "~> 1.4"},
       {:oban, "~> 2.17"},
       {:crontab, "~> 1.1"},

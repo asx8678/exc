@@ -20,8 +20,8 @@ defmodule CodePuppyControlWeb.Endpoint do
   # LiveView socket - disabled when LiveView is not available
   if Code.ensure_loaded?(Phoenix.LiveView.Socket) do
     socket "/live", Phoenix.LiveView.Socket,
-      websocket: [connect_info: [session: @session_options]],
-      longpoll: [connect_info: [session: @session_options]]
+      websocket: [connect_info: [:peer_data, session: @session_options]],
+      longpoll: [connect_info: [:peer_data, session: @session_options]]
   end
 
   # WebSocket socket for real-time events (SessionChannel, RunChannel)

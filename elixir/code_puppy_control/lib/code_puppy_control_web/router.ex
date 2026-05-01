@@ -53,6 +53,7 @@ defmodule CodePuppyControlWeb.Router do
 
   import Plug.Conn
   import Phoenix.Controller
+  import Phoenix.LiveView.Router
 
   pipeline :api do
     plug :accepts, ["json"]
@@ -62,6 +63,20 @@ defmodule CodePuppyControlWeb.Router do
   pipeline :authenticated_api do
     plug :accepts, ["json"]
     plug CodePuppyControlWeb.Plugs.Auth
+  end
+
+  # Admin LiveView UI pipeline (code_puppy-yge.3).
+  # Localhost-only by default — see CodePuppyControlWeb.Plugs.AdminAuth.
+  # The admin UI is an OPTIONAL surface; removing this pipeline + the
+  # `live_session :admin` block below leaves the API endpoints intact.
+  pipeline :admin_browser do
+    plug :accepts, ["html"]
+    plug :fetch_session
+    plug :fetch_live_flash
+    plug :put_root_layout, html: {CodePuppyControlWeb.Admin.Layouts, :root}
+    plug :protect_from_forgery
+    plug :put_secure_browser_headers
+    plug CodePuppyControlWeb.Plugs.AdminAuth
   end
 
   # Public endpoints — no auth required
@@ -109,6 +124,22 @@ defmodule CodePuppyControlWeb.Router do
     post "/mcp/:id/call", MCPController, :call_tool
     post "/mcp/:id/restart", MCPController, :restart
     get "/mcp/health", MCPController, :health
+  end
+
+  # Admin LiveView UI (code_puppy-yge.3) — observe-only pack orchestration UI.
+  scope "/admin", CodePuppyControlWeb.Admin do
+    pipe_through :admin_browser
+
+    live_session :admin,
+      on_mount: [{CodePuppyControlWeb.Plugs.AdminAuth, :default}],
+      root_layout: {CodePuppyControlWeb.Admin.Layouts, :root} do
+      live "/", DashboardLive, :index
+      live "/agents", AgentsLive, :index
+      live "/jobs", JobsLive, :index
+      live "/jobs/:id", JobDetailLive, :show
+      live "/worktrees", WorktreesLive, :index
+      live "/pack", PackLive, :index
+    end
   end
 
   # LiveDashboard is available in development for monitoring

@@ -32,6 +32,23 @@ defmodule CodePuppyControlWeb do
     end
   end
 
+  def live_view do
+    quote do
+      use Phoenix.LiveView,
+        layout: {CodePuppyControlWeb.Admin.Layouts, :app}
+
+      unquote(html_helpers())
+    end
+  end
+
+  def live_component do
+    quote do
+      use Phoenix.LiveComponent
+
+      unquote(html_helpers())
+    end
+  end
+
   def controller do
     quote do
       use Phoenix.Controller,
@@ -70,8 +87,10 @@ defmodule CodePuppyControlWeb do
     quote do
       # HTML escaping functionality
       import Phoenix.HTML
-      # Core UI components
-      # import CodePuppyControlWeb.CoreComponents
+      # LiveView template helpers (sigil_H, etc.)
+      use Phoenix.Component
+      # Admin core UI components (sidebar, status pill, card, table, etc.)
+      import CodePuppyControlWeb.Admin.Components
 
       # Shortcut for generating JS commands
       alias Phoenix.LiveView.JS
