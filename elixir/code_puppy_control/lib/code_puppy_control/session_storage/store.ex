@@ -183,6 +183,49 @@ defmodule CodePuppyControl.SessionStorage.Store do
     GenServer.call(__MODULE__, {:unregister_terminal, session_name})
   end
 
+  @doc """
+  Updates terminal metadata in ETS only, bypassing GenServer.call.
+
+  Used exclusively during deferred terminal recovery to avoid a
+  self-call deadlock: `TerminalRecovery` runs inside the Store's
+  `handle_continue(:recover_terminals)`, so calling back into the
+  same GenServer via `register_terminal/2` would crash with
+  "process attempted to call itself".
+
+  This function updates both ETS tables (`session_store_ets` and
+  `session_terminal_ets`) directly, and broadcasts the terminal
+  registration event via PubSub.  It does NOT persist to SQLite
+  because the terminal metadata was already loaded from SQLite
+  during `do_recover_from_disk/0`.
+  """
+  @doc false
+  @spec register_terminal_ets_only(session_name(), map()) :: :ok | :error
+  def register_terminal_ets_only(name, meta) do
+    case :ets.lookup(@session_table, name) do
+      [{^name, entry}] ->
+        updated = %{
+          entry
+          | has_terminal: true,
+            terminal_meta: meta,
+            updated_at: System.monotonic_time(:millisecond)
+        }
+
+        :ets.insert(@session_table, {name, updated})
+        :ets.insert(@terminal_table, {name, meta})
+
+        Phoenix.PubSub.broadcast(
+          @pubsub,
+          @terminal_topic,
+          {:terminal_registered, name}
+        )
+
+        :ok
+
+      [] ->
+        :error
+    end
+  end
+
   @doc "Lists all tracked terminal sessions (for crash recovery diagnostics)."
   @spec list_terminal_sessions() :: [terminal_meta()]
   def list_terminal_sessions do

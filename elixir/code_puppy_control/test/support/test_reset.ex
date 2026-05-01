@@ -108,7 +108,69 @@ defmodule CodePuppyControl.TestSupport.Reset do
     # Parser registry
     ensure_gen_server_started(CodePuppyControl.Parsing.ParserRegistry)
 
+    # DynamicSupervisors that must stay alive for tests
+    # Agent.State.Supervisor is a DynamicSupervisor for per-{session,agent}
+    # message history processes. Tests that call State.append_message/3
+    # (via dispatch path) depend on it. (code_puppy-i1n)
+    ensure_gen_server_started(CodePuppyControl.Agent.State.Supervisor)
+
+    # Workflow.State is an Agent (not a GenServer).  Its start_link/1
+    # delegates to Store.start_link/1 which requires an explicit
+    # `name:` option to register the singleton.  The generic
+    # `ensure_gen_server_started/1` passes `[]` (no name), so we
+    # handle it specially.  (code_puppy-i1n)
+    ensure_workflow_state_started()
+
+    # ProviderRegistry must be available for ModelFactory tests.
+    # (code_puppy-i1n)
+    ensure_gen_server_started(CodePuppyControl.ModelFactory.ProviderRegistry)
+
+    # Tool.Registry must be available for tool-related tests.
+    # (code_puppy-i1n)
+    ensure_gen_server_started(CodePuppyControl.Tool.Registry)
+
+    # CLI SlashCommands Registry must be available for command tests.
+    # (code_puppy-i1n)
+    ensure_gen_server_started(CodePuppyControl.CLI.SlashCommands.Registry)
+
     :ok
+  end
+
+  @doc """
+  Starts Workflow.State with the correct name registration.
+
+  Unlike most GenServers, `Workflow.State.start_link/1` delegates to
+  `Store.start_link/1` which calls `Agent.start_link(fn -> ..., opts)`.
+  It does NOT automatically register under `__MODULE__` — the caller
+  must pass `name: CodePuppyControl.Workflow.State`.
+  """
+  @spec ensure_workflow_state_started() :: :ok
+  def ensure_workflow_state_started do
+    module = CodePuppyControl.Workflow.State
+
+    case Process.whereis(module) do
+      nil ->
+        try do
+          case apply(module, :start_link, [[name: module]]) do
+            {:ok, _pid} ->
+              :ok
+
+            {:error, {:already_started, _pid}} ->
+              :ok
+
+            {:error, reason} ->
+              Logger.warning("Failed to start #{inspect(module)}: #{inspect(reason)}")
+              :ok
+          end
+        catch
+          :exit, reason ->
+            Logger.warning("Exit starting #{inspect(module)}: #{inspect(reason)}")
+            :ok
+        end
+
+      _pid ->
+        :ok
+    end
   end
 
   @doc """

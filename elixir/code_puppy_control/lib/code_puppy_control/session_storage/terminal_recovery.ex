@@ -245,8 +245,10 @@ defmodule CodePuppyControl.SessionStorage.TerminalRecovery do
     shell = Map.get(meta, :shell, Map.get(meta, "shell"))
 
     opts = [cols: cols, rows: rows]
-
     opts = if shell, do: Keyword.put(opts, :shell, shell), else: opts
+
+    # Build updated meta with fresh attached_at timestamp
+    new_meta = Map.put(meta, :attached_at, System.monotonic_time(:millisecond))
 
     case Process.whereis(PtyManager) do
       nil ->
@@ -261,13 +263,19 @@ defmodule CodePuppyControl.SessionStorage.TerminalRecovery do
         try do
           case PtyManager.create_session(name, opts) do
             {:ok, _session} ->
-              Logger.info("TerminalRecovery: recreated PTY for session #{name}")
+              # Update ETS directly — avoid GenServer.call(self) which would
+              # deadlock during handle_continue(:recover_terminals).
+              # Terminal data is already in SQLite from do_recover_from_disk/0.
+              # (code_puppy-i1n)
+              case Store.register_terminal_ets_only(name, new_meta) do
+                :ok ->
+                  Logger.info("TerminalRecovery: recreated PTY for session #{name}")
 
-              # Re-register the terminal with the Store.
-              # Use Map.put (not map update) — meta may have string keys
-              # from SQLite deserialization.
-              new_meta = Map.put(meta, :attached_at, System.monotonic_time(:millisecond))
-              Store.register_terminal(name, new_meta)
+                :error ->
+                  Logger.warning(
+                    "TerminalRecovery: session #{name} not in ETS after PTY creation"
+                  )
+              end
 
               broadcast_recovered(name, new_meta)
               {:ok, name}
