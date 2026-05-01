@@ -127,6 +127,28 @@ defmodule CodePuppyControl.Pack.NamingServiceTest do
       refute node in NamingService.list_nodes()
     end
 
+    test "invalid update preserves existing registration and index entries" do
+      node = :existing_node@test
+
+      assert :ok =
+               NamingService.register_node(node, %{
+                 sub_agents: [:terrier],
+                 host_os: "linux"
+               })
+
+      assert [node] == NamingService.find_nodes(:terrier, %{host_os: "linux"})
+
+      assert {:error, :invalid_capabilities} =
+               NamingService.register_node(node, %{
+                 sub_agents: [:invalid_agent_type],
+                 host_os: "linux"
+               })
+
+      assert %{sub_agents: [:terrier], host_os: "linux"} = NamingService.node_capabilities(node)
+      assert [node] == NamingService.find_nodes(:terrier, %{host_os: "linux"})
+      assert node in NamingService.list_nodes()
+    end
+
     test "converts string sub_agent types from JSON to atoms via allowlist" do
       node = :json_string_agents@test
 

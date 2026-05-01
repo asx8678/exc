@@ -198,10 +198,7 @@ defmodule CodePuppyControl.Pack.NamingService do
 
   @impl true
   def handle_call({:register, node_name, capabilities}, _from, state) do
-    # 1. Remove old index entries for this node (reads current caps from ETS)
-    remove_node_indexes(node_name)
-
-    # 2. Extract and normalize OS and sub-agents from capabilities
+    # 1. Extract and normalize OS and sub-agents from capabilities
     host_os = Map.get(capabilities, :host_os, Map.get(capabilities, "host_os", "unknown"))
 
     sub_agents_raw =
@@ -209,6 +206,9 @@ defmodule CodePuppyControl.Pack.NamingService do
 
     with {:ok, host_os_atom} <- normalize_os(host_os),
          {:ok, sub_agents} <- normalize_sub_agents(sub_agents_raw) do
+      # 2. Remove old index entries (only after validation passes!)
+      remove_node_indexes(node_name)
+
       # 3. Store normalized capabilities metadata
       normalized =
         capabilities
