@@ -14,14 +14,14 @@ defmodule CodePuppyControl.LLMTest do
 
   setup do
     prior = FeatureFlags.enabled?(:llm_client)
-    {:ok, _result} = FeatureFlags.enable(:llm_client, source: :test)
+    :ok = FeatureFlags.set(:llm_client, true, source: :test)
 
     on_exit(fn ->
       _ =
         if prior do
-          FeatureFlags.enable(:llm_client, source: :test)
+          FeatureFlags.set(:llm_client, true, source: :test)
         else
-          FeatureFlags.disable(:llm_client, source: :test)
+          FeatureFlags.set(:llm_client, false, source: :test)
         end
     end)
 
