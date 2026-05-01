@@ -317,4 +317,156 @@ defmodule CodePuppyControl.CLI.SlashCommands.Commands.PackTest do
       assert ModelPacks.get_current_pack().name == "single"
     end
   end
+
+  describe "/pack cluster" do
+    test "renders cluster status without crashing" do
+      output =
+        ExUnit.CaptureIO.capture_io(fn ->
+          assert {:continue, _} = Pack.handle_pack("/pack cluster", %{})
+        end)
+
+      assert output =~ "Pack Cluster Status"
+    end
+
+    test "shows Distribution field" do
+      output =
+        ExUnit.CaptureIO.capture_io(fn ->
+          assert {:continue, _} = Pack.handle_pack("/pack cluster", %{})
+        end)
+
+      assert output =~ "Distribution:"
+    end
+
+    test "shows disabled when Node.alive? is false" do
+      # In test mode, Node.alive?() is false (no distribution)
+      output =
+        ExUnit.CaptureIO.capture_io(fn ->
+          assert {:continue, _} = Pack.handle_pack("/pack cluster", %{})
+        end)
+
+      assert output =~ "disabled (not started)"
+    end
+
+    test "shows worker status even when NamingService is not started" do
+      output =
+        ExUnit.CaptureIO.capture_io(fn ->
+          assert {:continue, _} = Pack.handle_pack("/pack cluster", %{})
+        end)
+
+      # Should either show "No workers" or "NamingService unavailable" gracefully
+      assert output =~ "No workers connected." or output =~ "NamingService unavailable"
+    end
+
+    test "returns {:continue, state}" do
+      ExUnit.CaptureIO.capture_io(fn ->
+        assert {:continue, %{}} = Pack.handle_pack("/pack cluster", %{})
+      end)
+    end
+  end
+
+  describe "/pack cluster workers" do
+    test "renders workers subcommand without crashing" do
+      output =
+        ExUnit.CaptureIO.capture_io(fn ->
+          assert {:continue, _} = Pack.handle_pack("/pack cluster workers", %{})
+        end)
+
+      assert output =~ "Pack Workers"
+    end
+
+    test "shows no workers or unavailable message" do
+      output =
+        ExUnit.CaptureIO.capture_io(fn ->
+          assert {:continue, _} = Pack.handle_pack("/pack cluster workers", %{})
+        end)
+
+      assert output =~ "No workers connected." or output =~ "NamingService unavailable"
+    end
+  end
+
+  describe "/pack cluster config" do
+    test "renders config subcommand without crashing" do
+      output =
+        ExUnit.CaptureIO.capture_io(fn ->
+          assert {:continue, _} = Pack.handle_pack("/pack cluster config", %{})
+        end)
+
+      assert output =~ "Distributed Config"
+    end
+
+    test "shows config values" do
+      output =
+        ExUnit.CaptureIO.capture_io(fn ->
+          assert {:continue, _} = Pack.handle_pack("/pack cluster config", %{})
+        end)
+
+      assert output =~ "enabled:"
+      assert output =~ "workers:"
+      assert output =~ "heartbeat_interval:"
+      assert output =~ "disconnect_timeout:"
+      assert output =~ "connect_timeout:"
+    end
+
+    test "shows config source hint" do
+      output =
+        ExUnit.CaptureIO.capture_io(fn ->
+          assert {:continue, _} = Pack.handle_pack("/pack cluster config", %{})
+        end)
+
+      assert output =~ "puppy.cfg"
+    end
+  end
+
+  describe "/pack cluster unknown subcommand" do
+    test "shows error for unknown cluster subcommand" do
+      output =
+        ExUnit.CaptureIO.capture_io(fn ->
+          assert {:continue, _} = Pack.handle_pack("/pack cluster bogus", %{})
+        end)
+
+      assert output =~ "Unknown cluster subcommand"
+      assert output =~ "bogus"
+    end
+
+    test "shows available subcommands on error" do
+      output =
+        ExUnit.CaptureIO.capture_io(fn ->
+          assert {:continue, _} = Pack.handle_pack("/pack cluster bogus", %{})
+        end)
+
+      assert output =~ "workers"
+      assert output =~ "config"
+    end
+  end
+
+  describe "/pack existing commands still work (regression check)" do
+    test "/pack still shows current pack" do
+      output =
+        ExUnit.CaptureIO.capture_io(fn ->
+          assert {:continue, _} = Pack.handle_pack("/pack", %{})
+        end)
+
+      assert output =~ "single"
+      assert output =~ "Available packs"
+    end
+
+    test "/pack coding still switches" do
+      output =
+        ExUnit.CaptureIO.capture_io(fn ->
+          assert {:continue, _} = Pack.handle_pack("/pack coding", %{})
+        end)
+
+      assert output =~ "Switched to pack"
+      assert ModelPacks.get_current_pack().name == "coding"
+    end
+
+    test "/pack nonexistent still errors" do
+      output =
+        ExUnit.CaptureIO.capture_io(fn ->
+          assert {:continue, _} = Pack.handle_pack("/pack nope", %{})
+        end)
+
+      assert output =~ "Unknown pack"
+    end
+  end
 end
