@@ -151,15 +151,15 @@ Prerequisites before launching the Python-to-Elixir port.
 > Historical: epic `code_puppy-3f9` (filed 2026-04-25, 7 child tasks)
 > Phase H reality audit: [docs/triage/phase-h-reality-audit-2026-04-29.md](docs/triage/phase-h-reality-audit-2026-04-29.md)
 
-- [ ] Feature-flag Elixir code paths (code_puppy-djs.4) — audit djs.1 is complete; djs.4 implementation is NOT started
-- [ ] Gradual rollout per capability — spec needed (code_puppy-djs.6)
-- [ ] Delete Python tree when Elixir is at parity (code_puppy-djs.2)
-- [ ] Runtime selector + dual-run router (code_puppy-bwt) — child of code_puppy-djs
-- [ ] Implement --continue session restore (code_puppy-djs.5)
-- [ ] Implement --bridge-mode runtime effect (code_puppy-djs.3)
-- [ ] Update CONTRIBUTING.md (code_puppy-djs.7)
+- [x] Feature-flag Elixir code paths (code_puppy-djs.4) — FeatureFlags GenServer + ETS + Python mirror + /feature-flags command
+- [x] Gradual rollout per capability (code_puppy-djs.6) — percentage-based engine + metrics + CLI /rollout command
+- [x] Delete Python tree when Elixir is at parity (code_puppy-djs.2) — 535 .py files removed
+- [x] Runtime selector + dual-run router (code_puppy-bwt) — Elixir + Python + auto-fallback + doctor
+- [x] Implement --continue session restore (code_puppy-djs.5)
+- [x] Implement --bridge-mode runtime effect (code_puppy-djs.3)
+- [x] Update CONTRIBUTING.md (code_puppy-djs.7)
 
-> **Phase H reality audit (code_puppy-djs.1) is ✅ COMPLETE.** See [audit document](docs/triage/phase-h-reality-audit-2026-04-29.md). The audit is separate from djs.4 implementation.
+> **Phase H is now COMPLETE.** All 7 sub-items merged to main. Python tree deleted, feature flags + runtime selector + gradual rollout operational. See merge commit for details.
 
 ## Phase I: Distributed packs (multi-node Erlang cluster)
 
@@ -184,11 +184,11 @@ design doc.
 
 ### Phase I.1: Skeleton integration
 
-- [ ] Wire `NodeMonitor` + `DistributedSupervisor` into root supervision tree
+- [x] Wire `NodeMonitor` + `DistributedSupervisor` into root supervision tree
       (disabled by default via `packs.distributed.enabled = false`)
-- [ ] Add Registry tables for `:via` tuple routing
-- [ ] Add configuration keys to `puppy.cfg` spec
-- [ ] Wire telemetry events into the existing `Telemetry` module
+- [x] Add Registry tables for `:via` tuple routing
+- [x] Add configuration keys to `puppy.cfg` spec
+- [x] Wire telemetry events into the existing `Telemetry` module
 
 ### Phase I.2: Worker-mode application
 
