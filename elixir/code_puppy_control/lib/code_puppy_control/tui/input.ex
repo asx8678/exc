@@ -180,7 +180,8 @@ defmodule CodePuppyControl.TUI.Input do
   def terminate(_reason, state) do
     if state.reader_task do
       if Process.alive?(state.reader_task) do
-        Task.shutdown(state.reader_task, :brutal_kill)
+        # Send :shutdown to give the reader task a chance to clean up
+        Task.shutdown(state.reader_task, :shutdown)
       end
     end
 
@@ -210,6 +211,11 @@ defmodule CodePuppyControl.TUI.Input do
         GenServer.cast(input_server, {:input, trimmed})
         reader_loop(input_server)
     end
+  rescue
+    # If IO.gets raises (e.g., group leader gone), exit gracefully
+    e ->
+      Logger.debug("Input reader: #{inspect(e)}")
+      :ok
   end
 
   # ── History Management ─────────────────────────────────────────────────
