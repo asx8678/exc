@@ -88,3 +88,20 @@ else
 
   config :code_puppy_control, :history_limit, history_limit
 end
+
+# ── Distributed Pack Configuration ─────────────────────────────────────────
+#
+# Controls the remote pack worker cluster. Disabled by default.
+# Set enabled: true and configure workers to activate distributed packs.
+#
+# - workers: list of remote node name strings (e.g. ["pup_worker@host"])
+# - heartbeat_interval: ms between cluster re-evaluation (default 15s)
+# - disconnect_timeout: ms grace period before removing a downed node (default 30s)
+# - connect_timeout: ms timeout for Node.connect/1 attempts (default 5s)
+
+config :code_puppy_control, :distributed_packs,
+  enabled: false,
+  workers: [],
+  heartbeat_interval: 15_000,
+  disconnect_timeout: 30_000,
+  connect_timeout: 5_000
