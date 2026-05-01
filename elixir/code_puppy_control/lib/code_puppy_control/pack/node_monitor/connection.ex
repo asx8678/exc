@@ -13,6 +13,7 @@ defmodule CodePuppyControl.Pack.NodeMonitor.Connection do
   require Logger
 
   alias CodePuppyControl.Pack.DistributedSupervisor
+  alias CodePuppyControl.Telemetry
 
   @ets_table :pack_node_monitor_state
 
@@ -219,6 +220,11 @@ defmodule CodePuppyControl.Pack.NodeMonitor.Connection do
     case result do
       true ->
         Logger.info("[NodeMonitor] connected to worker #{worker_name}")
+
+        # Emit reconnected telemetry if this node was previously in grace
+        if not is_nil(preserved_grace) do
+          Telemetry.distributed_node_reconnected(node_atom, state.disconnect_timeout)
+        end
 
         new_state = %{
           status: :connected,
