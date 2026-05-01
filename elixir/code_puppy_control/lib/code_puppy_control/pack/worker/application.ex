@@ -342,9 +342,11 @@ defmodule CodePuppyControl.Pack.Worker.Application do
     Keyword.merge(base_opts, Keyword.take(config, [:connect_fn, :monitor_fn]))
   end
 
-  # ── Private: Dependency Boot ────────────────────────────────────────────
+  # ── Dependency Boot ─────────────────────────────────────────────────────
 
-  defp ensure_required_apps_started do
+  @doc false
+  @spec ensure_required_apps_started() :: :ok | {:error, term()}
+  def ensure_required_apps_started do
     Enum.reduce_while(@required_apps, :ok, fn app, :ok ->
       case Application.ensure_all_started(app) do
         {:ok, _} -> {:cont, :ok}

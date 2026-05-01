@@ -222,11 +222,34 @@ defmodule CodePuppyControl.Pack.Worker.ApplicationTest do
       refute WorkerApp.worker_mode?()
     end
 
-    test "start_worker/1 ensures dependency apps are available" do
-      # Just verify validate_config passes — in test env all deps are already started,
-      # so ensure_required_apps_started/0 is exercised as part of the with chain.
-      config = WorkerApp.worker_config(leader: @leader_node)
-      assert :ok = WorkerApp.validate_config(config)
+    test "start_worker/1 exercises full startup path including dependency check" do
+      # Trap exits: start_worker/1 uses Supervisor.start_link, which links
+      # to the caller. In test env, named child processes may already be
+      # running, causing a supervisor init failure that sends an EXIT.
+      Process.flag(:trap_exit, true)
+
+      result = WorkerApp.start_worker(leader: @leader_node)
+
+      case result do
+        {:ok, pid} ->
+          # Full startup succeeded
+          assert Process.alive?(pid)
+          assert WorkerApp.worker_mode?()
+          Supervisor.stop(pid)
+
+        {:error, reason} ->
+          # The with-chain passed ensure_required_apps_started/0 — if it
+          # had failed we'd see {:error, {:dependency_start_failed, _, _}}.
+          # Instead, the supervisor hit a name conflict (expected in test env).
+          refute match?({:dependency_start_failed, _, _}, reason),
+                 "Expected to get past ensure_required_apps_started/0, got: #{inspect(reason)}"
+      end
+
+      Application.put_env(:code_puppy_control, :pack_worker_mode, false)
+    end
+
+    test "ensure_required_apps_started/0 succeeds when deps available" do
+      assert :ok = WorkerApp.ensure_required_apps_started()
     end
   end
 
