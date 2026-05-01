@@ -134,6 +134,10 @@ defmodule CodePuppyControl.FeatureFlags do
     set(capability, value, [])
   end
 
+  def set(_capability, value) when is_integer(value) do
+    {:error, {:invalid_value, value}}
+  end
+
   @doc """
   Sets a capability value at runtime with source metadata.
 
@@ -154,6 +158,10 @@ defmodule CodePuppyControl.FeatureFlags do
     end
   catch
     :exit, _ -> {:error, "FeatureFlags GenServer not running"}
+  end
+
+  def set(_capability, value, _opts) when is_integer(value) do
+    {:error, {:invalid_value, value}}
   end
 
   @doc """

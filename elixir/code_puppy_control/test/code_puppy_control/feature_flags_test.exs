@@ -484,6 +484,26 @@ defmodule CodePuppyControl.FeatureFlagsTest do
     test "returns error for unknown capability" do
       assert {:error, :unknown} = FeatureFlags.set(:nonexistent, true)
     end
+
+    test "returns error for integer below 0" do
+      assert {:error, {:invalid_value, -1}} = FeatureFlags.set(:tools, -1)
+      assert {:error, {:invalid_value, -5}} = FeatureFlags.set(:tools, -5)
+    end
+
+    test "returns error for integer above 100" do
+      assert {:error, {:invalid_value, 101}} = FeatureFlags.set(:tools, 101)
+      assert {:error, {:invalid_value, 999}} = FeatureFlags.set(:tools, 999)
+    end
+
+    test "returns error for negative integer with set/3" do
+      assert {:error, {:invalid_value, -1}} =
+               FeatureFlags.set(:tools, -1, source: :test)
+    end
+
+    test "returns error for above-100 integer with set/3" do
+      assert {:error, {:invalid_value, 101}} =
+               FeatureFlags.set(:tools, 101, source: :slash_command)
+    end
   end
 
   describe "public API: GenServer-down fallback" do
