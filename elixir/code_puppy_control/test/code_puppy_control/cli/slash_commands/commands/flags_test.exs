@@ -8,6 +8,9 @@ defmodule CodePuppyControl.CLI.SlashCommands.Commands.FlagsTest do
   # async: false because Registry and WorkflowState are named singletons.
 
   setup do
+    # (code_puppy-i1n) Ensure the application-supervised Workflow.State is alive.
+    CodePuppyControl.TestSupport.Reset.ensure_gen_server_started(CodePuppyControl.Workflow.State)
+
     # Start the Registry GenServer if not already running
     case Process.whereis(Registry) do
       nil -> start_supervised!({Registry, []})

@@ -13,6 +13,9 @@ defmodule CodePuppyControl.Tools.StagedChangesTest do
   @tmp_dir System.tmp_dir!()
 
   setup do
+    # (code_puppy-i1n) Ensure the application-supervised StagedChanges is alive.
+    CodePuppyControl.TestSupport.Reset.ensure_gen_server_started(StagedChanges)
+
     case StagedChanges.start_link([]) do
       {:ok, _pid} ->
         :ok
@@ -24,12 +27,16 @@ defmodule CodePuppyControl.Tools.StagedChangesTest do
     end
 
     on_exit(fn ->
-      sid = StagedChanges.session_id()
-      stage_dir = Path.join(System.tmp_dir!(), "code_puppy_staged")
-      File.rm(Path.join(stage_dir, "#{sid}.json"))
-      File.rm(Path.join(stage_dir, "#{sid}.json.tmp"))
-      StagedChanges.clear()
-      StagedChanges.disable()
+      try do
+        sid = StagedChanges.session_id()
+        stage_dir = Path.join(System.tmp_dir!(), "code_puppy_staged")
+        File.rm(Path.join(stage_dir, "#{sid}.json"))
+        File.rm(Path.join(stage_dir, "#{sid}.json.tmp"))
+        StagedChanges.clear()
+        StagedChanges.disable()
+      catch
+        :exit, _ -> :ok
+      end
     end)
   end
 

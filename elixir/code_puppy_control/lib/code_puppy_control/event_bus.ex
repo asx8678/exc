@@ -31,11 +31,14 @@ defmodule CodePuppyControl.EventBus do
   - Event-specific fields
   """
 
+  require Logger
+
   alias Phoenix.PubSub
 
   alias CodePuppyControl.Messaging.{WireEvent, Commands}
 
   @pubsub CodePuppyControl.PubSub
+  @env Mix.env()
 
   # ============================================================================
   # Topic Helpers
@@ -141,17 +144,19 @@ defmodule CodePuppyControl.EventBus do
     end
 
     # Broadcast to run topic
+    # (code_puppy-i1n) Guard against PubSub being unavailable (e.g.
+    # during test suite shutdown or supervision tree restart).
     if run_id = event[:run_id] || event["run_id"] do
-      PubSub.broadcast(@pubsub, run_topic(run_id), {:event, event})
+      safe_broadcast(run_topic(run_id), {:event, event})
     end
 
     # Broadcast to session topic
     if session_id = event[:session_id] || event["session_id"] do
-      PubSub.broadcast(@pubsub, session_topic(session_id), {:event, event})
+      safe_broadcast(session_topic(session_id), {:event, event})
     end
 
     # Always broadcast to global
-    PubSub.broadcast(@pubsub, global_topic(), {:event, event})
+    safe_broadcast(global_topic(), {:event, event})
 
     :ok
   end
@@ -162,14 +167,14 @@ defmodule CodePuppyControl.EventBus do
   @spec broadcast_local_event(map()) :: :ok
   def broadcast_local_event(event) do
     if run_id = event[:run_id] || event["run_id"] do
-      PubSub.local_broadcast(@pubsub, run_topic(run_id), {:event, event})
+      safe_local_broadcast(run_topic(run_id), {:event, event})
     end
 
     if session_id = event[:session_id] || event["session_id"] do
-      PubSub.local_broadcast(@pubsub, session_topic(session_id), {:event, event})
+      safe_local_broadcast(session_topic(session_id), {:event, event})
     end
 
-    PubSub.local_broadcast(@pubsub, global_topic(), {:event, event})
+    safe_local_broadcast(global_topic(), {:event, event})
 
     :ok
   end
@@ -530,5 +535,34 @@ defmodule CodePuppyControl.EventBus do
 
         broadcast_event(event, opts)
     end
+  end
+
+  # ============================================================================
+  # Private helpers
+  # ============================================================================
+
+  # (code_puppy-i1n) Wraps PubSub.broadcast so that a dead PubSub registry
+  # (ArgumentError) does not crash the caller. During test suite shutdown
+  # or supervision tree restart, PubSub may be momentarily unavailable;
+  # broadcasting is best-effort and should never kill the publishing process.
+  # Outside tests, log the dropped event so a misconfigured PubSub is visible.
+  defp safe_broadcast(topic, msg) do
+    PubSub.broadcast(@pubsub, topic, msg)
+  rescue
+    e in ArgumentError -> handle_broadcast_error(topic, e)
+  end
+
+  defp safe_local_broadcast(topic, msg) do
+    PubSub.local_broadcast(@pubsub, topic, msg)
+  rescue
+    e in ArgumentError -> handle_broadcast_error(topic, e)
+  end
+
+  defp handle_broadcast_error(topic, error) do
+    unless @env == :test do
+      Logger.warning("PubSub broadcast failed for #{inspect(topic)}: #{Exception.message(error)}")
+    end
+
+    :ok
   end
 end

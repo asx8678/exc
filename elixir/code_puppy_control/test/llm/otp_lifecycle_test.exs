@@ -348,7 +348,11 @@ defmodule CodePuppyControl.LLM.OtpLifecycleTest do
           end
         end
 
-      for r <- results, do: assert(r in [:table_gone, :exit_caught, nil])
+      # The supervisor may restart quickly enough for reads to hit the recovered
+      # registry.  Depending on prior test order, recovered state may include a
+      # matching config map, so accept both transient failure modes and a
+      # successful recovered read. (code_puppy-i1n)
+      for r <- results, do: assert(r in [:table_gone, :exit_caught, nil] or is_map(r))
 
       wait_for_restart(ModelRegistry, :model_configs)
       assert map_size(ModelRegistry.get_all_configs()) > 0

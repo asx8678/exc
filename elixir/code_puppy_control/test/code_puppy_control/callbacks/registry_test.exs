@@ -4,6 +4,10 @@ defmodule CodePuppyControl.Callbacks.RegistryTest do
   alias CodePuppyControl.Callbacks.Registry
 
   setup do
+    # (code_puppy-i1n) Ensure Registry is alive — it's a supervised
+    # singleton that may be dead if a prior test killed the supervisor tree.
+    CodePuppyControl.TestSupport.Reset.ensure_gen_server_started(Registry)
+
     # Clear all callbacks before each test
     Registry.clear()
     :ok

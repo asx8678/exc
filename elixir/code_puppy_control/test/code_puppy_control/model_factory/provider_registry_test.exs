@@ -5,6 +5,7 @@ defmodule CodePuppyControl.ModelFactory.ProviderRegistryTest do
   alias CodePuppyControl.LLM.Providers.{OpenAI, Anthropic, Google, Azure, Groq, Together}
 
   setup do
+    CodePuppyControl.TestSupport.Reset.ensure_gen_server_started(ProviderRegistry)
     ProviderRegistry.reset_for_test()
     :ok
   end

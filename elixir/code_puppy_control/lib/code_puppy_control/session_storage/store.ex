@@ -23,6 +23,10 @@ defmodule CodePuppyControl.SessionStorage.Store do
   @session_table :session_store_ets
   @terminal_table :session_terminal_ets
 
+  # Runtime `Mix.env/0` calls are forbidden in startup paths because Mix may
+  # not be available in packaged releases. Capture it at compile time instead.
+  @env Mix.env()
+
   # ---------------------------------------------------------------------------
   # Types
   # ---------------------------------------------------------------------------
@@ -183,22 +187,19 @@ defmodule CodePuppyControl.SessionStorage.Store do
     GenServer.call(__MODULE__, {:unregister_terminal, session_name})
   end
 
-  @doc """
-  Updates terminal metadata in ETS only, bypassing GenServer.call.
-
-  Used exclusively during deferred terminal recovery to avoid a
-  self-call deadlock: `TerminalRecovery` runs inside the Store's
-  `handle_continue(:recover_terminals)`, so calling back into the
-  same GenServer via `register_terminal/2` would crash with
-  "process attempted to call itself".
-
-  This function updates both ETS tables (`session_store_ets` and
-  `session_terminal_ets`) directly, and broadcasts the terminal
-  registration event via PubSub.  It does NOT persist to SQLite
-  because the terminal metadata was already loaded from SQLite
-  during `do_recover_from_disk/0`.
-  """
   @doc false
+  # Updates terminal metadata in ETS only, bypassing GenServer.call.
+  #
+  # Used exclusively during deferred terminal recovery to avoid a self-call
+  # deadlock: `TerminalRecovery` runs inside the Store's
+  # `handle_continue(:recover_terminals)`, so calling back into the same
+  # GenServer via `register_terminal/2` would crash with "process attempted to
+  # call itself".
+  #
+  # This function updates both ETS tables (`session_store_ets` and
+  # `session_terminal_ets`) directly, and broadcasts the terminal registration
+  # event via PubSub. It does NOT persist to SQLite because the terminal
+  # metadata was already loaded from SQLite during `do_recover_from_disk/0`.
   @spec register_terminal_ets_only(session_name(), map()) :: :ok | :error
   def register_terminal_ets_only(name, meta) do
     case :ets.lookup(@session_table, name) do
@@ -213,11 +214,23 @@ defmodule CodePuppyControl.SessionStorage.Store do
         :ets.insert(@session_table, {name, updated})
         :ets.insert(@terminal_table, {name, meta})
 
-        Phoenix.PubSub.broadcast(
-          @pubsub,
-          @terminal_topic,
-          {:terminal_registered, name}
-        )
+        # (code_puppy-i1n) Guard against PubSub being unavailable during
+        # test restart/shutdown races. Outside tests, log so dropped recovery
+        # events remain visible.
+        try do
+          Phoenix.PubSub.broadcast(
+            @pubsub,
+            @terminal_topic,
+            {:terminal_registered, name}
+          )
+        rescue
+          e in ArgumentError ->
+            unless @env == :test do
+              Logger.warning("Terminal recovery PubSub broadcast failed: #{Exception.message(e)}")
+            end
+
+            :ok
+        end
 
         :ok
 
@@ -322,7 +335,19 @@ defmodule CodePuppyControl.SessionStorage.Store do
         write_concurrency: true
       ])
 
-    recovered = Operations.do_recover_from_disk()
+    # (code_puppy-i1n) In test env, the Ecto sandbox pool may not be
+    # checked out yet, so Repo calls during init can raise
+    # DBConnection.OwnershipError. A fresh/empty test DB can also raise a
+    # narrow "no such table" Exqlite.Error during startup recovery. Catch
+    # those gracefully only in tests; in other environments, reraise so real
+    # persistence failures are visible.
+    recovered =
+      try do
+        Operations.do_recover_from_disk()
+      rescue
+        e in [DBConnection.OwnershipError, Exqlite.Error] ->
+          handle_init_repo_error(e, __STACKTRACE__)
+      end
 
     terminal_count =
       @session_table
@@ -343,34 +368,96 @@ defmodule CodePuppyControl.SessionStorage.Store do
      }, {:continue, :recover_terminals}}
   end
 
+  # (code_puppy-i1n) All handle_call callbacks that delegate to
+  # Operations (which uses the Repo) must rescue DBConnection.OwnershipError.
+  # In test env with the Ecto Sandbox pool, the Store GenServer is a
+  # long-lived process that doesn't own a sandbox connection — so any
+  # Repo call can fail if a test process has checked out the pool.
+  # Returning {:error, :repo_unavailable} keeps the Store alive and
+  # prevents a restart storm that would crash the application supervisor.
+
   @impl true
   def handle_call({:save_session, name, history, opts}, _from, state) do
-    {:reply, Operations.do_save_session(name, history, opts), state}
+    {:reply, safe_repo(fn -> Operations.do_save_session(name, history, opts) end), state}
   end
 
   @impl true
   def handle_call({:delete_session, name}, _from, state) do
-    {:reply, Operations.do_delete_session(name), state}
+    {:reply, safe_repo(fn -> Operations.do_delete_session(name) end), state}
   end
 
   @impl true
   def handle_call({:cleanup_sessions, max_sessions}, _from, state) do
-    {:reply, Operations.do_cleanup_sessions(max_sessions), state}
+    {:reply, safe_repo(fn -> Operations.do_cleanup_sessions(max_sessions) end), state}
   end
 
   @impl true
   def handle_call({:register_terminal, session_name, meta}, _from, state) do
-    {:reply, Operations.do_register_terminal(session_name, meta), state}
+    {:reply, safe_repo(fn -> Operations.do_register_terminal(session_name, meta) end), state}
   end
 
   @impl true
   def handle_call({:unregister_terminal, session_name}, _from, state) do
-    {:reply, Operations.do_unregister_terminal(session_name), state}
+    {:reply, safe_repo(fn -> Operations.do_unregister_terminal(session_name) end), state}
   end
 
   @impl true
   def handle_call({:update_session, name, opts}, _from, state) do
-    {:reply, Operations.do_update_session(name, opts), state}
+    {:reply, safe_repo(fn -> Operations.do_update_session(name, opts) end), state}
+  end
+
+  # Wraps a Repo-dependent call so test-only DBConnection.OwnershipError
+  # doesn't crash the Store GenServer. Returns {:error, :repo_unavailable} on
+  # sandbox contention, letting the Store stay alive for ETS-only reads. In
+  # non-test environments, and for unexpected DB errors in tests, reraise so
+  # real persistence failures stay visible. (code_puppy-i1n)
+  defp safe_repo(fun) do
+    fun.()
+  rescue
+    e in [DBConnection.OwnershipError] ->
+      handle_repo_error(e, __STACKTRACE__)
+  end
+
+  defp handle_init_repo_error(%DBConnection.OwnershipError{} = e, stacktrace) do
+    if @env == :test do
+      Logger.warning(
+        "SessionStorage.Store: Repo unavailable during init (#{Exception.message(e)}); skipping disk recovery"
+      )
+
+      0
+    else
+      reraise e, stacktrace
+    end
+  end
+
+  defp handle_init_repo_error(%Exqlite.Error{} = e, stacktrace) do
+    if @env == :test and missing_table_error?(e) do
+      Logger.warning(
+        "SessionStorage.Store: test DB schema unavailable during init (#{Exception.message(e)}); skipping disk recovery"
+      )
+
+      0
+    else
+      reraise e, stacktrace
+    end
+  end
+
+  defp missing_table_error?(%Exqlite.Error{message: message}) when is_binary(message) do
+    String.contains?(message, "no such table")
+  end
+
+  defp missing_table_error?(_error), do: false
+
+  defp handle_repo_error(e, stacktrace) do
+    if @env == :test do
+      Logger.warning(
+        "Store: Repo unavailable (#{Exception.message(e)}); returning :repo_unavailable"
+      )
+
+      {:error, :repo_unavailable}
+    else
+      reraise e, stacktrace
+    end
   end
 
   # ---------------------------------------------------------------------------
@@ -382,13 +469,23 @@ defmodule CodePuppyControl.SessionStorage.Store do
     do: {:noreply, state}
 
   def handle_continue(:recover_terminals, state) do
-    TerminalRecovery.deferred_recover_from_store()
+    # (code_puppy-i1n) TerminalRecovery may also hit the Repo (e.g.
+    # PtyManager.create_session), so wrap it in safe_repo too.
+    safe_repo(fn ->
+      TerminalRecovery.deferred_recover_from_store()
+      :ok
+    end)
+
     {:noreply, state}
   end
 
   @impl true
   def handle_info({:retry_terminal_recovery, attempt}, state) do
-    TerminalRecovery.attempt_recovery_from_store(attempt)
+    safe_repo(fn ->
+      TerminalRecovery.attempt_recovery_from_store(attempt)
+      :ok
+    end)
+
     {:noreply, state}
   end
 

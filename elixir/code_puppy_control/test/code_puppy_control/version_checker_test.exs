@@ -7,6 +7,9 @@ defmodule CodePuppyControl.VersionCheckerTest do
   # environment variables (PUP_EX_HOME) for isolation.
 
   setup do
+    # (code_puppy-i1n) PubSub must be alive for EventBus emission tests.
+    CodePuppyControl.TestSupport.Reset.ensure_gen_server_started(CodePuppyControl.PubSub)
+
     # Isolate the cache directory via PUP_EX_HOME so we don't touch real
     # user state. Paths.cache_dir() respects PUP_EX_HOME.
     tmp = System.tmp_dir!() |> Path.join("vc_test_#{:erlang.unique_integer([:positive])}")

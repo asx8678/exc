@@ -73,6 +73,13 @@ defmodule CodePuppyControlWeb.ChannelCase do
   end
 
   setup _tags do
+    # (code_puppy-i1n) Channel tests that join terminal channels trigger
+    # Store.register_terminal which uses Ecto/Repo.  Check out the
+    # sandbox in {:shared, self()} mode so the Store GenServer can
+    # access the Repo without DBConnection.OwnershipError.
+    :ok = Ecto.Adapters.SQL.Sandbox.checkout(CodePuppyControl.Repo)
+    :ok = Ecto.Adapters.SQL.Sandbox.mode(CodePuppyControl.Repo, {:shared, self()})
+
     # Ensure PubSub is running for channel tests
     case CodePuppyControl.PubSub |> Process.whereis() do
       nil ->

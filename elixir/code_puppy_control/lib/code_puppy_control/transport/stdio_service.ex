@@ -2751,11 +2751,6 @@ defmodule CodePuppyControl.Transport.StdioService do
     end
   end
 
-  # (code_puppy-ctj.1) Check if the SessionStorage.Store GenServer is running
-  defp store_available? do
-    Process.whereis(CodePuppyControl.SessionStorage.Store) != nil
-  end
-
   # --- Workflow methods (: DBOS replacement) ---
 
   defp handle_request("workflow.invoke_agent", params, id) do
@@ -2876,6 +2871,11 @@ defmodule CodePuppyControl.Transport.StdioService do
       nil,
       id
     )
+  end
+
+  # (code_puppy-ctj.1) Check if the SessionStorage.Store GenServer is running
+  defp store_available? do
+    Process.whereis(CodePuppyControl.SessionStorage.Store) != nil
   end
 
   defp traverse_changeset_errors(changeset) do

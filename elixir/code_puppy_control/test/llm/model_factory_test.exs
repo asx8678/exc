@@ -39,6 +39,11 @@ defmodule CodePuppyControl.LLM.ModelFactoryTest do
 
   setup do
     CodePuppyControl.TestSupport.Reset.ensure_gen_server_started(ModelRegistry)
+    # (code_puppy-i1n) ProviderRegistry may be dead if supervisor tree was killed.
+    CodePuppyControl.TestSupport.Reset.ensure_gen_server_started(
+      CodePuppyControl.ModelFactory.ProviderRegistry
+    )
+
     :ok
   end
 
