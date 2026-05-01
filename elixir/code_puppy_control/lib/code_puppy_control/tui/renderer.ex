@@ -16,7 +16,7 @@ defmodule CodePuppyControl.TUI.Renderer do
 
   Rendering logic is split into focused submodules:
 
-    * `Renderer.OwlOutput` — safe Owl.IO.puts, banners, spinners
+    * `TUI.Output` — output adapter (behaviour, defaults to Owl)
     * `Renderer.EventMapper` — canonical wire format + legacy conversion
     * `Renderer.Buffer` — text/thinking buffer flush logic
 
@@ -42,7 +42,8 @@ defmodule CodePuppyControl.TUI.Renderer do
   alias CodePuppyControl.EventBus
   alias CodePuppyControl.Stream.Event
   alias CodePuppyControl.TUI.Markdown
-  alias CodePuppyControl.TUI.Renderer.{Buffer, EventMapper, OwlOutput}
+  alias CodePuppyControl.TUI.Output
+  alias CodePuppyControl.TUI.Renderer.{Buffer, EventMapper}
 
   # ── Constants ─────────────────────────────────────────────────────────────
 
@@ -227,7 +228,7 @@ defmodule CodePuppyControl.TUI.Renderer do
   @impl true
   def handle_call(:reset, _from, state) do
     Enum.each(state.spinner_ids, fn {_idx, ref} ->
-      OwlOutput.stop_spinner(ref)
+      Output.stop_spinner(ref)
     end)
 
     {:reply, :ok,
@@ -250,7 +251,7 @@ defmodule CodePuppyControl.TUI.Renderer do
         banner_printed: MapSet.put(state.banner_printed, idx)
     }
 
-    OwlOutput.print_banner("AGENT RESPONSE", :blue, "💬")
+    Output.print_banner("AGENT RESPONSE", :blue, "💬")
     state
   end
 
@@ -264,7 +265,7 @@ defmodule CodePuppyControl.TUI.Renderer do
     buf = IO.iodata_to_binary(chunks)
 
     if String.contains?(buf, "\n") or byte_size(buf) > @flush_threshold do
-      OwlOutput.owl_puts(Markdown.render(buf))
+      Output.puts(Markdown.render(buf))
       state = %{state | text_buffer: Map.put(state.text_buffer, idx, [])}
       update_rate(state)
     else
@@ -286,7 +287,7 @@ defmodule CodePuppyControl.TUI.Renderer do
         banner_printed: MapSet.put(state.banner_printed, idx)
     }
 
-    OwlOutput.print_banner("THINKING", :yellow, "⚡")
+    Output.print_banner("THINKING", :yellow, "⚡")
     state
   end
 
@@ -300,7 +301,7 @@ defmodule CodePuppyControl.TUI.Renderer do
 
     if chunks != [] do
       text = IO.iodata_to_binary(chunks)
-      OwlOutput.owl_puts(Owl.Data.tag(Markdown.render(text), :faint))
+      Output.puts(Owl.Data.tag(Markdown.render(text), :faint))
     end
 
     state = %{state | thinking_buffer: Map.put(state.thinking_buffer, idx, nil)}
@@ -315,9 +316,9 @@ defmodule CodePuppyControl.TUI.Renderer do
         banner_printed: MapSet.put(state.banner_printed, idx)
     }
 
-    OwlOutput.print_tool_banner(name)
+    Output.print_tool_banner(name)
 
-    case OwlOutput.start_tool_spinner(state.loading_index, idx) do
+    case Output.start_spinner(state.loading_index, idx) do
       {ref, new_loading_index} ->
         %{
           state
@@ -335,10 +336,19 @@ defmodule CodePuppyControl.TUI.Renderer do
   end
 
   defp handle_stream_event(%Event.ToolCallEnd{index: idx, name: name}, state) do
-    spinner_ids = OwlOutput.stop_tool_spinner(state.spinner_ids, idx)
+    spinner_ids =
+      case Map.get(state.spinner_ids, idx) do
+        nil ->
+          state.spinner_ids
+
+        ref ->
+          Output.stop_spinner(ref)
+          Map.delete(state.spinner_ids, idx)
+      end
+
     state = %{state | spinner_ids: spinner_ids}
 
-    OwlOutput.owl_puts(Owl.Data.tag(" ✔ #{name}", :green))
+    Output.puts(Owl.Data.tag(" ✔ #{name}", :green))
 
     cleanup_part(state, idx)
   end
@@ -352,7 +362,7 @@ defmodule CodePuppyControl.TUI.Renderer do
     |> Map.update!(:text_buffer, &Buffer.flush_all_text_buffers/1)
     |> Map.update!(:thinking_buffer, &Buffer.flush_all_thinking_buffers/1)
     |> then(fn s ->
-      %{s | spinner_ids: OwlOutput.stop_all_spinners(s.spinner_ids)}
+      %{s | spinner_ids: Output.stop_all_spinners(s.spinner_ids)}
     end)
   end
 
@@ -361,22 +371,22 @@ defmodule CodePuppyControl.TUI.Renderer do
   # ── EventBus Map Handlers ─────────────────────────────────────────────────
 
   defp handle_eventbus_event(%{type: "text", content: content}, state) do
-    OwlOutput.owl_puts(Markdown.render(content))
+    Output.puts(Markdown.render(content))
     state
   end
 
   defp handle_eventbus_event(%{type: "agent_run_failed", error: error}, state) do
-    OwlOutput.owl_puts(Owl.Data.tag("\u2716 Error: #{error}", :red))
+    Output.puts(Owl.Data.tag("\u2716 Error: #{error}", :red))
     state
   end
 
   defp handle_eventbus_event(%{type: "status", status: status}, state) do
-    OwlOutput.owl_puts(Owl.Data.tag(" #{status}", :faint))
+    Output.puts(Owl.Data.tag(" #{status}", :faint))
     state
   end
 
   defp handle_eventbus_event(%{type: "thinking", content: content}, state) do
-    OwlOutput.owl_puts(Owl.Data.tag(content, :faint))
+    Output.puts(Owl.Data.tag(content, :faint))
     state
   end
 
@@ -412,7 +422,7 @@ defmodule CodePuppyControl.TUI.Renderer do
   defp do_finalize(state) do
     text_buffer = Buffer.flush_all_text_buffers(state.text_buffer)
     thinking_buffer = Buffer.flush_all_thinking_buffers(state.thinking_buffer)
-    spinner_ids = OwlOutput.stop_all_spinners(state.spinner_ids)
+    spinner_ids = Output.stop_all_spinners(state.spinner_ids)
 
     state = %{
       state
@@ -427,7 +437,7 @@ defmodule CodePuppyControl.TUI.Renderer do
       elapsed_s = elapsed / 1000
       rate = state.token_count / elapsed_s
 
-      OwlOutput.owl_puts(
+      Output.puts(
         Owl.Data.tag(
           "\nCompleted: #{state.token_count} tokens in #{Float.round(elapsed_s, 1)}s (#{Float.round(rate, 1)} t/s avg)",
           :faint
