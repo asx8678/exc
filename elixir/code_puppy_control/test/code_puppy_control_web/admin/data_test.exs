@@ -142,7 +142,9 @@ defmodule CodePuppyControlWeb.Admin.DataTest do
 
   describe "list_worktrees/1" do
     test "with a non-git directory returns []" do
-      tmp = Path.join(System.tmp_dir!(), "admin_data_not_git_#{System.unique_integer([:positive])}")
+      tmp =
+        Path.join(System.tmp_dir!(), "admin_data_not_git_#{System.unique_integer([:positive])}")
+
       File.mkdir_p!(tmp)
       on_exit(fn -> File.rm_rf!(tmp) end)
 
