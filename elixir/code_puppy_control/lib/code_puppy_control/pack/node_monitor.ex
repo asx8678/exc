@@ -65,14 +65,12 @@ defmodule CodePuppyControl.Pack.NodeMonitor do
 
   require Logger
 
+  alias CodePuppyControl.Config.Distributed, as: DistributedConfig
   alias CodePuppyControl.Pack.NodeMonitor.Connection
   alias CodePuppyControl.Pack.DistributedSupervisor
+  alias CodePuppyControl.Telemetry
 
   # ── Configuration ────────────────────────────────────────────────────────
-
-  @default_heartbeat_interval 15_000
-  @default_disconnect_timeout 30_000
-  @default_connect_timeout 5_000
 
   @ets_table :pack_node_monitor_state
 
@@ -247,6 +245,8 @@ defmodule CodePuppyControl.Pack.NodeMonitor do
   def handle_info({:nodeup, node_name}, state) do
     Logger.info("[NodeMonitor] node up detected: #{inspect(node_name)}")
 
+    Telemetry.distributed_node_connected(node_name, %{})
+
     new_state = %{
       status: :connected,
       grace_until: nil,
@@ -282,11 +282,7 @@ defmodule CodePuppyControl.Pack.NodeMonitor do
     :ets.insert(@ets_table, {node_name, new_state})
     node_states = Map.put(state.node_states, node_name, new_state)
 
-    :telemetry.execute(
-      [:code_puppy, :distributed_pack, :node, :disconnected],
-      %{grace_period_ms: state.disconnect_timeout},
-      %{node: node_name}
-    )
+    Telemetry.distributed_node_disconnected(node_name, [], :nodedown)
 
     {:noreply, %{state | node_states: node_states}}
   end
@@ -318,27 +314,36 @@ defmodule CodePuppyControl.Pack.NodeMonitor do
     app_config = Application.get_env(:code_puppy_control, :distributed_packs, [])
 
     %{
-      enabled: Keyword.get(opts, :enabled, Keyword.get(app_config, :enabled, false)),
+      enabled:
+        Keyword.get(
+          opts,
+          :enabled,
+          Keyword.get(app_config, :enabled, DistributedConfig.enabled?())
+        ),
       workers:
-        Keyword.get(opts, :workers, Keyword.get(app_config, :workers, []))
+        Keyword.get(
+          opts,
+          :workers,
+          Keyword.get(app_config, :workers, DistributedConfig.workers())
+        )
         |> normalize_workers(),
       heartbeat_interval:
         Keyword.get(
           opts,
           :heartbeat_interval,
-          Keyword.get(app_config, :heartbeat_interval, @default_heartbeat_interval)
+          Keyword.get(app_config, :heartbeat_interval, DistributedConfig.heartbeat_interval())
         ),
       disconnect_timeout:
         Keyword.get(
           opts,
           :disconnect_timeout,
-          Keyword.get(app_config, :disconnect_timeout, @default_disconnect_timeout)
+          Keyword.get(app_config, :disconnect_timeout, DistributedConfig.disconnect_timeout())
         ),
       connect_timeout:
         Keyword.get(
           opts,
           :connect_timeout,
-          Keyword.get(app_config, :connect_timeout, @default_connect_timeout)
+          Keyword.get(app_config, :connect_timeout, DistributedConfig.connect_timeout())
         ),
       proxy_opts: Keyword.get(opts, :proxy_opts, []),
       supervisor_name: Keyword.get(opts, :supervisor_name, DistributedSupervisor),
