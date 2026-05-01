@@ -384,6 +384,13 @@ defmodule CodePuppyControl.RuntimeSelectorTest do
 
       Process.sleep(5)
       assert RuntimeSelector.select_runtime(:llm_client) == :python
+
+      # Ensure the global RuntimeSelector is running and in :auto mode
+      # for subsequent tests. It may have been auto-restarted already.
+      case Process.whereis(RuntimeSelector) do
+        nil -> start_supervised!({RuntimeSelector, name: RuntimeSelector})
+        pid -> GenServer.call(pid, {:set_mode, :auto})
+      end
     end
   end
 

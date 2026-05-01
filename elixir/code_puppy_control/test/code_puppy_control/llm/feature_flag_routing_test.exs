@@ -7,18 +7,22 @@ defmodule CodePuppyControl.LLM.FeatureFlagRoutingTest do
   @event [:code_puppy, :llm, :route_decision]
 
   setup do
-    prior = FeatureFlags.enabled?(:llm_client)
+    # Start from a deterministic state — always false.
+    # Tests that need :llm_client enabled MUST set it explicitly in the test body.
+    :ok = FeatureFlags.set(:llm_client, false, source: :test)
+
     test_pid = self()
     handler_id = "ff-route-test-#{System.unique_integer([:positive])}"
 
     # Ensure RuntimeSelector is running so select_runtime works in the gate.
     # Start it in :auto mode so FeatureFlags.set() still controls routing.
+    # Also reset the mode to :auto in case another test left it in :python/:elixir.
     case Process.whereis(RuntimeSelector) do
       nil ->
         start_supervised!({RuntimeSelector, name: RuntimeSelector})
 
-      _pid ->
-        :ok
+      pid ->
+        GenServer.call(pid, {:set_mode, :auto})
     end
 
     :ok =
@@ -33,13 +37,12 @@ defmodule CodePuppyControl.LLM.FeatureFlagRoutingTest do
 
     on_exit(fn ->
       :telemetry.detach(handler_id)
+      :ok = FeatureFlags.set(:llm_client, false, source: :test)
 
-      _ =
-        if prior do
-          FeatureFlags.set(:llm_client, true, source: :test)
-        else
-          FeatureFlags.set(:llm_client, false, source: :test)
-        end
+      # Reset RuntimeSelector mode so subsequent tests aren't affected
+      if pid = Process.whereis(RuntimeSelector) do
+        GenServer.call(pid, {:set_mode, :auto})
+      end
     end)
 
     %{handler_id: handler_id}

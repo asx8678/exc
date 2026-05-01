@@ -1,57 +1,9 @@
 # Contributing to Code Puppy
 
+> **Note:** As of Phase H cutover, Code Puppy runs on **Elixir only**.
+> The Python codebase has been removed. See ADR-004 for migration history.
+
 **Thank you for your interest in contributing!** This document outlines the guidelines for participating in this project.
-
-## 🧊 Python Freeze Policy (during Elixir migration)
-
-> **TL;DR**: The Python codebase is **FROZEN** during the Python→Elixir migration. 
-> Only critical bug fixes, deprecation warnings, and docs updates are allowed.
-
-### Rationale
-
-Code Puppy is actively migrating from Python to Elixir (the `pup-ex` rewrite). During this transition:
-- The Elixir codebase (`elixir/code_puppy_control/`) is where **new development happens** 
-- The Python codebase (`code_puppy/`) is in **maintenance mode only** 
-- Dual-maintenance would fragment effort and delay the migration
-
-### What's Allowed ✅
-
-| Type | Examples |
-|----------|----------|
-|**_Critical bug fixes_** | Crashes, data loss, security vulnerabilities |
-|**_Deprecation warnings_** | Guiding users toward `pup-ex` equivalents |
-|**_Documentation updates_** | README fixes, migration guides, API docs |
-|**_CI/infrastructure_** | Changes that don't touch `code_puppy/**/*.py` |
-
-### What's NOT Allowed ❌
-
-| Type | Examples |
-|----------|-----------|
-|**_Refactors_** | Code reorganization, style changes, renaming |
-|**_Schema changes_** | `puppy.cfg` modifications, `*.json` config changes |
-|**_New features_** | New commands, tools, agents, or capabilities |
-|**_Non-critical fixes_** | Typos, cosmetic bugs, edge cases with workarounds |
-
-### What Reviewers Should Enforce
-
-1. **Check the file path** - If it touches `code_puppy/**/*.py`, scrutinize heavily
-2. **Require justification** - Every Python change needs an issue reference
-3. **Label appropriately** - Use `bug-fix`, `docs`, or `deprecation` labels
-4. **Ask: "Could this go in Elixir?"** - If yes, redirect the contributor
-
-### Emergency Override Process
-
-If a critical production fix is needed:
-1. File an issue with label `critical-freeze-override`
-2. Get approval from a maintainer
-3. Merge with the appropriate conventional commit type (`fix` for bug fixes, `docs` for documentation)
-4. Create a follow-up issue to port the fix to Elixir
-
-### Timeline
-
-This freeze remains in effect until the Elixir migration reaches parity. The freeze will be lifted incrementally as components are fully migrated.
-
----
 
 ## General Development Guidelines
 
@@ -76,9 +28,7 @@ Include the **bd issue ID** (e.g. `code_puppy-djs.7`) in the commit message body
 
 ### Code Review
 
-All changes require review. The Python freeze policy (above) will be strictly enforced during the migration period.
-
-Note: reviewer enforcement only — no CI gate.
+All changes require review.
 
 ### Automated Code Review for Test Files
 
@@ -88,11 +38,10 @@ All new and modified test files must pass automated review before merge. This en
 
 | Language | Agent | Focus |
 |----------|-------|-------|
-| Elixir | `elixir-reviewer` | Anti-patterns, OTP idioms, Python-isms, supervision tree correctness |
-| Python | `python-reviewer` | Idiomatic patterns, type safety, async correctness |
+| Elixir | `elixir-reviewer` | Anti-patterns, OTP idioms, supervision tree correctness |
 | Any | `qa-expert` | Coverage gaps, assertion quality, test isolation, risk assessment |
 
-> **Note:** Review agents use strong models (GPT-5.4, Claude Sonnet) for high-quality analysis.
+> **Note:** Review agents use strong models for high-quality analysis.
 
 #### Running Reviews Manually
 
@@ -101,7 +50,7 @@ All new and modified test files must pass automated review before merge. This en
 ./scripts/review-tests.sh elixir/code_puppy_control/test/llm/
 
 # Multiple paths
-./scripts/review-tests.sh elixir/code_puppy_control/test/ tests/plugins/
+./scripts/review-tests.sh elixir/code_puppy_control/test/
 
 # Treat findings as blocking (for CI gates)
 
@@ -115,7 +64,6 @@ code-puppy --agent qa-expert --prompt "Analyze test coverage for: path/to/tests/
 - **All new test files** must be reviewed by the appropriate language reviewer
 - **Test suite changes** (adding/removing tests, modifying test infrastructure) require `qa-expert` coverage analysis
 - **Pre-push hook** runs advisory review on `.exs` test files automatically
-- **Local review** — run review scripts locally; CI comments are advisory for now
 
 #### Current Status
 
@@ -127,7 +75,7 @@ To make reviews blocking in CI, set `REVIEW_BLOCKING=1` in the environment or ad
 
 - Add tests for bug fixes
 - Ensure existing tests pass
-- For Elixir code, run `mix test` in `elixir/code_puppy_control/`
+- Run `mix test` in `elixir/code_puppy_control/`
 
 ### Questions?
 
