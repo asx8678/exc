@@ -133,9 +133,7 @@ defmodule CodePuppyControl.CLI.SlashCommands.Commands.Pack do
       "    #{IO.ANSI.faint()}Use /pack without arguments to see current pack#{IO.ANSI.reset()}"
     )
 
-    IO.puts(
-      "    #{IO.ANSI.faint()}Use /pack cluster for distributed status#{IO.ANSI.reset()}"
-    )
+    IO.puts("    #{IO.ANSI.faint()}Use /pack cluster for distributed status#{IO.ANSI.reset()}")
   end
 
   # ── Cluster Subcommand ──────────────────────────────────────────────────
@@ -190,9 +188,7 @@ defmodule CodePuppyControl.CLI.SlashCommands.Commands.Pack do
         end)
 
       {:error, reason} ->
-        IO.puts(
-          "    #{IO.ANSI.yellow()}NamingService unavailable: #{reason}#{IO.ANSI.reset()}"
-        )
+        IO.puts("    #{IO.ANSI.yellow()}NamingService unavailable: #{reason}#{IO.ANSI.reset()}")
     end
 
     IO.puts("")
@@ -210,12 +206,20 @@ defmodule CodePuppyControl.CLI.SlashCommands.Commands.Pack do
     connect = DistributedConfig.connect_timeout()
 
     IO.puts("    enabled:             #{IO.ANSI.cyan()}#{enabled}#{IO.ANSI.reset()}")
-    IO.puts("    workers:             #{IO.ANSI.cyan()}#{format_workers_config(workers)}#{IO.ANSI.reset()}")
+
+    IO.puts(
+      "    workers:             #{IO.ANSI.cyan()}#{format_workers_config(workers)}#{IO.ANSI.reset()}"
+    )
+
     IO.puts("    heartbeat_interval:  #{IO.ANSI.cyan()}#{heartbeat}ms#{IO.ANSI.reset()}")
     IO.puts("    disconnect_timeout:  #{IO.ANSI.cyan()}#{disconnect}ms#{IO.ANSI.reset()}")
     IO.puts("    connect_timeout:     #{IO.ANSI.cyan()}#{connect}ms#{IO.ANSI.reset()}")
     IO.puts("")
-    IO.puts("    #{IO.ANSI.faint()}Source: puppy.cfg [packs.distributed] or PUP_DISTRIBUTED_* env#{IO.ANSI.reset()}")
+
+    IO.puts(
+      "    #{IO.ANSI.faint()}Source: puppy.cfg [packs.distributed] or PUP_DISTRIBUTED_* env#{IO.ANSI.reset()}"
+    )
+
     IO.puts("")
   end
 
@@ -229,9 +233,7 @@ defmodule CodePuppyControl.CLI.SlashCommands.Commands.Pack do
         render_table(rows)
 
       {:error, reason} ->
-        IO.puts(
-          "    #{IO.ANSI.yellow()}NamingService unavailable: #{reason}#{IO.ANSI.reset()}"
-        )
+        IO.puts("    #{IO.ANSI.yellow()}NamingService unavailable: #{reason}#{IO.ANSI.reset()}")
     end
   end
 
@@ -267,19 +269,31 @@ defmodule CodePuppyControl.CLI.SlashCommands.Commands.Pack do
     }
 
     # Top border
-    IO.puts("    \u250C#{bar(widths.node)}\u252C#{bar(widths.os)}\u252C#{bar(widths.slots)}\u252C#{bar(widths.models)}\u2510")
+    IO.puts(
+      "    \u250C#{bar(widths.node)}\u252C#{bar(widths.os)}\u252C#{bar(widths.slots)}\u252C#{bar(widths.models)}\u2510"
+    )
+
     # Header row
-    IO.puts("    \u2502#{cell(headers.node, widths.node)}\u2502#{cell(headers.os, widths.os)}\u2502#{cell(headers.slots, widths.slots)}\u2502#{cell(headers.models, widths.models)}\u2502")
+    IO.puts(
+      "    \u2502#{cell(headers.node, widths.node)}\u2502#{cell(headers.os, widths.os)}\u2502#{cell(headers.slots, widths.slots)}\u2502#{cell(headers.models, widths.models)}\u2502"
+    )
+
     # Separator
-    IO.puts("    \u251C#{bar(widths.node)}\u253C#{bar(widths.os)}\u253C#{bar(widths.slots)}\u253C#{bar(widths.models)}\u2524")
+    IO.puts(
+      "    \u251C#{bar(widths.node)}\u253C#{bar(widths.os)}\u253C#{bar(widths.slots)}\u253C#{bar(widths.models)}\u2524"
+    )
 
     # Data rows
     Enum.each(rows, fn row ->
-      IO.puts("    \u2502#{cell(row.node, widths.node)}\u2502#{cell(row.os, widths.os)}\u2502#{cell(row.slots, widths.slots)}\u2502#{cell(row.models, widths.models)}\u2502")
+      IO.puts(
+        "    \u2502#{cell(row.node, widths.node)}\u2502#{cell(row.os, widths.os)}\u2502#{cell(row.slots, widths.slots)}\u2502#{cell(row.models, widths.models)}\u2502"
+      )
     end)
 
     # Bottom border
-    IO.puts("    \u2514#{bar(widths.node)}\u2534#{bar(widths.os)}\u2534#{bar(widths.slots)}\u2534#{bar(widths.models)}\u2518")
+    IO.puts(
+      "    \u2514#{bar(widths.node)}\u2534#{bar(widths.os)}\u2534#{bar(widths.slots)}\u2534#{bar(widths.models)}\u2518"
+    )
   end
 
   defp render_worker_detail(node, caps) do

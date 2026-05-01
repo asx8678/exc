@@ -4,6 +4,7 @@ defmodule CodePuppyControl.CLI.SlashCommands.Commands.PackTest do
   alias CodePuppyControl.CLI.SlashCommands.{CommandInfo, Dispatcher, Registry}
   alias CodePuppyControl.CLI.SlashCommands.Commands.Pack
   alias CodePuppyControl.ModelPacks
+  alias CodePuppyControl.Pack.NamingService
 
   setup do
     # Start the Registry GenServer if not already running
@@ -28,9 +29,9 @@ defmodule CodePuppyControl.CLI.SlashCommands.Commands.PackTest do
       Registry.register(
         CommandInfo.new(
           name: "pack",
-          description: "Show or switch model pack",
+          description: "Show/switch model pack or inspect cluster status",
           handler: &Pack.handle_pack/2,
-          usage: "/pack [pack_name]",
+          usage: "/pack [pack_name | cluster [workers|config]]",
           category: "context"
         )
       )
@@ -287,7 +288,7 @@ defmodule CodePuppyControl.CLI.SlashCommands.Commands.PackTest do
 
     test "/pack usage is correct" do
       {:ok, cmd} = Registry.get("pack")
-      assert cmd.usage == "/pack [pack_name]"
+      assert cmd.usage == "/pack [pack_name | cluster [workers|config]]"
     end
   end
 
@@ -436,6 +437,37 @@ defmodule CodePuppyControl.CLI.SlashCommands.Commands.PackTest do
 
       assert output =~ "workers"
       assert output =~ "config"
+    end
+  end
+
+  describe "/pack cluster renders worker table when NamingService has workers" do
+    setup do
+      case Process.whereis(NamingService) do
+        nil -> start_supervised!(NamingService)
+        _pid -> :ok
+      end
+
+      NamingService.clear()
+      :ok
+    end
+
+    test "renders registered worker in table" do
+      NamingService.register_node(:pup_test@localhost, %{
+        sub_agents: [:terrier, :watchdog],
+        host_os: "linux",
+        max_concurrent_runs: 2,
+        available_models: ["claude-sonnet-4-20250514"]
+      })
+
+      output =
+        ExUnit.CaptureIO.capture_io(fn ->
+          Pack.handle_pack("/pack cluster", %{})
+        end)
+
+      assert output =~ "pup_test@localhost"
+      assert output =~ "linux"
+
+      NamingService.unregister_node(:pup_test@localhost)
     end
   end
 
