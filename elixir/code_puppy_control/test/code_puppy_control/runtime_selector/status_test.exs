@@ -20,11 +20,22 @@ defmodule CodePuppyControl.RuntimeSelector.StatusTest do
     flags_path = Path.join(@tmp_dir, "flags.json")
     File.rm(flags_path)
 
+    # Reset the global RuntimeSelector to :auto so we start from a clean slate
+    if Process.whereis(RuntimeSelector) do
+      RuntimeSelector.set_mode(:auto)
+    end
+
     if Process.whereis(FeatureFlags) do
       FeatureFlags.reload()
     end
 
     on_exit(fn ->
+      # Reset the global RuntimeSelector back to :auto so subsequent tests
+      # aren't affected by any set_global_mode(:python) calls made during this test
+      if Process.whereis(RuntimeSelector) do
+        RuntimeSelector.set_mode(:auto)
+      end
+
       System.delete_env("PUP_EX_HOME")
       System.delete_env("PUP_RUNTIME")
       File.rm_rf!(@tmp_dir)
