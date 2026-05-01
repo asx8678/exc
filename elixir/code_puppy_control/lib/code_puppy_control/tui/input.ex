@@ -1,4 +1,9 @@
 defmodule CodePuppyControl.TUI.Input do
+  # ── Constants ───────────────────────────────────────────────────────────
+
+  @default_prompt "> "
+  @max_history 100
+
   @moduledoc """
   Non-blocking terminal input.
 
@@ -17,6 +22,20 @@ defmodule CodePuppyControl.TUI.Input do
   App's event loop. The prompt string is stored in state but the
   reader task reads with an empty string — the App/Screen is
   responsible for printing the prompt before each read.
+
+  ## Supported Input
+
+  The reader reads raw lines via `IO.gets/1`. Line editing (backspace,
+  Ctrl+W, history navigation via up/down arrows) is provided by the
+  underlying terminal driver (e.g., `erl_signal_server` or a library
+  like `Owl` when available). The Input module itself does not implement
+  line editing — it reads whatever the terminal delivers.
+
+  ## History
+
+  Commands are stored in a history buffer (max `#{@max_history}` entries).
+  Consecutive duplicates are automatically deduplicated. History is
+  returned newest-last (most recent final element).
 
   ## Usage
 
@@ -38,11 +57,6 @@ defmodule CodePuppyControl.TUI.Input do
   require Logger
 
   alias CodePuppyControl.TUI.App
-
-  # ── Constants ───────────────────────────────────────────────────────────
-
-  @default_prompt "> "
-  @max_history 100
 
   # ── State ───────────────────────────────────────────────────────────────
 
@@ -85,6 +99,10 @@ defmodule CodePuppyControl.TUI.Input do
 
   @doc """
   Stop the input reader gracefully.
+
+  Triggers `terminate/2` which shuts down the background reader task
+  (if still alive) so the process exits cleanly without leaving a
+  stranded `IO.gets/1` call.
   """
   @spec stop(GenServer.server()) :: :ok
   def stop(server \\ __MODULE__) do
