@@ -73,7 +73,7 @@ defmodule CodePuppyControl.SessionStorageFacadeTest do
     test "searches by name pattern and returns matching sessions", ctx do
       facade_save!(ctx, "alpha-review", [%{"role" => "user", "content" => "hi"}],
         total_tokens: 100,
-        timestamp: "2026-01-01T00:00:00Z"
+        timestamp: "1970-01-01T12:00:00Z"
       )
 
       facade_save!(ctx, "beta-work", [%{"role" => "user", "content" => "yo"}],
@@ -83,7 +83,7 @@ defmodule CodePuppyControl.SessionStorageFacadeTest do
 
       facade_save!(ctx, "gamma-review", [%{"role" => "user", "content" => "hey"}],
         total_tokens: 9000,
-        timestamp: "2026-06-01T00:00:00Z"
+        timestamp: "1970-06-01T12:00:00Z"
       )
 
       assert {:ok, results} = SessionStorage.search_sessions(name_pattern: "review")
@@ -99,7 +99,7 @@ defmodule CodePuppyControl.SessionStorageFacadeTest do
     test "multi-filter: name pattern + token range", ctx do
       facade_save!(ctx, "low-tokens", [%{"role" => "user", "content" => "lo"}],
         total_tokens: 50,
-        timestamp: "2026-01-01T00:00:00Z"
+        timestamp: "1970-01-01T12:00:00Z"
       )
 
       facade_save!(ctx, "mid-tokens", [%{"role" => "user", "content" => "mid"}],
@@ -109,7 +109,7 @@ defmodule CodePuppyControl.SessionStorageFacadeTest do
 
       facade_save!(ctx, "high-tokens", [%{"role" => "user", "content" => "hi"}],
         total_tokens: 9000,
-        timestamp: "2026-06-01T00:00:00Z"
+        timestamp: "1970-06-01T12:00:00Z"
       )
 
       # Search for sessions with "tokens" in name AND total_tokens >= 100
@@ -219,11 +219,11 @@ defmodule CodePuppyControl.SessionStorageFacadeTest do
   describe "list_sessions_with_metadata/1 through Store facade" do
     test "returns sessions sorted newest-first", ctx do
       facade_save!(ctx, "old-session", [%{"role" => "user", "content" => "old"}],
-        timestamp: "2026-01-01T00:00:00Z"
+        timestamp: "1970-01-01T12:00:00Z"
       )
 
       facade_save!(ctx, "new-session", [%{"role" => "user", "content" => "new"}],
-        timestamp: "2026-12-01T00:00:00Z"
+        timestamp: "1970-12-01T12:00:00Z"
       )
 
       assert {:ok, all_meta} = SessionStorage.list_sessions_with_metadata([])
@@ -275,35 +275,38 @@ defmodule CodePuppyControl.SessionStorageFacadeTest do
   # ---------------------------------------------------------------------------
 
   describe "cleanup_sessions/2 through Store facade" do
-    test "removes oldest sessions beyond max", ctx do
-      # Record the count before we add our sessions
-      count_before = SessionStorage.count_sessions()
+        test "removes oldest sessions beyond max", ctx do
+      # Record total BEFORE we add anything
+      total_before = SessionStorage.count_sessions()
 
       facade_save!(ctx, "oldest", [%{"role" => "user", "content" => "o"}],
-        timestamp: "2026-01-01T00:00:00Z"
+        timestamp: "1969-12-31T23:59:59Z"
       )
 
       facade_save!(ctx, "middle", [%{"role" => "user", "content" => "m"}],
-        timestamp: "2026-06-01T00:00:00Z"
+        timestamp: "1970-06-01T12:00:00Z"
       )
 
       facade_save!(ctx, "newest", [%{"role" => "user", "content" => "n"}],
-        timestamp: "2026-12-01T00:00:00Z"
+        timestamp: "1970-12-01T12:00:00Z"
       )
 
-      # We added 3 sessions; keep (count_before + 1) so exactly one is deleted
-      keep_count = count_before + 1
-      assert {:ok, deleted} = SessionStorage.cleanup_sessions(keep_count)
-
-      # The oldest of our sessions should be in the deleted list
       oldest_name = session_name(ctx.prefix, "oldest")
+      newest_name = session_name(ctx.prefix, "newest")
+
+      # We added 3 sessions. Keep total_before + 2 → delete exactly 1 globally.
+      assert {:ok, deleted} = SessionStorage.cleanup_sessions(total_before + 2)
+
+      # Exactly 1 session should have been deleted
+      assert length(deleted) == 1
+
+      # Our oldest (1969-12-31) should be the globally oldest → deleted
       assert oldest_name in deleted
 
-      # The newest of our sessions should still exist
-      newest_name = session_name(ctx.prefix, "newest")
+      # Our newer sessions should still exist
       assert SessionStorage.session_exists?(newest_name)
 
-      # The oldest should NOT exist anymore
+      # Our oldest should be gone
       refute SessionStorage.session_exists?(oldest_name)
     end
 
