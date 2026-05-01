@@ -46,11 +46,11 @@ defmodule CodePuppyControl.TUI.Renderer do
 
   # ── Constants ─────────────────────────────────────────────────────────────
 
-  # Flush buffered text when it exceeds this character count
-  @flush_threshold 20
-
   # Rate update throttle (5 Hz → 200ms)
   @rate_update_interval_ms 200
+
+  # Default character count threshold before buffer is flushed to terminal
+  @default_flush_threshold 20
 
   # ── State ──────────────────────────────────────────────────────────────────
 
@@ -76,7 +76,9 @@ defmodule CodePuppyControl.TUI.Renderer do
     spinner_ids: %{},
     loading_index: 0,
     # Rate throttle
-    last_rate_update: 0
+    last_rate_update: 0,
+    # Flush buffered text when it exceeds this character count
+    flush_threshold: @default_flush_threshold
   ]
 
   @type t :: %__MODULE__{
@@ -94,7 +96,8 @@ defmodule CodePuppyControl.TUI.Renderer do
           start_time: monotonic_time() | nil,
           spinner_ids: %{non_neg_integer() => reference()},
           loading_index: non_neg_integer(),
-          last_rate_update: non_neg_integer()
+          last_rate_update: non_neg_integer(),
+          flush_threshold: non_neg_integer()
         }
 
   @type monotonic_time :: integer()
@@ -110,6 +113,8 @@ defmodule CodePuppyControl.TUI.Renderer do
     * `:run_id` — subscribe to run topic
     * `:name` — GenServer name registration
     * `:subscribe_global` — subscribe to global topic when no session/run id
+    * `:flush_threshold` — character count threshold before buffer is
+       flushed to terminal (default: `#{@default_flush_threshold}`)
   """
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts) do
@@ -184,7 +189,8 @@ defmodule CodePuppyControl.TUI.Renderer do
       session_id: session_id,
       run_id: run_id,
       start_time: System.monotonic_time(:millisecond),
-      topics: []
+      topics: [],
+      flush_threshold: Keyword.get(opts, :flush_threshold, @default_flush_threshold)
     }
 
     state =
@@ -235,7 +241,8 @@ defmodule CodePuppyControl.TUI.Renderer do
        session_id: state.session_id,
        run_id: state.run_id,
        topics: state.topics,
-       start_time: System.monotonic_time(:millisecond)
+       start_time: System.monotonic_time(:millisecond),
+       flush_threshold: state.flush_threshold
      }}
   end
 
@@ -264,7 +271,7 @@ defmodule CodePuppyControl.TUI.Renderer do
     chunks = Map.get(state.text_buffer, idx, [])
     buf = IO.iodata_to_binary(chunks)
 
-    if String.contains?(buf, "\n") or byte_size(buf) > @flush_threshold do
+    if String.contains?(buf, "\n") or byte_size(buf) > state.flush_threshold do
       OwlOutput.owl_puts(Markdown.render(buf))
       state = %{state | text_buffer: Map.put(state.text_buffer, idx, [])}
       update_rate(state)
