@@ -24,11 +24,13 @@ defmodule CodePuppyControl.Pack.DistributedSupervisor do
 
   When DynamicSupervisor restarts a child (abnormal exit, transient restart),
   the new child gets a new pid but the ETS entry still has the old pid.
-  `add_node/2` detects stale pids and re-creates the entry. `list_nodes/1`
-  filters dead pids. `remove_node/2` cleans up stale entries gracefully.
+  `add_node/2` detects stale pids and re-creates the entry.
 
-  Callers (NodeMonitor) re-call `add_node/2` on the next heartbeat, which
-  handles stale-pid recovery automatically.
+  `resolve_supervisor_pid/2` provides restart-safe ETS lookup: if the ETS pid
+  is dead, it falls back to `Registry.lookup/2` on
+  `RemoteNodeSupervisor.Registry` to find the restarted child. If found, ETS
+  is updated with the new pid. This means `list_nodes/1`, `dispatch/4`, and
+  `find_proxy_pid/2` all auto-repair stale entries without caller intervention.
 
   ## Lifecycle
 
@@ -194,7 +196,8 @@ defmodule CodePuppyControl.Pack.DistributedSupervisor do
   @doc """
   Returns a list of all currently supervised remote node atoms.
 
-  Filters out stale pids (dead processes from DynamicSupervisor restarts).
+  Auto-repairs stale ETS entries via Registry lookup when
+  DynamicSupervisor has restarted a child with a new pid.
   """
   @spec list_nodes() :: [node()]
   @spec list_nodes(atom()) :: [node()]
@@ -203,8 +206,18 @@ defmodule CodePuppyControl.Pack.DistributedSupervisor do
 
     ets_table
     |> :ets.tab2list()
-    |> Enum.filter(fn {_node, pid} -> is_pid(pid) and Process.alive?(pid) end)
-    |> Enum.map(fn {node, _pid} -> node end)
+    |> Enum.reduce([], fn {node, pid}, acc ->
+      if is_pid(pid) and Process.alive?(pid) do
+        [node | acc]
+      else
+        # Try to resolve stale pid via Registry
+        case resolve_supervisor_pid(node, ets_table) do
+          {:ok, _pid} -> [node | acc]
+          {:error, :not_found} -> acc
+        end
+      end
+    end)
+    |> Enum.reverse()
   end
 
   @doc """
@@ -308,31 +321,54 @@ defmodule CodePuppyControl.Pack.DistributedSupervisor do
   end
 
   defp build_child_spec(node_name, proxy_opts) do
+    # When proxy_opts are provided (test mocks), the supervisor still
+    # registers via Registry so resolve_supervisor_pid can find it
+    # after DynamicSupervisor restarts the child.
     RemoteNodeSupervisor.child_spec(
       node_name: node_name,
-      proxy_opts: proxy_opts,
-      name: nil
+      proxy_opts: proxy_opts
     )
   end
 
-  defp find_proxy_pid(node_name, ets_table) do
+  defp resolve_supervisor_pid(node_name, ets_table) do
     case :ets.lookup(ets_table, node_name) do
-      [{^node_name, sup_pid}] when is_pid(sup_pid) ->
-        if Process.alive?(sup_pid) do
-          sup_pid
-          |> Supervisor.which_children()
-          |> Enum.find_value({:error, :not_found}, fn
-            {:remote_node_proxy, proxy_pid, :worker, _mods} when is_pid(proxy_pid) ->
-              {:ok, proxy_pid}
+      [{^node_name, pid}] when is_pid(pid) ->
+        if Process.alive?(pid) do
+          {:ok, pid}
+        else
+          # ETS has stale pid — try Registry for restarted child
+          case Registry.lookup(CodePuppyControl.Pack.RemoteNodeSupervisor.Registry, node_name) do
+            [{new_pid, _}] when is_pid(new_pid) ->
+              # Found restarted child — update ETS
+              :ets.insert(ets_table, {node_name, new_pid})
+              {:ok, new_pid}
 
             _ ->
-              false
-          end)
-        else
-          {:error, :not_found}
+              # No replacement found — clean up stale entry
+              :ets.delete(ets_table, node_name)
+              {:error, :not_found}
+          end
         end
 
-      _ ->
+      [] ->
+        {:error, :not_found}
+    end
+  end
+
+  defp find_proxy_pid(node_name, ets_table) do
+    case resolve_supervisor_pid(node_name, ets_table) do
+      {:ok, sup_pid} ->
+        sup_pid
+        |> Supervisor.which_children()
+        |> Enum.find_value({:error, :not_found}, fn
+          {:remote_node_proxy, proxy_pid, :worker, _mods} when is_pid(proxy_pid) ->
+            {:ok, proxy_pid}
+
+          _ ->
+            false
+        end)
+
+      {:error, :not_found} ->
         {:error, :not_found}
     end
   end

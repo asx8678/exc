@@ -233,7 +233,7 @@ defmodule CodePuppyControl.Pack.DistributedSupervisorTest do
   # ── Restart resilience (Bug #1) ─────────────────────────────────────────
 
   describe "restart resilience" do
-    test "add_node handles stale pid after child restart" do
+    test "list_nodes auto-repairs stale pid via Registry after restart" do
       {:ok, sup_pid} =
         DistributedSupervisor.add_node(@test_node,
           supervisor_name: @ds_name,
@@ -254,18 +254,53 @@ defmodule CodePuppyControl.Pack.DistributedSupervisorTest do
       # Give DynamicSupervisor time to restart (transient restart for abnormal exit)
       Process.sleep(300)
 
-      # After restart, the old pid is dead, so list_nodes returns empty
-      assert DistributedSupervisor.list_nodes(@ds_name) == [],
-             "stale pid filtered from list_nodes"
-
       # DynamicSupervisor has 1 child (the restarted one)
       counts = DynamicSupervisor.count_children(@ds_name)
 
       assert counts.active == 1,
              "DynamicSupervisor should have restarted the child"
 
-      # Re-adding the node detects the stale pid and creates a fresh entry
-      assert {:ok, new_pid} =
+      # list_nodes/1 now auto-repairs stale ETS entries via Registry lookup
+      # so the node should still be present after restart
+      assert DistributedSupervisor.list_nodes(@ds_name) == [@test_node],
+             "list_nodes should auto-repair stale pid via Registry"
+
+      # dispatch/4 should also work through the auto-repaired entry.
+      # After restart the proxy exists but hasn't completed handshake,
+      # so RemoteNodeProxy.dispatch returns :node_not_ready (not :node_not_connected).
+      # This proves find_proxy_pid resolved the restarted supervisor via Registry.
+      assert {:error, {:node_not_ready, @test_node}} =
+               DistributedSupervisor.dispatch(
+                 @test_node,
+                 :terrier,
+                 %{},
+                 @ds_name
+               ),
+             "dispatch should use resolved pid (proxy not yet connected)"
+    end
+
+    test "add_node handles stale pid after child restart" do
+      {:ok, sup_pid} =
+        DistributedSupervisor.add_node(@test_node,
+          supervisor_name: @ds_name,
+          proxy_opts: mock_proxy_opts()
+        )
+
+      assert DistributedSupervisor.list_nodes(@ds_name) == [@test_node]
+
+      ref = Process.monitor(sup_pid)
+      Process.exit(sup_pid, :kill)
+      assert_receive {:DOWN, ^ref, :process, ^sup_pid, _reason}, 500
+      Process.sleep(300)
+
+      counts = DynamicSupervisor.count_children(@ds_name)
+
+      assert counts.active == 1,
+             "DynamicSupervisor should have restarted the child"
+
+      # Re-adding detects stale ETS pid, cleans up, but DynamicSupervisor
+      # already restarted the child so start_child returns {:already_started, new_pid}.
+      assert {:error, {:already_present, new_pid}} =
                DistributedSupervisor.add_node(@test_node,
                  supervisor_name: @ds_name,
                  proxy_opts: mock_proxy_opts()
@@ -274,7 +309,6 @@ defmodule CodePuppyControl.Pack.DistributedSupervisorTest do
       assert Process.alive?(new_pid)
       assert new_pid != sup_pid, "should be a new pid after restart"
 
-      # Node is listable again with the new pid
       assert DistributedSupervisor.list_nodes(@ds_name) == [@test_node]
     end
 
@@ -290,10 +324,7 @@ defmodule CodePuppyControl.Pack.DistributedSupervisorTest do
       assert_receive {:DOWN, ^ref, :process, ^sup_pid, _reason}, 500
       Process.sleep(300)
 
-      # remove_node with stale pid should clean up ETS
       assert :ok = DistributedSupervisor.remove_node(@test_node, @ds_name)
-
-      # Node is gone
       assert DistributedSupervisor.list_nodes(@ds_name) == []
     end
   end

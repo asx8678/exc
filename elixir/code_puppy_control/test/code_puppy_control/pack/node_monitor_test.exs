@@ -94,7 +94,7 @@ defmodule CodePuppyControl.Pack.NodeMonitorTest do
 
         pid
 
-      {:error, {:already_started, pid}} ->
+      {:error, {:already_started, _pid}} ->
         # Race condition: name was taken between kill and start
         kill_registered(name)
         {:ok, pid} = NodeMonitor.start_link(opts)
