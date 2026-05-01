@@ -275,7 +275,7 @@ defmodule CodePuppyControl.SessionStorageFacadeTest do
   # ---------------------------------------------------------------------------
 
   describe "cleanup_sessions/2 through Store facade" do
-        test "removes oldest sessions beyond max", ctx do
+    test "removes oldest sessions beyond max", ctx do
       # Record total BEFORE we add anything
       total_before = SessionStorage.count_sessions()
 

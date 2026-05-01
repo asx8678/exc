@@ -258,7 +258,8 @@ defmodule CodePuppyControl.TUI.Renderer do
     state = %{state | token_count: state.token_count + 1}
 
     existing = Map.get(state.text_buffer, idx, [])
-    state = %{state | text_buffer: Map.put(state.text_buffer, idx, existing ++ [text])}
+    # iolist append is O(1) vs ++ which is O(n) — IO.iodata_to_binary flattens
+    state = %{state | text_buffer: Map.put(state.text_buffer, idx, [existing, text])}
 
     chunks = Map.get(state.text_buffer, idx, [])
     buf = IO.iodata_to_binary(chunks)
@@ -292,7 +293,8 @@ defmodule CodePuppyControl.TUI.Renderer do
 
   defp handle_stream_event(%Event.ThinkingDelta{index: idx, text: text}, state) do
     existing = Map.get(state.thinking_buffer, idx, [])
-    %{state | thinking_buffer: Map.put(state.thinking_buffer, idx, existing ++ [text])}
+    # iolist append is O(1) vs ++ which is O(n)
+    %{state | thinking_buffer: Map.put(state.thinking_buffer, idx, [existing, text])}
   end
 
   defp handle_stream_event(%Event.ThinkingEnd{index: idx}, state) do
