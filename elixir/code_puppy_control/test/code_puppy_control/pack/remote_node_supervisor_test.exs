@@ -363,4 +363,35 @@ defmodule CodePuppyControl.Pack.RemoteNodeSupervisorTest do
       end
     end
   end
+
+  # ── child_spec/1 ─────────────────────────────────────────────────────
+
+  describe "child_spec/1" do
+    test "uses per-node child id and transient restart for atom node" do
+      node = :pup_sup_test_worker@localhost
+
+      assert %{
+               id: {:remote_node, ^node},
+               start: {RemoteNodeSupervisor, :start_link, [^node]},
+               type: :supervisor,
+               restart: :transient
+             } = RemoteNodeSupervisor.child_spec(node)
+    end
+
+    test "uses per-node child id and forwards opts for keyword form" do
+      node = :pup_sup_test_worker@localhost
+      proxy_opts = [name: nil]
+
+      assert %{
+               id: {:remote_node, ^node},
+               start: {RemoteNodeSupervisor, :start_link, [^node, [proxy_opts: ^proxy_opts]]},
+               type: :supervisor,
+               restart: :transient
+             } =
+               RemoteNodeSupervisor.child_spec(
+                 node_name: node,
+                 proxy_opts: proxy_opts
+               )
+    end
+  end
 end
