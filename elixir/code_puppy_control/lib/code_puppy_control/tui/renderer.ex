@@ -151,6 +151,74 @@ defmodule CodePuppyControl.TUI.Renderer do
     GenServer.stop(server, :normal)
   end
 
+  # ── Query API ─────────────────────────────────────────────────────────────
+
+  @doc "Returns the current token count for this renderer."
+  @spec token_count(GenServer.server()) :: non_neg_integer()
+  def token_count(server \\ __MODULE__) do
+    GenServer.call(server, :token_count)
+  end
+
+  @doc "Returns whether the given part index is streaming."
+  @spec streaming?(GenServer.server(), non_neg_integer()) :: boolean()
+  def streaming?(server \\ __MODULE__, index) do
+    GenServer.call(server, {:streaming?, index})
+  end
+
+  @doc "Returns whether the given part index is a text part."
+  @spec text_part?(GenServer.server(), non_neg_integer()) :: boolean()
+  def text_part?(server \\ __MODULE__, index) do
+    GenServer.call(server, {:text_part?, index})
+  end
+
+  @doc "Returns whether the given part index is a tool part."
+  @spec tool_part?(GenServer.server(), non_neg_integer()) :: boolean()
+  def tool_part?(server \\ __MODULE__, index) do
+    GenServer.call(server, {:tool_part?, index})
+  end
+
+  @doc "Returns whether the given part index is a thinking part."
+  @spec thinking_part?(GenServer.server(), non_neg_integer()) :: boolean()
+  def thinking_part?(server \\ __MODULE__, index) do
+    GenServer.call(server, {:thinking_part?, index})
+  end
+
+  @doc "Returns whether a banner has been printed for the given part index."
+  @spec banner_printed?(GenServer.server(), non_neg_integer()) :: boolean()
+  def banner_printed?(server \\ __MODULE__, index) do
+    GenServer.call(server, {:banner_printed?, index})
+  end
+
+  @doc "Returns whether the text buffer is empty for the given part index."
+  @spec buffer_empty?(GenServer.server(), non_neg_integer()) :: boolean()
+  def buffer_empty?(server \\ __MODULE__, index) do
+    GenServer.call(server, {:buffer_empty?, index})
+  end
+
+  @doc "Returns whether the thinking buffer is empty for the given part index."
+  @spec thinking_buffer_empty?(GenServer.server(), non_neg_integer()) :: boolean()
+  def thinking_buffer_empty?(server \\ __MODULE__, index) do
+    GenServer.call(server, {:thinking_buffer_empty?, index})
+  end
+
+  @doc "Returns whether all spinners are stopped (no active spinners)."
+  @spec spinners_idle?(GenServer.server()) :: boolean()
+  def spinners_idle?(server \\ __MODULE__) do
+    GenServer.call(server, :spinners_idle?)
+  end
+
+  @doc "Returns whether a spinner is active for the given part index."
+  @spec spinner_active?(GenServer.server(), non_neg_integer()) :: boolean()
+  def spinner_active?(server \\ __MODULE__, index) do
+    GenServer.call(server, {:spinner_active?, index})
+  end
+
+  @doc "Returns whether all text and thinking buffers are flushed."
+  @spec all_buffers_flushed?(GenServer.server()) :: boolean()
+  def all_buffers_flushed?(server \\ __MODULE__) do
+    GenServer.call(server, :all_buffers_flushed?)
+  end
+
   # ── Supervision ────────────────────────────────────────────────────────────
 
   @doc """
@@ -216,6 +284,63 @@ defmodule CodePuppyControl.TUI.Renderer do
   @impl true
   def handle_info(_msg, state) do
     {:noreply, state}
+  end
+
+  @impl true
+  def handle_call(:token_count, _from, state) do
+    {:reply, state.token_count, state}
+  end
+
+  @impl true
+  def handle_call({:streaming?, index}, _from, state) do
+    {:reply, MapSet.member?(state.streaming_parts, index), state}
+  end
+
+  @impl true
+  def handle_call({:text_part?, index}, _from, state) do
+    {:reply, MapSet.member?(state.text_parts, index), state}
+  end
+
+  @impl true
+  def handle_call({:tool_part?, index}, _from, state) do
+    {:reply, MapSet.member?(state.tool_parts, index), state}
+  end
+
+  @impl true
+  def handle_call({:thinking_part?, index}, _from, state) do
+    {:reply, MapSet.member?(state.thinking_parts, index), state}
+  end
+
+  @impl true
+  def handle_call({:banner_printed?, index}, _from, state) do
+    {:reply, MapSet.member?(state.banner_printed, index), state}
+  end
+
+  @impl true
+  def handle_call({:buffer_empty?, index}, _from, state) do
+    buf = Map.get(state.text_buffer, index)
+    {:reply, buf in [nil, []], state}
+  end
+
+  @impl true
+  def handle_call({:thinking_buffer_empty?, index}, _from, state) do
+    buf = Map.get(state.thinking_buffer, index)
+    {:reply, buf in [nil, []], state}
+  end
+
+  @impl true
+  def handle_call(:spinners_idle?, _from, state) do
+    {:reply, state.spinner_ids == %{}, state}
+  end
+
+  @impl true
+  def handle_call({:spinner_active?, index}, _from, state) do
+    {:reply, Map.has_key?(state.spinner_ids, index), state}
+  end
+
+  @impl true
+  def handle_call(:all_buffers_flushed?, _from, state) do
+    {:reply, state.text_buffer == %{} and state.thinking_buffer == %{}, state}
   end
 
   @impl true

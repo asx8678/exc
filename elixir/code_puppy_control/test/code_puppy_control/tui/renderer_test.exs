@@ -51,11 +51,9 @@ defmodule CodePuppyControl.TUI.RendererTest do
       # Give the cast time to process
       Process.sleep(10)
 
-      state = :sys.get_state(name)
-
-      assert MapSet.member?(state.streaming_parts, 0)
-      assert MapSet.member?(state.text_parts, 0)
-      assert MapSet.member?(state.banner_printed, 0)
+      assert Renderer.streaming?(name, 0)
+      assert Renderer.text_part?(name, 0)
+      assert Renderer.banner_printed?(name, 0)
 
       Renderer.stop(pid)
     end
@@ -69,9 +67,8 @@ defmodule CodePuppyControl.TUI.RendererTest do
       Renderer.push(name, %Event.TextDelta{index: 0, text: long_text})
 
       Process.sleep(10)
-      state = :sys.get_state(name)
 
-      assert state.token_count >= 1
+      assert Renderer.token_count(name) >= 1
 
       Renderer.stop(pid)
     end
@@ -83,10 +80,9 @@ defmodule CodePuppyControl.TUI.RendererTest do
       Renderer.push(name, %Event.TextEnd{index: 0})
 
       Process.sleep(10)
-      state = :sys.get_state(name)
 
-      refute MapSet.member?(state.streaming_parts, 0)
-      assert state.text_buffer[0] == [] or state.text_buffer[0] == nil
+      refute Renderer.streaming?(name, 0)
+      assert Renderer.buffer_empty?(name, 0)
 
       Renderer.stop(pid)
     end
@@ -100,10 +96,9 @@ defmodule CodePuppyControl.TUI.RendererTest do
       Renderer.push(name, %Event.ToolCallStart{index: 1, name: "read_file"})
 
       Process.sleep(50)
-      state = :sys.get_state(name)
 
-      assert MapSet.member?(state.tool_parts, 1)
-      assert Map.has_key?(state.spinner_ids, 1)
+      assert Renderer.tool_part?(name, 1)
+      assert Renderer.spinner_active?(name, 1)
 
       Renderer.stop(pid)
     end
@@ -122,10 +117,8 @@ defmodule CodePuppyControl.TUI.RendererTest do
 
       Process.sleep(50)
 
-      state = :sys.get_state(name)
-
-      refute MapSet.member?(state.tool_parts, 1)
-      refute Map.has_key?(state.spinner_ids, 1)
+      refute Renderer.tool_part?(name, 1)
+      refute Renderer.spinner_active?(name, 1)
 
       Renderer.stop(pid)
     end
@@ -136,9 +129,8 @@ defmodule CodePuppyControl.TUI.RendererTest do
       Renderer.push(name, %Event.ToolCallStart{index: 2, name: "custom_tool_xyz"})
 
       Process.sleep(50)
-      state = :sys.get_state(name)
 
-      assert MapSet.member?(state.tool_parts, 2)
+      assert Renderer.tool_part?(name, 2)
 
       Renderer.stop(pid)
     end
@@ -154,12 +146,11 @@ defmodule CodePuppyControl.TUI.RendererTest do
       Renderer.push(name, %Event.ThinkingEnd{index: 3})
 
       Process.sleep(10)
-      state = :sys.get_state(name)
 
       # After ThinkingEnd, the part should be cleaned up
-      refute MapSet.member?(state.thinking_parts, 3)
+      refute Renderer.thinking_part?(name, 3)
       # Thinking buffer should be cleared
-      assert state.thinking_buffer[3] == nil
+      assert Renderer.thinking_buffer_empty?(name, 3)
 
       Renderer.stop(pid)
     end
@@ -182,11 +173,9 @@ defmodule CodePuppyControl.TUI.RendererTest do
       Renderer.push(name, %Event.Done{})
 
       Process.sleep(50)
-      state = :sys.get_state(name)
 
-      assert state.spinner_ids == %{}
-      assert state.text_buffer == %{}
-      assert state.thinking_buffer == %{}
+      assert Renderer.spinners_idle?(name)
+      assert Renderer.all_buffers_flushed?(name)
 
       Renderer.stop(pid)
     end
@@ -207,10 +196,9 @@ defmodule CodePuppyControl.TUI.RendererTest do
       send(name, {:event, %{type: "agent_llm_stream", chunk: long_chunk}})
 
       Process.sleep(20)
-      state = :sys.get_state(name)
 
       # token_count should have been incremented by the TextDelta handler
-      assert state.token_count >= 1
+      assert Renderer.token_count(name) >= 1
 
       Renderer.stop(pid)
     end
@@ -234,9 +222,8 @@ defmodule CodePuppyControl.TUI.RendererTest do
       send(name, {:event, %{"type" => "agent_run_completed"}})
 
       Process.sleep(10)
-      state = :sys.get_state(name)
 
-      assert state.spinner_ids == %{}
+      assert Renderer.spinners_idle?(name)
 
       Renderer.stop(pid)
     end
@@ -265,8 +252,7 @@ defmodule CodePuppyControl.TUI.RendererTest do
       # Finalize is a call, so it blocks until done
       :ok = Renderer.finalize(name)
 
-      state = :sys.get_state(name)
-      assert state.text_buffer == %{}
+      assert Renderer.all_buffers_flushed?(name)
 
       Renderer.stop(pid)
     end
@@ -284,17 +270,16 @@ defmodule CodePuppyControl.TUI.RendererTest do
 
       :ok = Renderer.reset(name)
 
-      state = :sys.get_state(name)
+      # Verify all previously-active indices are cleared
+      refute Renderer.streaming?(name, 0)
+      refute Renderer.text_part?(name, 0)
+      refute Renderer.tool_part?(name, 1)
+      refute Renderer.banner_printed?(name, 0)
 
-      assert state.streaming_parts == MapSet.new()
-      assert state.text_parts == MapSet.new()
-      assert state.tool_parts == MapSet.new()
-      assert state.thinking_parts == MapSet.new()
-      assert state.spinner_ids == %{}
-      assert state.text_buffer == %{}
-      assert state.thinking_buffer == %{}
-      assert state.token_count == 0
-      assert state.banner_printed == MapSet.new()
+      # Verify spinners and buffers are clean
+      assert Renderer.spinners_idle?(name)
+      assert Renderer.all_buffers_flushed?(name)
+      assert Renderer.token_count(name) == 0
 
       Renderer.stop(pid)
     end
@@ -325,14 +310,12 @@ defmodule CodePuppyControl.TUI.RendererTest do
     test "is silently ignored (no state change)" do
       {pid, name} = start_renderer()
 
-      state_before = :sys.get_state(name)
+      count_before = Renderer.token_count(name)
       Renderer.push(name, %Event.ToolCallArgsDelta{index: 0, arguments: "{}"})
       Process.sleep(10)
 
-      state_after = :sys.get_state(name)
-
-      # token_count, streaming_parts, etc. should be identical
-      assert state_after.token_count == state_before.token_count
+      # token_count should be unchanged
+      assert Renderer.token_count(name) == count_before
 
       Renderer.stop(pid)
     end
@@ -344,7 +327,7 @@ defmodule CodePuppyControl.TUI.RendererTest do
     test "is silently ignored (displayed at finalization)" do
       {pid, name} = start_renderer()
 
-      state_before = :sys.get_state(name)
+      count_before = Renderer.token_count(name)
 
       Renderer.push(name, %Event.UsageUpdate{
         prompt_tokens: 10,
@@ -354,8 +337,7 @@ defmodule CodePuppyControl.TUI.RendererTest do
 
       Process.sleep(10)
 
-      state_after = :sys.get_state(name)
-      assert state_after.token_count == state_before.token_count
+      assert Renderer.token_count(name) == count_before
 
       Renderer.stop(pid)
     end
