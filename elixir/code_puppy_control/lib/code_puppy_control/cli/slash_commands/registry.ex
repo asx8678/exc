@@ -261,6 +261,18 @@ defmodule CodePuppyControl.CLI.SlashCommands.Registry do
           "View ADR-004 v1 feature flags, set a known capability to true/false, or reload flags from disk."
       ),
       CommandInfo.new(
+        name: "rollout",
+        description: "Manage gradual rollout percentages",
+        handler: &Commands.Rollout.handle_rollout/2,
+        usage: "/rollout [status|set <capability> <pct>|step-up <cap>|step-down <cap>]",
+        aliases: [],
+        category: "config",
+        detailed_help:
+          "View and manage percentage-based rollout for ADR-004 feature flags. " <>
+            "Set precise percentages (0..100), or use step-up/step-down to " <>
+            "move through predefined rollout steps: 0 → 5 → 25 → 50 → 100."
+      ),
+      CommandInfo.new(
         name: "diff",
         description: "Show or configure diff highlighting colors",
         handler: &Commands.Diff.handle_diff/2,
