@@ -90,9 +90,7 @@ defmodule CodePuppyControl.SessionStorage.Store.Operations do
       Sessions.delete_session(name)
     rescue
       e ->
-        Logger.warning(
-          "Store: delete_session SQLite write failed for #{name}: #{inspect(e)}"
-        )
+        Logger.warning("Store: delete_session SQLite write failed for #{name}: #{inspect(e)}")
     end
 
     :ets.delete(@session_table, name)

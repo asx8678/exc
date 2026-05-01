@@ -173,7 +173,8 @@ defmodule CodePuppyControl.TUI.Input do
 
   @impl true
   def handle_call(:history, _from, state) do
-    {:reply, state.history, state}
+    # Reversed on read since we prepend for O(1) append (see append_history/2)
+    {:reply, Enum.reverse(state.history), state}
   end
 
   @impl true
@@ -215,10 +216,11 @@ defmodule CodePuppyControl.TUI.Input do
   # ── History Management ─────────────────────────────────────────────────
 
   defp append_history(history, line) do
-    new_history = history ++ [line]
+    # Prepend for O(1); reverse on read in handle_call(:history)
+    new_history = [line | history]
 
     if length(new_history) > @max_history do
-      tl(new_history)
+      Enum.drop(new_history, -1)
     else
       new_history
     end
