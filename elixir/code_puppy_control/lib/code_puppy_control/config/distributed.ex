@@ -30,50 +30,100 @@ defmodule CodePuppyControl.Config.Distributed do
   @doc """
   Returns `true` if distributed pack support is enabled.
 
-  Default: `false`
+  Precedence:
+  1. `PUP_DISTRIBUTED_ENABLED` env var
+  2. `puppy.cfg` section `[packs.distributed]`
+  3. Default: `false`
   """
   @spec enabled?() :: boolean()
   def enabled? do
-    get("enabled", "false") |> truthy?()
+    case System.get_env("PUP_DISTRIBUTED_ENABLED") do
+      val when val in ~w(true 1 yes) ->
+        true
+
+      val when val in ~w(false 0 no) ->
+        false
+
+      _ ->
+        get("enabled", "false") |> truthy?()
+    end
   end
 
   @doc """
   Returns the list of configured worker node name strings.
 
-  Accepts comma-separated values in config, e.g. `worker1@host1,worker2@host2`.
+  Precedence:
+  1. `PUP_DISTRIBUTED_WORKERS` env var (comma-separated)
+  2. `puppy.cfg` section `[packs.distributed]`
+  3. Default: `[]`
 
-  Default: `[]`
+  Accepts comma-separated values in config, e.g. `worker1@host1,worker2@host2`.
   """
   @spec workers() :: [String.t()]
   def workers do
-    get("workers", "")
-    |> String.split(",", trim: true)
-    |> Enum.map(&String.trim/1)
+    case System.get_env("PUP_DISTRIBUTED_WORKERS") do
+      nil ->
+        get("workers", "")
+        |> String.split(",", trim: true)
+        |> Enum.map(&String.trim/1)
+
+      "" ->
+        []
+
+      str when is_binary(str) ->
+        str
+        |> String.split(",", trim: true)
+        |> Enum.map(&String.trim/1)
+    end
   end
 
   @doc """
   Returns the heartbeat interval in milliseconds.
 
-  Default: `15000`
+  Precedence:
+  1. `PUP_DISTRIBUTED_HEARTBEAT_INTERVAL` env var
+  2. `puppy.cfg` section `[packs.distributed]`
+  3. Default: `15000`
   """
   @spec heartbeat_interval() :: pos_integer()
-  def heartbeat_interval, do: get_int("heartbeat_interval", 15_000)
+  def heartbeat_interval do
+    case env_int("PUP_DISTRIBUTED_HEARTBEAT_INTERVAL") do
+      {:ok, val} when val > 0 -> val
+      _ -> get_int("heartbeat_interval", 15_000)
+    end
+  end
 
   @doc """
   Returns the disconnect timeout (grace period) in milliseconds.
 
-  Default: `30000`
+  Precedence:
+  1. `PUP_DISTRIBUTED_DISCONNECT_TIMEOUT` env var
+  2. `puppy.cfg` section `[packs.distributed]`
+  3. Default: `30000`
   """
   @spec disconnect_timeout() :: pos_integer()
-  def disconnect_timeout, do: get_int("disconnect_timeout", 30_000)
+  def disconnect_timeout do
+    case env_int("PUP_DISTRIBUTED_DISCONNECT_TIMEOUT") do
+      {:ok, val} when val > 0 -> val
+      _ -> get_int("disconnect_timeout", 30_000)
+    end
+  end
 
   @doc """
   Returns the connect timeout in milliseconds.
 
-  Default: `5000`
+  Precedence:
+  1. `PUP_DISTRIBUTED_CONNECT_TIMEOUT` env var
+  2. `puppy.cfg` section `[packs.distributed]`
+  3. Default: `5000`
   """
   @spec connect_timeout() :: pos_integer()
-  def connect_timeout, do: get_int("connect_timeout", 5_000)
+  def connect_timeout do
+    case env_int("PUP_DISTRIBUTED_CONNECT_TIMEOUT") do
+      {:ok, val} when val > 0 -> val
+      _ -> get_int("connect_timeout", 5_000)
+    end
+  end
 
   # ── Private ──────────────────────────────────────────────────────────────
 
@@ -91,6 +141,22 @@ defmodule CodePuppyControl.Config.Distributed do
   end
 
   defp truthy?(val), do: !!val
+
+  defp env_int(var) do
+    case System.get_env(var) do
+      nil ->
+        :error
+
+      "" ->
+        :error
+
+      str ->
+        case Integer.parse(String.trim(str)) do
+          {n, _} when n > 0 -> {:ok, n}
+          _ -> :error
+        end
+    end
+  end
 
   defp get_int(key, default) do
     case Loader.get_value(@section, key) do

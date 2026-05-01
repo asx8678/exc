@@ -311,40 +311,21 @@ defmodule CodePuppyControl.Pack.NodeMonitor do
   end
 
   defp load_config(opts) do
-    app_config = Application.get_env(:code_puppy_control, :distributed_packs, [])
-
+    # Precedence:
+    # 1. Explicit start_link opts (highest priority)
+    # 2. Environment variables (via Config.Distributed which checks PUP_* env vars)
+    # 3. puppy.cfg via Config.Distributed
+    # 4. Hardcoded defaults (lowest priority)
     %{
-      enabled:
-        Keyword.get(
-          opts,
-          :enabled,
-          Keyword.get(app_config, :enabled, DistributedConfig.enabled?())
-        ),
+      enabled: Keyword.get(opts, :enabled, DistributedConfig.enabled?()),
       workers:
-        Keyword.get(
-          opts,
-          :workers,
-          Keyword.get(app_config, :workers, DistributedConfig.workers())
-        )
+        Keyword.get(opts, :workers, DistributedConfig.workers())
         |> normalize_workers(),
       heartbeat_interval:
-        Keyword.get(
-          opts,
-          :heartbeat_interval,
-          Keyword.get(app_config, :heartbeat_interval, DistributedConfig.heartbeat_interval())
-        ),
+        Keyword.get(opts, :heartbeat_interval, DistributedConfig.heartbeat_interval()),
       disconnect_timeout:
-        Keyword.get(
-          opts,
-          :disconnect_timeout,
-          Keyword.get(app_config, :disconnect_timeout, DistributedConfig.disconnect_timeout())
-        ),
-      connect_timeout:
-        Keyword.get(
-          opts,
-          :connect_timeout,
-          Keyword.get(app_config, :connect_timeout, DistributedConfig.connect_timeout())
-        ),
+        Keyword.get(opts, :disconnect_timeout, DistributedConfig.disconnect_timeout()),
+      connect_timeout: Keyword.get(opts, :connect_timeout, DistributedConfig.connect_timeout()),
       proxy_opts: Keyword.get(opts, :proxy_opts, []),
       supervisor_name: Keyword.get(opts, :supervisor_name, DistributedSupervisor),
       connect_fn: Keyword.get(opts, :connect_fn, &Node.connect/1),

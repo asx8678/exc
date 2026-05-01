@@ -1,33 +1,33 @@
-defmodule CodePuppyControl.Pack.DistributedIntegrationTest do
+defmodule CodePuppyControl.Pack.DistributedLifecycleTest do
   @moduledoc """
-  Integration test for the distributed pack supervision tree.
+  Integration tests for the distributed pack lifecycle.
 
-  Tests the full lifecycle of the pack distributed system:
-  - Process startup (Registries, DistributedSupervisor, NodeMonitor)
-  - Disabled mode (no-op behaviour)
-  - Enabled mode with mock connections
-  - Telemetry emission for node lifecycle events
-  - Full lifecycle: configure workers → connect → status → disconnect → grace → reconnect
+  Tests disabled mode, enabled mode with mock connections, telemetry
+  emission for node lifecycle events, and full lifecycle scenarios.
+
+  Uses app-started Registries (already running in the supervision tree)
+  and test-specific DistributedSupervisor/NodeMonitor instances.
 
   ## Tagging
 
-  Tagged with `@moduletag :integration` and `@tag :distributed` so it runs
-  only when explicitly requested:
+  Tagged with `@moduletag :integration` and `@moduletag :distributed`.
+  Run via:
+
       mix test --only integration --only distributed
   """
 
   use ExUnit.Case, async: false
 
   @moduletag :integration
+  @moduletag :distributed
 
-  alias CodePuppyControl.Pack.Registries
   alias CodePuppyControl.Pack.DistributedSupervisor
   alias CodePuppyControl.Pack.NodeMonitor
 
   @test_node_name "pup_int_test_worker@localhost"
   @test_node_atom :pup_int_test_worker@localhost
-  @ds_name :test_int_distributed_supervisor
-  @nm_name :test_int_node_monitor
+  @ds_name :test_lc_distributed_supervisor
+  @nm_name :test_lc_node_monitor
   @ets_table :pack_node_monitor_state
 
   # ── Mock helpers ─────────────────────────────────────────────────────────
@@ -55,17 +55,20 @@ defmodule CodePuppyControl.Pack.DistributedIntegrationTest do
 
   defp nm_status, do: GenServer.call(@nm_name, :status)
 
-  # ── Cleanup ──────────────────────────────────────────────────────────────
+  # ── Setup ────────────────────────────────────────────────────────────────
 
-  defp cleanup do
-    # Kill NodeMonitor if alive
-    kill_registered(@nm_name)
-    # Kill DistributedSupervisor if alive
-    kill_registered(@ds_name)
-    # Kill Registries if alive
-    kill_registered(Registries)
-
+  setup do
     cleanup_ets()
+
+    start_supervised!({DistributedSupervisor, name: @ds_name})
+
+    on_exit(fn ->
+      kill_registered(@nm_name)
+      kill_registered(@ds_name)
+      cleanup_ets()
+    end)
+
+    %{ds_name: @ds_name}
   end
 
   defp cleanup_ets do
@@ -82,95 +85,6 @@ defmodule CodePuppyControl.Pack.DistributedIntegrationTest do
     end
   end
 
-  defp kill_registered(name) do
-    case Process.whereis(name) do
-      nil ->
-        :ok
-
-      pid ->
-        Process.exit(pid, :kill)
-
-        ref = Process.monitor(pid)
-
-        receive do
-          {:DOWN, ^ref, :process, ^pid, _reason} -> :ok
-        after
-          2000 -> :ok
-        end
-    end
-  end
-
-  # ── Setup ────────────────────────────────────────────────────────────────
-
-  setup do
-    cleanup()
-
-    on_exit(fn ->
-      cleanup()
-    end)
-
-    :ok
-  end
-
-  # ── Supervision tree startup ─────────────────────────────────────────────
-
-  describe "supervision tree startup" do
-    test "Registries supervisor starts successfully" do
-      assert {:ok, _pid} = start_supervised(Registries)
-
-      assert is_pid(Process.whereis(CodePuppyControl.Pack.RemoteNodeSupervisor.Registry)),
-             "RemoteNodeSupervisor.Registry should be started"
-
-      assert is_pid(Process.whereis(CodePuppyControl.Pack.RemoteNodeProxy.Registry)),
-             "RemoteNodeProxy.Registry should be started"
-    end
-
-    test "DistributedSupervisor starts successfully" do
-      start_supervised!(Registries)
-      assert {:ok, _pid} = start_supervised({DistributedSupervisor, name: @ds_name})
-
-      assert DistributedSupervisor.list_nodes(@ds_name) == []
-    end
-
-    test "NodeMonitor starts successfully in disabled mode" do
-      start_supervised!(Registries)
-      start_supervised!({DistributedSupervisor, name: @ds_name})
-
-      assert {:ok, _pid} =
-               start_supervised(
-                 {NodeMonitor,
-                  monitor_opts(
-                    enabled: false,
-                    workers: [],
-                    heartbeat_interval: 60_000
-                  )}
-               )
-
-      status = nm_status()
-      assert status.configured_workers == []
-      assert status.connected_nodes == []
-    end
-
-    test "all three processes coexist without crashes" do
-      start_supervised!(Registries)
-      start_supervised!({DistributedSupervisor, name: @ds_name})
-
-      assert {:ok, pid} =
-               start_supervised(
-                 {NodeMonitor,
-                  monitor_opts(
-                    enabled: false,
-                    workers: [],
-                    heartbeat_interval: 60_000
-                  )}
-               )
-
-      assert Process.alive?(pid)
-      assert Process.whereis(@ds_name) |> is_pid()
-      assert Process.whereis(Registries) |> is_pid()
-    end
-  end
-
   # ── Disabled mode ────────────────────────────────────────────────────────
 
   describe "disabled mode" do
@@ -182,9 +96,6 @@ defmodule CodePuppyControl.Pack.DistributedIntegrationTest do
         :ets.update_counter(connect_table, :count, 1)
         false
       end
-
-      start_supervised!(Registries)
-      start_supervised!({DistributedSupervisor, name: @ds_name})
 
       start_supervised!(
         {NodeMonitor,
@@ -203,9 +114,6 @@ defmodule CodePuppyControl.Pack.DistributedIntegrationTest do
     end
 
     test "DistributedSupervisor remains empty" do
-      start_supervised!(Registries)
-      start_supervised!({DistributedSupervisor, name: @ds_name})
-
       start_supervised!(
         {NodeMonitor,
          monitor_opts(
@@ -223,9 +131,6 @@ defmodule CodePuppyControl.Pack.DistributedIntegrationTest do
 
   describe "enabled mode" do
     test "node enters connected state on {:nodeup}" do
-      start_supervised!(Registries)
-      start_supervised!({DistributedSupervisor, name: @ds_name})
-
       {:ok, pid} =
         start_supervised(
           {NodeMonitor,
@@ -249,9 +154,6 @@ defmodule CodePuppyControl.Pack.DistributedIntegrationTest do
     end
 
     test "node enters grace period on {:nodedown}" do
-      start_supervised!(Registries)
-      start_supervised!({DistributedSupervisor, name: @ds_name})
-
       {:ok, pid} =
         start_supervised(
           {NodeMonitor,
@@ -276,9 +178,6 @@ defmodule CodePuppyControl.Pack.DistributedIntegrationTest do
     end
 
     test "grace period expiry removes node" do
-      start_supervised!(Registries)
-      start_supervised!({DistributedSupervisor, name: @ds_name})
-
       {:ok, pid} =
         start_supervised(
           {NodeMonitor,
@@ -319,9 +218,6 @@ defmodule CodePuppyControl.Pack.DistributedIntegrationTest do
         val
       end
 
-      start_supervised!(Registries)
-      start_supervised!({DistributedSupervisor, name: @ds_name})
-
       {:ok, pid} =
         start_supervised(
           {NodeMonitor,
@@ -359,9 +255,6 @@ defmodule CodePuppyControl.Pack.DistributedIntegrationTest do
     end
 
     test "nodeup after nodedown recovers connection" do
-      start_supervised!(Registries)
-      start_supervised!({DistributedSupervisor, name: @ds_name})
-
       {:ok, pid} =
         start_supervised(
           {NodeMonitor,
@@ -395,20 +288,27 @@ defmodule CodePuppyControl.Pack.DistributedIntegrationTest do
 
   describe "telemetry events" do
     test "emits node_connected on {:nodeup}" do
-      event_name = [:code_puppy, :distributed_pack, :node, :connected]
+      events = [
+        [:code_puppy, :distributed_pack, :node, :connected],
+        [:code_puppy, :distributed_pack, :node, :disconnected],
+        [:code_puppy, :distributed_pack, :node, :reconnected]
+      ]
+
       handler_id = make_ref()
 
-      :telemetry.attach(
+      :telemetry.attach_many(
         handler_id,
-        event_name,
-        fn _name, _measurements, metadata, acc ->
-          send(acc, {:telemetry_node_connected, metadata})
+        events,
+        fn event_name, _measurements, metadata, acc ->
+          event_type = List.last(event_name)
+          send(acc, {:"telemetry_#{event_type}", metadata})
         end,
         self()
       )
 
-      start_supervised!(Registries)
-      start_supervised!({DistributedSupervisor, name: @ds_name})
+      on_exit(fn ->
+        :telemetry.detach(handler_id)
+      end)
 
       {:ok, pid} =
         start_supervised(
@@ -423,28 +323,33 @@ defmodule CodePuppyControl.Pack.DistributedIntegrationTest do
       send(pid, {:nodeup, @test_node_atom})
       Process.sleep(50)
 
-      assert_received {:telemetry_node_connected, metadata}
+      assert_received {:telemetry_connected, metadata}
       assert metadata.node == @test_node_atom
       assert metadata.capabilities == %{}
-
-      :telemetry.detach(handler_id)
     end
 
     test "emits node_disconnected on {:nodedown}" do
-      event_name = [:code_puppy, :distributed_pack, :node, :disconnected]
+      events = [
+        [:code_puppy, :distributed_pack, :node, :connected],
+        [:code_puppy, :distributed_pack, :node, :disconnected],
+        [:code_puppy, :distributed_pack, :node, :reconnected]
+      ]
+
       handler_id = make_ref()
 
-      :telemetry.attach(
+      :telemetry.attach_many(
         handler_id,
-        event_name,
-        fn _name, _measurements, metadata, acc ->
-          send(acc, {:telemetry_node_disconnected, metadata})
+        events,
+        fn event_name, _measurements, metadata, acc ->
+          event_type = List.last(event_name)
+          send(acc, {:"telemetry_#{event_type}", metadata})
         end,
         self()
       )
 
-      start_supervised!(Registries)
-      start_supervised!({DistributedSupervisor, name: @ds_name})
+      on_exit(fn ->
+        :telemetry.detach(handler_id)
+      end)
 
       {:ok, pid} =
         start_supervised(
@@ -461,26 +366,34 @@ defmodule CodePuppyControl.Pack.DistributedIntegrationTest do
       send(pid, {:nodedown, @test_node_atom})
       Process.sleep(50)
 
-      assert_received {:telemetry_node_disconnected, metadata}
+      assert_received {:telemetry_disconnected, metadata}
       assert metadata.node == @test_node_atom
       assert metadata.reason == :nodedown
       assert metadata.active_runs == []
-
-      :telemetry.detach(handler_id)
     end
 
     test "emits node_reconnected on successful reconnect during grace" do
-      event_name = [:code_puppy, :distributed_pack, :node, :reconnected]
+      events = [
+        [:code_puppy, :distributed_pack, :node, :connected],
+        [:code_puppy, :distributed_pack, :node, :disconnected],
+        [:code_puppy, :distributed_pack, :node, :reconnected]
+      ]
+
       handler_id = make_ref()
 
-      :telemetry.attach(
+      :telemetry.attach_many(
         handler_id,
-        event_name,
-        fn _name, _measurements, metadata, acc ->
-          send(acc, {:telemetry_node_reconnected, metadata})
+        events,
+        fn event_name, _measurements, metadata, acc ->
+          event_type = List.last(event_name)
+          send(acc, {:"telemetry_#{event_type}", metadata})
         end,
         self()
       )
+
+      on_exit(fn ->
+        :telemetry.detach(handler_id)
+      end)
 
       flag_table = :ets.new(:reconnect_flag, [:set, :public])
       :ets.insert(flag_table, {:should_connect, false})
@@ -489,9 +402,6 @@ defmodule CodePuppyControl.Pack.DistributedIntegrationTest do
         [{:should_connect, val}] = :ets.lookup(flag_table, :should_connect)
         val
       end
-
-      start_supervised!(Registries)
-      start_supervised!({DistributedSupervisor, name: @ds_name})
 
       {:ok, pid} =
         start_supervised(
@@ -517,11 +427,9 @@ defmodule CodePuppyControl.Pack.DistributedIntegrationTest do
       GenServer.cast(@nm_name, :recheck)
       Process.sleep(200)
 
-      assert_received {:telemetry_node_reconnected, metadata}
+      assert_received {:telemetry_reconnected, metadata}
       assert metadata.node == @test_node_atom
       assert is_integer(metadata.grace_period_ms)
-
-      :telemetry.detach(handler_id)
     end
   end
 
@@ -529,21 +437,28 @@ defmodule CodePuppyControl.Pack.DistributedIntegrationTest do
 
   describe "full lifecycle" do
     test "configure workers → connect → status → disconnect → grace → reconnect" do
-      # Track overall lifecycle events
-      lifecycle_events = [:code_puppy, :distributed_pack, :node]
-      handler_id = make_ref()
+      events = [
+        [:code_puppy, :distributed_pack, :node, :connected],
+        [:code_puppy, :distributed_pack, :node, :disconnected],
+        [:code_puppy, :distributed_pack, :node, :reconnected]
+      ]
 
+      handler_id = make_ref()
       received_events = :ets.new(:lifecycle_events, [:set, :public])
 
-      :telemetry.attach(
+      :telemetry.attach_many(
         handler_id,
-        lifecycle_events,
+        events,
         fn event_name, _measurements, metadata, table ->
           event_type = List.last(event_name)
           :ets.insert(table, {event_type, metadata})
         end,
         received_events
       )
+
+      on_exit(fn ->
+        :telemetry.detach(handler_id)
+      end)
 
       flag_table = :ets.new(:reconnect_flag, [:set, :public])
       :ets.insert(flag_table, {:should_connect, false})
@@ -553,10 +468,7 @@ defmodule CodePuppyControl.Pack.DistributedIntegrationTest do
         val
       end
 
-      # Step 1: Start supervision tree
-      start_supervised!(Registries)
-      start_supervised!({DistributedSupervisor, name: @ds_name})
-
+      # Step 1: Start NodeMonitor
       {:ok, pid} =
         start_supervised(
           {NodeMonitor,
@@ -619,8 +531,26 @@ defmodule CodePuppyControl.Pack.DistributedIntegrationTest do
 
       assert :ets.lookup(received_events, :disconnected) != [],
              "should have received node:disconnected telemetry"
+    end
+  end
 
-      :telemetry.detach(handler_id)
+  # ── Private helpers ──────────────────────────────────────────────────────
+
+  defp kill_registered(name) do
+    case Process.whereis(name) do
+      nil ->
+        :ok
+
+      pid ->
+        Process.exit(pid, :kill)
+
+        ref = Process.monitor(pid)
+
+        receive do
+          {:DOWN, ^ref, :process, ^pid, _reason} -> :ok
+        after
+          2000 -> :ok
+        end
     end
   end
 end

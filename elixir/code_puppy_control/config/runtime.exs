@@ -100,10 +100,15 @@ end
 # - PUP_DISTRIBUTED_DISCONNECT_TIMEOUT=30000  (default: 30s)
 # - PUP_DISTRIBUTED_CONNECT_TIMEOUT=5000      (default: 5s)
 #
-# NOTE: Full puppy.cfg integration is scoped for issue code_puppy-e2k.
+# Precedence (from highest to lowest):
+# 1. Explicit opts passed to NodeMonitor.start_link/1
+# 2. Environment variables (PUP_DISTRIBUTED_*) — checked in Config.Distributed
+# 3. puppy.cfg [packs.distributed] section — read by Config.Distributed
+# 4. config.exs defaults (documentation only, not actively used at runtime)
 #
-# Defaults are set in config/config.exs and are NOT clobbered here.
-# Only override when env vars are explicitly provided.
+# The Application env is intentionally NOT set here for distributed_packs.
+# Config.Distributed reads directly from puppy.cfg + env vars at runtime,
+# and NodeMonitor.load_config/1 uses Config.Distributed as its primary source.
 
 if System.get_env("PUP_DISTRIBUTED_ENABLED") do
   enabled =
