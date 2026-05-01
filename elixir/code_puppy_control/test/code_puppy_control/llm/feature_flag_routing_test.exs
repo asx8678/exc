@@ -26,9 +26,9 @@ defmodule CodePuppyControl.LLM.FeatureFlagRoutingTest do
 
       _ =
         if prior do
-          FeatureFlags.enable(:llm_client, source: :test)
+          FeatureFlags.set(:llm_client, true, source: :test)
         else
-          FeatureFlags.disable(:llm_client, source: :test)
+          FeatureFlags.set(:llm_client, false, source: :test)
         end
     end)
 
@@ -37,7 +37,7 @@ defmodule CodePuppyControl.LLM.FeatureFlagRoutingTest do
 
   describe "chat/3 (opts variant) flag gating" do
     test "ENABLED → emits path=:elixir and proceeds (mock provider)" do
-      {:ok, _result} = FeatureFlags.enable(:llm_client, source: :test)
+      :ok = FeatureFlags.set(:llm_client, true, source: :test)
 
       result =
         LLM.chat([%{role: "user", content: "hi"}], [],
@@ -54,7 +54,7 @@ defmodule CodePuppyControl.LLM.FeatureFlagRoutingTest do
     end
 
     test "DISABLED → returns {:error, :elixir_llm_disabled}, never calls provider" do
-      {:ok, _result} = FeatureFlags.disable(:llm_client, source: :test)
+      :ok = FeatureFlags.set(:llm_client, false, source: :test)
 
       result =
         LLM.chat([%{role: "user", content: "hi"}], [],
@@ -73,7 +73,7 @@ defmodule CodePuppyControl.LLM.FeatureFlagRoutingTest do
 
   describe "stream_chat/4 (opts variant) flag gating" do
     test "ENABLED → emits path=:elixir and proceeds" do
-      {:ok, _result} = FeatureFlags.enable(:llm_client, source: :test)
+      :ok = FeatureFlags.set(:llm_client, true, source: :test)
       test_pid = self()
 
       result =
@@ -94,7 +94,7 @@ defmodule CodePuppyControl.LLM.FeatureFlagRoutingTest do
     end
 
     test "DISABLED → returns {:error, :elixir_llm_disabled}, never calls provider" do
-      {:ok, _result} = FeatureFlags.disable(:llm_client, source: :test)
+      :ok = FeatureFlags.set(:llm_client, false, source: :test)
       test_pid = self()
 
       result =
@@ -117,7 +117,7 @@ defmodule CodePuppyControl.LLM.FeatureFlagRoutingTest do
 
   describe "gate ordering" do
     test "DISABLED chat opts arity short-circuits BEFORE provider resolution" do
-      {:ok, _result} = FeatureFlags.disable(:llm_client, source: :test)
+      :ok = FeatureFlags.set(:llm_client, false, source: :test)
 
       assert LLM.chat([%{role: "user", content: "hi"}], [], []) ==
                {:error, :elixir_llm_disabled}
@@ -129,7 +129,7 @@ defmodule CodePuppyControl.LLM.FeatureFlagRoutingTest do
     end
 
     test "DISABLED stream_chat opts arity short-circuits BEFORE provider resolution" do
-      {:ok, _result} = FeatureFlags.disable(:llm_client, source: :test)
+      :ok = FeatureFlags.set(:llm_client, false, source: :test)
 
       callback = fn event -> send(self(), {:stream_event, event}) end
 
@@ -147,7 +147,7 @@ defmodule CodePuppyControl.LLM.FeatureFlagRoutingTest do
 
   describe "handle variants" do
     test "chat/3 with %Handle{} respects flag" do
-      {:ok, _result} = FeatureFlags.enable(:llm_client, source: :test)
+      :ok = FeatureFlags.set(:llm_client, true, source: :test)
 
       assert {:ok, %{content: "ok"}} =
                LLM.chat(
@@ -161,7 +161,7 @@ defmodule CodePuppyControl.LLM.FeatureFlagRoutingTest do
 
       refute_receive {:telemetry, @event, _, _}, 50
 
-      {:ok, _result} = FeatureFlags.disable(:llm_client, source: :test)
+      :ok = FeatureFlags.set(:llm_client, false, source: :test)
 
       assert {:error, :elixir_llm_disabled} =
                LLM.chat(
@@ -177,7 +177,7 @@ defmodule CodePuppyControl.LLM.FeatureFlagRoutingTest do
     end
 
     test "stream_chat/4 with %Handle{} respects flag" do
-      {:ok, _result} = FeatureFlags.enable(:llm_client, source: :test)
+      :ok = FeatureFlags.set(:llm_client, true, source: :test)
       test_pid = self()
 
       assert :ok =
@@ -195,7 +195,7 @@ defmodule CodePuppyControl.LLM.FeatureFlagRoutingTest do
 
       refute_receive {:telemetry, @event, _, _}, 50
 
-      {:ok, _result} = FeatureFlags.disable(:llm_client, source: :test)
+      :ok = FeatureFlags.set(:llm_client, false, source: :test)
 
       assert {:error, :elixir_llm_disabled} =
                LLM.stream_chat(
