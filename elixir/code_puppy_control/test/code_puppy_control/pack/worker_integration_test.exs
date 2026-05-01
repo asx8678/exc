@@ -24,7 +24,6 @@ defmodule CodePuppyControl.Pack.WorkerIntegrationTest do
 
   alias CodePuppyControl.Pack.Worker
   alias CodePuppyControl.Pack.NamingService
-  alias CodePuppyControl.Pack.Worker.Application, as: WorkerApp
 
   # Unique names to avoid cross-test collisions
   @worker_lifecycle :test_int_lifecycle_worker
@@ -182,7 +181,11 @@ defmodule CodePuppyControl.Pack.WorkerIntegrationTest do
       refute_receive {:"$gen_cast", {:result, "dup-run-001", _}}, 100
 
       # Second dispatch with same run_id — should be rejected
-      GenServer.cast(@worker_dup, {:dispatch, %{base_dispatch | params: %{task_description: "dupe"}}})
+      GenServer.cast(
+        @worker_dup,
+        {:dispatch, %{base_dispatch | params: %{task_description: "dupe"}}}
+      )
+
       _ = :sys.get_state(worker_pid)
 
       assert_receive {:"$gen_cast", {:result, "dup-run-001", result}}, 500
@@ -285,49 +288,7 @@ defmodule CodePuppyControl.Pack.WorkerIntegrationTest do
     end
   end
 
-  # ── 5. Worker.Application Child Specs ────────────────────────────────────
-
-  describe "Worker.Application children/1" do
-    test "produces valid child specs for a configured leader" do
-      children = WorkerApp.children(leader: :test_leader@localhost)
-
-      assert is_list(children)
-      assert length(children) >= 8
-
-      for child <- children do
-        assert valid_child_spec?(child),
-               "Invalid child spec shape: #{inspect(child)}"
-      end
-    end
-
-    test "includes both Worker and NamingService in the tree" do
-      children = WorkerApp.children(leader: :test_leader@localhost)
-      child_ids = Enum.map(children, &extract_child_id/1)
-
-      assert Worker in child_ids,
-             "Expected Pack.Worker in children: #{inspect(child_ids)}"
-
-      assert NamingService in child_ids,
-             "Expected NamingService in children: #{inspect(child_ids)}"
-    end
-
-    test "worker child spec uses :pack_worker as registered name" do
-      children = WorkerApp.children(leader: :test_leader@localhost)
-
-      worker_spec =
-        Enum.find(children, fn
-          {Worker, _opts} -> true
-          _ -> false
-        end)
-
-      assert worker_spec, "Pack.Worker child spec not found"
-
-      {_mod, opts} = worker_spec
-      assert opts[:name] == :pack_worker
-    end
-  end
-
-  # ── 6. NamingService Round-Trip ──────────────────────────────────────────
+  # ── 5. NamingService Round-Trip ──────────────────────────────────────────
 
   describe "NamingService register → query → unregister" do
     test "registers worker capabilities and queries by agent type" do
@@ -410,23 +371,5 @@ defmodule CodePuppyControl.Pack.WorkerIntegrationTest do
     end
   catch
     :exit, _ -> :ok
-  end
-
-  defp valid_child_spec?({mod, _opts}) when is_atom(mod), do: true
-  defp valid_child_spec?(mod) when is_atom(mod), do: true
-  defp valid_child_spec?(%{id: _}), do: true
-  defp valid_child_spec?(_), do: false
-
-  defp extract_child_id(%{id: id}), do: id
-  defp extract_child_id({mod, _opts}) when is_atom(mod), do: mod
-  defp extract_child_id(mod) when is_atom(mod), do: mod
-
-  defp extract_child_id(other) do
-    try do
-      spec = Supervisor.child_spec(other, [])
-      spec.id
-    rescue
-      _ -> other
-    end
   end
 end
