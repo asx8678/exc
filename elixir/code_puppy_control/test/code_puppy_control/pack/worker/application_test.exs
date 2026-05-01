@@ -181,7 +181,9 @@ defmodule CodePuppyControl.Pack.Worker.ApplicationTest do
       assert config[:leader] == nil
       assert config[:cookie] == nil
       assert config[:max_concurrent_runs] == 2
-      assert config[:available_models] == []
+      # available_models is omitted when not explicitly provided,
+      # letting Capabilities.detect/1 auto-discover from ModelRegistry
+      refute Keyword.has_key?(config, :available_models)
     end
 
     test "string leader is converted to atom" do

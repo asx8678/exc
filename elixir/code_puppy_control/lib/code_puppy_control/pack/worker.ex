@@ -247,9 +247,7 @@ defmodule CodePuppyControl.Pack.Worker do
         Logger.debug("PackWorker registered with NamingService")
 
       {:error, reason} ->
-        Logger.debug(
-          "NamingService registration skipped: #{inspect(reason)}"
-        )
+        Logger.debug("NamingService registration skipped: #{inspect(reason)}")
     end
   catch
     :exit, _ ->

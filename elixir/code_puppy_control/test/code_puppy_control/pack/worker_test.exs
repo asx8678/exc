@@ -399,6 +399,32 @@ defmodule CodePuppyControl.Pack.WorkerTest do
     end
   end
 
+  describe "NamingService registration" do
+    test "worker registers with NamingService on init when available" do
+      # Start NamingService so registration succeeds
+      start_supervised!(CodePuppyControl.Pack.NamingService)
+
+      {:ok, pid} =
+        Worker.start_link(name: :worker_test_naming_reg, host_os: :linux)
+
+      capabilities = GenServer.call(pid, :request_capabilities)
+
+      # Worker should have registered itself with NamingService
+      registered = CodePuppyControl.Pack.NamingService.node_capabilities(Node.self())
+      assert registered != nil
+
+      # All sub_agents must be in NamingService's supported set
+      supported = MapSet.new([:terrier, :watchdog, :shepherd, :retriever])
+
+      for agent <- capabilities.sub_agents do
+        assert MapSet.member?(supported, agent),
+               "sub_agent #{inspect(agent)} not in NamingService supported types"
+      end
+
+      GenServer.stop(pid)
+    end
+  end
+
   describe "run completion" do
     test "sends result back to leader_pid" do
       {:ok, pid} =

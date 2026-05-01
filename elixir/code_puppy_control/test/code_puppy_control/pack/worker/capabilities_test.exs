@@ -152,9 +152,16 @@ defmodule CodePuppyControl.Pack.Worker.CapabilitiesTest do
       # AgentCatalogue is not running in test env → should get defaults
       caps = Capabilities.detect()
 
-      assert :code_puppy in caps.sub_agents
       assert :terrier in caps.sub_agents
+      assert :watchdog in caps.sub_agents
       assert :shepherd in caps.sub_agents
+      assert :retriever in caps.sub_agents
+    end
+
+    test "host_os falls back to system detection for invalid override types" do
+      caps = Capabilities.detect(host_os: 42)
+      assert is_binary(caps.host_os)
+      assert caps.host_os in ["darwin", "linux", "windows", "unknown"]
     end
 
     test "available_models falls back to empty list when ModelRegistry is unavailable" do

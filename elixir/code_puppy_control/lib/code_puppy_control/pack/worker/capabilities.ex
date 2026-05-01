@@ -10,14 +10,8 @@ defmodule CodePuppyControl.Pack.Worker.Capabilities do
   should always boot, even on a bare node.
   """
 
-  @default_sub_agents [
-    :code_puppy,
-    :shepherd,
-    :watchdog,
-    :terrier,
-    :retriever,
-    :bloodhound
-  ]
+  @default_sub_agents [:terrier, :watchdog, :shepherd, :retriever]
+  @supported_sub_agents MapSet.new(@default_sub_agents)
 
   @max_concurrent_cap 4
 
@@ -68,6 +62,7 @@ defmodule CodePuppyControl.Pack.Worker.Capabilities do
       nil -> os_from_system()
       os when is_atom(os) -> Atom.to_string(os)
       os when is_binary(os) -> os
+      _ -> os_from_system()
     end
   end
 
@@ -92,7 +87,8 @@ defmodule CodePuppyControl.Pack.Worker.Capabilities do
   defp discover_sub_agents do
     agents =
       CodePuppyControl.Tools.AgentCatalogue.list_agents()
-      |> Enum.map(fn info -> String.to_atom(info.name) end)
+      |> Enum.map(fn info -> String.to_existing_atom(info.name) end)
+      |> Enum.filter(&MapSet.member?(@supported_sub_agents, &1))
 
     if agents == [], do: @default_sub_agents, else: agents
   rescue
