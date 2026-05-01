@@ -324,7 +324,15 @@ defmodule CodePuppyControl.Pack.DistributedSupervisorTest do
       assert_receive {:DOWN, ^ref, :process, ^sup_pid, _reason}, 500
       Process.sleep(300)
 
+      # After abnormal exit, DynamicSupervisor restarts the child (transient).
+      # resolve_supervisor_pid finds the restarted child via Registry, so
+      # remove_node properly terminates it instead of just nuking the ETS entry.
       assert :ok = DistributedSupervisor.remove_node(@test_node, @ds_name)
+
+      # Verify the restarted child was actually terminated, not orphaned
+      counts = DynamicSupervisor.count_children(@ds_name)
+      assert counts.active == 0, "no children should remain after remove_node"
+
       assert DistributedSupervisor.list_nodes(@ds_name) == []
     end
   end

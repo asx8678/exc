@@ -125,46 +125,23 @@ defmodule CodePuppyControl.Pack.DistributedSupervisor do
       when is_atom(node_name) and is_atom(supervisor_name) do
     ets_table = ets_name(supervisor_name)
 
-    case :ets.lookup(ets_table, node_name) do
-      [{^node_name, pid}] when is_pid(pid) ->
-        if Process.alive?(pid) do
-          case DynamicSupervisor.terminate_child(supervisor_name, pid) do
-            :ok ->
-              :ets.delete(ets_table, node_name)
+    case resolve_supervisor_pid(node_name, ets_table) do
+      {:ok, pid} ->
+        # Found a live pid (either from ETS or Registry fallback after restart)
+        DynamicSupervisor.terminate_child(supervisor_name, pid)
+        :ets.delete(ets_table, node_name)
 
-              Logger.info("[DistributedSupervisor] removed node #{inspect(node_name)}")
+        Logger.info("[DistributedSupervisor] removed node #{inspect(node_name)}")
 
-              :telemetry.execute(
-                [:code_puppy, :distributed_pack, :node, :removed],
-                %{count: DynamicSupervisor.count_children(supervisor_name).active},
-                %{node: node_name}
-              )
+        :telemetry.execute(
+          [:code_puppy, :distributed_pack, :node, :removed],
+          %{count: DynamicSupervisor.count_children(supervisor_name).active},
+          %{node: node_name}
+        )
 
-              :ok
+        :ok
 
-            {:error, reason} ->
-              :ets.delete(ets_table, node_name)
-
-              Logger.debug(
-                "[DistributedSupervisor] terminate_child for #{inspect(node_name)} " <>
-                  "returned #{inspect(reason)} (cleaned up ETS)"
-              )
-
-              :ok
-          end
-        else
-          # Stale pid — just clean up ETS
-          :ets.delete(ets_table, node_name)
-
-          Logger.debug(
-            "[DistributedSupervisor] stale pid for #{inspect(node_name)}, " <>
-              "cleaned up ETS"
-          )
-
-          :ok
-        end
-
-      _ ->
+      {:error, :not_found} ->
         Logger.debug("[DistributedSupervisor] node #{inspect(node_name)} not found for removal")
 
         {:error, :not_found}
