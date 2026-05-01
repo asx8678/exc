@@ -123,7 +123,9 @@ defmodule CodePuppyControl.TUI.Renderer.OwlOutput do
     try do
       Owl.Spinner.stop(id: ref, resolution: :ok)
     catch
-      :exit, _ -> :ok
+      :exit, reason ->
+        Logger.debug("TUI.Renderer: spinner stop failed: #{inspect(reason)}")
+        :ok
     end
   end
 
@@ -135,6 +137,7 @@ defmodule CodePuppyControl.TUI.Renderer.OwlOutput do
   def stop_tool_spinner(spinner_ids, idx) do
     case Map.get(spinner_ids, idx) do
       nil ->
+        Logger.debug("TUI.Renderer: no spinner to stop for index #{idx}")
         spinner_ids
 
       ref ->
