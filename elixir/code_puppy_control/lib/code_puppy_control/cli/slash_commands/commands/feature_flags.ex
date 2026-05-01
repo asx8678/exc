@@ -8,6 +8,7 @@ defmodule CodePuppyControl.CLI.SlashCommands.Commands.FeatureFlags do
 
   alias CodePuppyControl.FeatureFlags
   alias CodePuppyControl.FeatureFlags.Flags
+  alias CodePuppyControl.RuntimeSelector.Status, as: RuntimeStatus
 
   @usage "Usage: /feature-flags [list|set <capability> <true|false>|reload]"
 
@@ -75,10 +76,45 @@ defmodule CodePuppyControl.CLI.SlashCommands.Commands.FeatureFlags do
 
     IO.puts("")
 
+    # Append runtime selector status summary
+    print_runtime_status()
+
     IO.puts(
       "    #{IO.ANSI.faint()}Use /feature-flags set <capability> <true|false> to change a flag#{IO.ANSI.reset()}"
     )
 
+    IO.puts("")
+  end
+
+  defp print_runtime_status do
+    report = RuntimeStatus.report()
+
+    mode_color =
+      case report.mode do
+        :elixir -> IO.ANSI.green()
+        :python -> IO.ANSI.yellow()
+        :auto -> IO.ANSI.cyan()
+      end
+
+    IO.puts(
+      "    #{IO.ANSI.bright()}Runtime:#{IO.ANSI.reset()} #{mode_color}#{report.mode}#{IO.ANSI.reset()}"
+    )
+
+    if report.pup_runtime_env do
+      IO.puts("    #{IO.ANSI.faint()}PUP_RUNTIME=#{report.pup_runtime_env}#{IO.ANSI.reset()}")
+    end
+
+    routing_lines =
+      report.capabilities
+      |> Enum.sort_by(fn {cap, _rt} -> cap end)
+      |> Enum.map(fn {cap, rt} ->
+        icon = if rt == :elixir, do: "◆", else: "◇"
+        color = if rt == :elixir, do: IO.ANSI.green(), else: IO.ANSI.faint()
+
+        "    #{icon} #{color}#{String.pad_trailing(Atom.to_string(cap), 14)}#{IO.ANSI.reset()} → #{rt}"
+      end)
+
+    Enum.each(routing_lines, &IO.puts/1)
     IO.puts("")
   end
 
