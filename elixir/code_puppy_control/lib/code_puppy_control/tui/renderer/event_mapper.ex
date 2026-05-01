@@ -33,6 +33,42 @@ defmodule CodePuppyControl.TUI.Renderer.EventMapper do
 
   # ── Legacy EventBus Conversions ──────────────────────────────────────────
 
+  # ── String-keyed legacy events ──────────────────────────────────────────
+
+  defp legacy_event_to_canonical(%{"type" => "agent_llm_stream", "chunk" => chunk}) do
+    {:ok, %Event.TextDelta{index: 0, text: chunk}}
+  end
+
+  defp legacy_event_to_canonical(%{
+         "type" => "agent_tool_call_start",
+         "tool_name" => name,
+         "tool_call_id" => id
+       }) do
+    {:ok, %Event.ToolCallStart{index: 0, id: id, name: name}}
+  end
+
+  defp legacy_event_to_canonical(%{
+         "type" => "agent_tool_call_end",
+         "tool_name" => name,
+         "tool_call_id" => id
+       }) do
+    {:ok, %Event.ToolCallEnd{index: 0, id: id || "", name: name, arguments: ""}}
+  end
+
+  defp legacy_event_to_canonical(%{"type" => "agent_run_completed"}), do: {:ok, %Event.Done{}}
+
+  defp legacy_event_to_canonical(%{"type" => "agent_run_failed", "error" => _error}) do
+    {:ok, %Event.Done{}}
+  end
+
+  defp legacy_event_to_canonical(%{"type" => "agent_run_failed"}) do
+    {:ok, %Event.Done{}}
+  end
+
+  defp legacy_event_to_canonical(%{"type" => _}), do: :skip
+
+  # ── Atom-keyed legacy events ────────────────────────────────────────────
+
   defp legacy_event_to_canonical(%{type: "agent_llm_stream", chunk: chunk}) do
     {:ok, %Event.TextDelta{index: 0, text: chunk}}
   end
