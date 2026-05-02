@@ -66,6 +66,8 @@ defmodule CodePuppyControl.Pack.Dispatcher do
   alias CodePuppyControl.Pack.NamingService
   alias CodePuppyControl.Pack.DistributedSupervisor
 
+  @default_max_concurrent_runs 4
+
   # ── Public API ──────────────────────────────────────────────────────────
 
   @doc """
@@ -115,9 +117,15 @@ defmodule CodePuppyControl.Pack.Dispatcher do
 
       iex> Dispatcher.dispatch(:nonexistent)
       {:error, :no_workers_available}
+
+  Workers at their `max_concurrent_runs` limit are skipped. If ALL matching
+  workers are at capacity, returns `{:error, :all_workers_at_capacity}`.
   """
   @spec dispatch(atom(), keyword(), GenServer.server()) ::
-          {:ok, node()} | {:error, :no_workers_available} | {:error, :dispatcher_not_started}
+          {:ok, node()}
+          | {:error, :no_workers_available}
+          | {:error, :all_workers_at_capacity}
+          | {:error, :dispatcher_not_started}
   def dispatch(sub_agent_type, opts \\ [], server \\ __MODULE__)
 
   def dispatch(sub_agent_type, opts, server)
@@ -158,13 +166,85 @@ defmodule CodePuppyControl.Pack.Dispatcher do
     GenServer.call(server, :clear)
   end
 
+  @doc """
+  Acquires a concurrent run slot for the given worker node.
+
+  Returns `:ok` if a slot was successfully acquired, or
+  `{:error, :at_capacity}` if the worker has reached its
+  `max_concurrent_runs` limit.
+
+  The worker's max capacity is lazily initialized from NamingService
+  capabilities, defaulting to `#{@default_max_concurrent_runs}`.
+
+  ## Examples
+
+      iex> Dispatcher.acquire_slot(:worker_a@host)
+      :ok
+
+      iex> Dispatcher.acquire_slot(:overloaded@host)
+      {:error, :at_capacity}
+  """
+  @spec acquire_slot(node(), GenServer.server()) :: :ok | {:error, :at_capacity}
+  def acquire_slot(worker_node, server \\ __MODULE__) do
+    GenServer.call(server, {:acquire_slot, worker_node})
+  end
+
+  @doc """
+  Releases a concurrent run slot for the given worker node.
+
+  Should be called when a dispatched run completes (success or failure).
+  Silently succeeds if the worker has no tracked slots (idempotent).
+
+  ## Examples
+
+      iex> Dispatcher.release_slot(:worker_a@host)
+      :ok
+  """
+  @spec release_slot(node(), GenServer.server()) :: :ok
+  def release_slot(worker_node, server \\ __MODULE__) do
+    GenServer.call(server, {:release_slot, worker_node})
+  end
+
+  @doc """
+  Returns the current load information for a specific worker.
+
+  Returns `{:ok, %{active: n, max: m}}` with the current and maximum
+  concurrent run counts, or `{:error, :unknown_worker}` if the worker
+  has never been tracked.
+
+  ## Examples
+
+      iex> Dispatcher.worker_load(:worker_a@host)
+      {:ok, %{active: 2, max: 4}}
+  """
+  @spec worker_load(node(), GenServer.server()) :: {:ok, map()} | {:error, :unknown_worker}
+  def worker_load(worker_node, server \\ __MODULE__) do
+    GenServer.call(server, {:worker_load, worker_node})
+  end
+
+  @doc """
+  Returns all workers with their current slot usage.
+
+  Returns a map of `%{worker_node => %{active: n, max: m}}` for every
+  worker that has been tracked by the slot system.
+
+  ## Examples
+
+      iex> Dispatcher.active_slots()
+      %{worker_a@host: %{active: 2, max: 4}}
+  """
+  @spec active_slots(GenServer.server()) :: map()
+  def active_slots(server \\ __MODULE__) do
+    GenServer.call(server, :active_slots)
+  end
+
   # ── GenServer Callbacks ──────────────────────────────────────────────────
 
   @impl true
   def init(opts) do
     Logger.info("Dispatcher initialized")
     supervisor_name = Keyword.get(opts, :supervisor_name, DistributedSupervisor)
-    {:ok, %{round_robin: %{}, supervisor_name: supervisor_name}}
+    {:ok, %{round_robin: %{}, slots: %{}, supervisor_name: supervisor_name}}
   end
 
   @impl true
@@ -212,11 +292,17 @@ defmodule CodePuppyControl.Pack.Dispatcher do
           Enum.filter(eligible, &MapSet.member?(connected_set, &1))
       end
 
-    case candidates do
-      [] ->
+    available = filter_by_capacity(candidates, state)
+
+    case {candidates, available} do
+      {[], _} ->
         {:reply, {:error, :no_workers_available}, state}
 
-      workers ->
+      {_, []} ->
+        emit_all_at_capacity(sub_agent_type, length(candidates))
+        {:reply, {:error, :all_workers_at_capacity}, state}
+
+      {_, workers} ->
         round_robin = state.round_robin
         current_index = Map.get(round_robin, sub_agent_type, 0)
         safe_index = rem(current_index, length(workers))
@@ -231,13 +317,59 @@ defmodule CodePuppyControl.Pack.Dispatcher do
   end
 
   @impl true
+  def handle_call({:acquire_slot, worker_node}, _from, state) do
+    {slot, state} = get_or_init_slot(state, worker_node)
+
+    if slot.active < slot.max do
+      updated_slot = %{slot | active: slot.active + 1}
+      new_state = %{state | slots: Map.put(state.slots, worker_node, updated_slot)}
+
+      emit_slot_event(:slot_acquired, worker_node, updated_slot)
+
+      {:reply, :ok, new_state}
+    else
+      emit_slot_event(:at_capacity, worker_node, slot)
+      {:reply, {:error, :at_capacity}, state}
+    end
+  end
+
+  @impl true
+  def handle_call({:release_slot, worker_node}, _from, state) do
+    case Map.get(state.slots, worker_node) do
+      nil ->
+        {:reply, :ok, state}
+
+      %{active: active} = slot ->
+        updated_slot = %{slot | active: max(active - 1, 0)}
+        new_state = %{state | slots: Map.put(state.slots, worker_node, updated_slot)}
+
+        emit_slot_event(:slot_released, worker_node, updated_slot)
+
+        {:reply, :ok, new_state}
+    end
+  end
+
+  @impl true
+  def handle_call({:worker_load, worker_node}, _from, state) do
+    case Map.get(state.slots, worker_node) do
+      nil -> {:reply, {:error, :unknown_worker}, state}
+      slot -> {:reply, {:ok, slot}, state}
+    end
+  end
+
+  @impl true
+  def handle_call(:active_slots, _from, state) do
+    {:reply, state.slots, state}
+  end
+
+  @impl true
   def handle_call(:status, _from, state) do
-    {:reply, %{round_robin: state.round_robin}, state}
+    {:reply, %{round_robin: state.round_robin, slots: state.slots}, state}
   end
 
   @impl true
   def handle_call(:clear, _from, state) do
-    {:reply, :ok, %{state | round_robin: %{}}}
+    {:reply, :ok, %{state | round_robin: %{}, slots: %{}}}
   end
 
   # ── Private Helpers ─────────────────────────────────────────────────────
@@ -279,6 +411,42 @@ defmodule CodePuppyControl.Pack.Dispatcher do
     :exit, _reason -> fallback
   end
 
+  # ── Slot Helpers ─────────────────────────────────────────────────────────
+
+  defp get_or_init_slot(state, worker_node) do
+    case Map.get(state.slots, worker_node) do
+      nil ->
+        max_runs = lookup_max_concurrent(worker_node)
+        slot = %{active: 0, max: max_runs}
+        {slot, %{state | slots: Map.put(state.slots, worker_node, slot)}}
+
+      slot ->
+        {slot, state}
+    end
+  end
+
+  defp lookup_max_concurrent(worker_node) do
+    caps = safe_naming(fn -> NamingService.node_capabilities(worker_node) end, nil)
+
+    case caps do
+      %{max_concurrent_runs: max} when is_integer(max) and max > 0 -> max
+      _ -> @default_max_concurrent_runs
+    end
+  end
+
+  defp has_available_slot?(state, worker_node) do
+    case Map.get(state.slots, worker_node) do
+      nil -> true
+      %{active: active, max: max} -> active < max
+    end
+  end
+
+  defp filter_by_capacity(candidates, state) do
+    Enum.filter(candidates, &has_available_slot?(state, &1))
+  end
+
+  # ── Telemetry ────────────────────────────────────────────────────────────
+
   defp emit_selected(sub_agent_type, worker_node, matching_count) do
     :telemetry.execute(
       [:code_puppy, :distributed_pack, :dispatch, :selected],
@@ -288,6 +456,22 @@ defmodule CodePuppyControl.Pack.Dispatcher do
         worker_node: worker_node,
         matching_workers: matching_count
       }
+    )
+  end
+
+  defp emit_slot_event(event, worker_node, slot) do
+    :telemetry.execute(
+      [:code_puppy, :pack, :dispatcher, event],
+      %{active: slot.active, max: slot.max},
+      %{worker_node: worker_node}
+    )
+  end
+
+  defp emit_all_at_capacity(sub_agent_type, candidate_count) do
+    :telemetry.execute(
+      [:code_puppy, :pack, :dispatcher, :at_capacity],
+      %{candidate_count: candidate_count},
+      %{sub_agent_type: sub_agent_type}
     )
   end
 end
