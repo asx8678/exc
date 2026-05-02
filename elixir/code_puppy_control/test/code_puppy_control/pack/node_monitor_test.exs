@@ -302,4 +302,123 @@ defmodule CodePuppyControl.Pack.NodeMonitorTest do
       assert NodeMonitor.node_status(:"totally_unknown@nowhere", name) == nil
     end
   end
+
+  # ── Phase I.4: In-flight Run Tracking ────────────────────────────────
+
+  describe "in-flight run tracking (Phase I.4)" do
+    test "register_run/2 adds run to node's active_runs", %{name: name} do
+      worker = :"pup_run_test@localhost"
+
+      start_supervised({
+        NodeMonitor,
+        [enabled: true, workers: [worker], heartbeat_interval: 60_000, name: name]
+      })
+
+      # Initially no active runs
+      assert NodeMonitor.active_runs(worker, name) == []
+
+      # Register a run
+      NodeMonitor.register_run(worker, "run-001", name)
+      Process.sleep(50)
+
+      assert NodeMonitor.active_runs(worker, name) == ["run-001"]
+    end
+
+    test "unregister_run/2 removes it", %{name: name} do
+      worker = :"pup_run_test2@localhost"
+
+      start_supervised({
+        NodeMonitor,
+        [enabled: true, workers: [worker], heartbeat_interval: 60_000, name: name]
+      })
+
+      NodeMonitor.register_run(worker, "run-002", name)
+      NodeMonitor.register_run(worker, "run-003", name)
+      Process.sleep(50)
+
+      # Two runs registered
+      runs = NodeMonitor.active_runs(worker, name)
+      assert length(runs) == 2
+      assert "run-002" in runs
+      assert "run-003" in runs
+
+      # Unregister one
+      NodeMonitor.unregister_run(worker, "run-002", name)
+      Process.sleep(50)
+
+      runs = NodeMonitor.active_runs(worker, name)
+      assert runs == ["run-003"]
+    end
+
+    test "active_runs/1 returns current list for unknown node", %{name: name} do
+      start_supervised({
+        NodeMonitor,
+        [enabled: true, workers: [], heartbeat_interval: 60_000, name: name]
+      })
+
+      # Unknown node has no active runs
+      assert NodeMonitor.active_runs(:"unknown@nowhere", name) == []
+    end
+
+    test "grace expiry clears active_runs AND removes from LoadBalancer", %{name: name} do
+      worker = :"pup_grace_test@localhost"
+
+      # Start NamingService and LoadBalancer for this test
+      {:ok, _} = start_supervised({CodePuppyControl.Pack.NamingService, []})
+      {:ok, _} = start_supervised({CodePuppyControl.Pack.LoadBalancer, []})
+
+      {:ok, pid} =
+        start_supervised({
+          NodeMonitor,
+          [
+            enabled: true,
+            workers: [worker],
+            heartbeat_interval: 60_000,
+            disconnect_timeout: 100,
+            name: name
+          ]
+        })
+
+      # Connect the node
+      send(pid, {:nodeup, worker, []})
+      Process.sleep(50)
+
+      # Register some active runs
+      NodeMonitor.register_run(worker, "run-g1", name)
+      NodeMonitor.register_run(worker, "run-g2", name)
+      Process.sleep(50)
+
+      # Verify runs are registered
+      runs = NodeMonitor.active_runs(worker, name)
+      assert length(runs) == 2
+
+      # Sync with LoadBalancer so it tracks the node
+      CodePuppyControl.Pack.NamingService.register_capabilities(
+        worker,
+        %{sub_agents: [:terrier], max_concurrent_runs: 4}
+      )
+
+      CodePuppyControl.Pack.LoadBalancer.sync_node(worker)
+      Process.sleep(50)
+
+      # Verify LoadBalancer knows the node
+      snapshot = CodePuppyControl.Pack.LoadBalancer.load_snapshot()
+      assert Map.has_key?(snapshot, worker)
+
+      # Disconnect the node — triggers grace period
+      send(pid, {:nodedown, worker, [nodedown_reason: :connection_closed]})
+      Process.sleep(50)
+
+      # Wait for grace period to expire (100ms)
+      Process.sleep(200)
+
+      # Active runs should be cleared
+      runs = NodeMonitor.active_runs(worker, name)
+      assert runs == []
+
+      # LoadBalancer should have removed the node
+      snapshot = CodePuppyControl.Pack.LoadBalancer.load_snapshot()
+      refute Map.has_key?(snapshot, worker)
+    end
+  end
 end

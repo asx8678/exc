@@ -30,6 +30,17 @@ defmodule CodePuppyControl.Pack.DispatcherTest do
           true
       end
 
+    # Ensure LoadBalancer GenServer is running (Phase I.4)
+    lb_started =
+      case GenServer.whereis(CodePuppyControl.Pack.LoadBalancer) do
+        nil ->
+          {:ok, _} = CodePuppyControl.Pack.LoadBalancer.start_link([])
+          true
+
+        _pid ->
+          true
+      end
+
     # Ensure NodeMonitor GenServer is running for node_reachable? tests
     node_monitor_started =
       case GenServer.whereis(CodePuppyControl.Pack.NodeMonitor) do
@@ -54,7 +65,7 @@ defmodule CodePuppyControl.Pack.DispatcherTest do
       end
     end)
 
-    {:ok, naming_started: naming_started, node_monitor_started: node_monitor_started}
+    {:ok, naming_started: naming_started, lb_started: lb_started, node_monitor_started: node_monitor_started}
   end
 
   # ---------------------------------------------------------------------------
@@ -337,6 +348,112 @@ defmodule CodePuppyControl.Pack.DispatcherTest do
     test "returns false for unreachable node" do
       # A completely fabricated node name that won't exist
       refute Dispatcher.node_reachable?(:"fake_node@999.999.999.999")
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Phase I.4: LoadBalancer Integration
+  # ---------------------------------------------------------------------------
+
+  describe "find_available_worker uses LoadBalancer (Phase I.4)" do
+    test "resolve_target uses LoadBalancer for intelligent selection" do
+      original = Application.get_env(:code_puppy_control, :distributed_packs, %{})
+      Application.put_env(:code_puppy_control, :distributed_packs, %{enabled: true})
+
+      # Register two workers
+      node_a = :"pup_test@localhost"
+      node_b = :"pup_test2@localhost"
+
+      CodePuppyControl.Pack.NamingService.register_capabilities(
+        node_a,
+        %{sub_agents: [:terrier], max_concurrent_runs: 4}
+      )
+
+      CodePuppyControl.Pack.NamingService.register_capabilities(
+        node_b,
+        %{sub_agents: [:terrier], max_concurrent_runs: 4}
+      )
+
+      CodePuppyControl.Pack.LoadBalancer.sync_node(node_a)
+      CodePuppyControl.Pack.LoadBalancer.sync_node(node_b)
+
+      try do
+        result = Dispatcher.resolve_target("terrier", [])
+
+        assert match?({:remote, _}, result)
+        {:remote, selected} = result
+        assert selected in [node_a, node_b]
+      after
+        CodePuppyControl.Pack.NamingService.unregister_node(node_a)
+        CodePuppyControl.Pack.NamingService.unregister_node(node_b)
+        Application.put_env(:code_puppy_control, :distributed_packs, original)
+      end
+    end
+
+    test "falls back to NamingService first-match when LoadBalancer not running" do
+      # Stop the LoadBalancer to test fallback
+      lb_pid = GenServer.whereis(CodePuppyControl.Pack.LoadBalancer)
+
+      if lb_pid do
+        GenServer.stop(lb_pid, :normal)
+      end
+
+      original = Application.get_env(:code_puppy_control, :distributed_packs, %{})
+      Application.put_env(:code_puppy_control, :distributed_packs, %{enabled: true})
+
+      test_node = :"pup_test@localhost"
+
+      CodePuppyControl.Pack.NamingService.register_capabilities(
+        test_node,
+        %{sub_agents: [:terrier], max_concurrent_runs: 4}
+      )
+
+      try do
+        # Should still work via NamingService fallback
+        result = Dispatcher.resolve_target("terrier", [])
+
+        assert result == {:remote, test_node}
+      after
+        CodePuppyControl.Pack.NamingService.unregister_node(test_node)
+        Application.put_env(:code_puppy_control, :distributed_packs, original)
+
+        # Restart LoadBalancer for other tests
+        try do
+          CodePuppyControl.Pack.LoadBalancer.start_link([])
+        catch
+          :exit, _ -> :ok
+        end
+      end
+    end
+  end
+
+  describe "Dispatcher records dispatch/completion via LoadBalancer (Phase I.4)" do
+    test "LoadBalancer tracks dispatches when workers registered" do
+      node_a = :"pup_test@localhost"
+
+      CodePuppyControl.Pack.NamingService.register_capabilities(
+        node_a,
+        %{sub_agents: [:terrier], max_concurrent_runs: 4}
+      )
+
+      CodePuppyControl.Pack.LoadBalancer.sync_node(node_a)
+
+      # Record a manual dispatch to verify tracking works
+      CodePuppyControl.Pack.LoadBalancer.record_dispatch(node_a, "test-run-1")
+      Process.sleep(50)
+
+      snapshot = CodePuppyControl.Pack.LoadBalancer.load_snapshot()
+      assert snapshot[node_a].active_dispatches == 1
+      assert snapshot[node_a].total_dispatches == 1
+
+      CodePuppyControl.Pack.LoadBalancer.record_completion(node_a, "test-run-1", :success)
+      Process.sleep(50)
+
+      snapshot = CodePuppyControl.Pack.LoadBalancer.load_snapshot()
+      assert snapshot[node_a].active_dispatches == 0
+      assert snapshot[node_a].total_completions == 1
+
+      CodePuppyControl.Pack.NamingService.unregister_node(node_a)
     end
   end
 end

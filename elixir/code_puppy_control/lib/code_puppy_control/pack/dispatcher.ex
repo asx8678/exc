@@ -26,7 +26,7 @@ defmodule CodePuppyControl.Pack.Dispatcher do
 
   require Logger
 
-  alias CodePuppyControl.Pack.{Config, NamingService, Worker, NodeMonitor}
+  alias CodePuppyControl.Pack.{Config, NamingService, Worker, NodeMonitor, LoadBalancer}
   alias CodePuppyControl.Telemetry.DistributedPack, as: PackTelemetry
   alias CodePuppyControl.Tools.AgentInvocation
 
@@ -304,6 +304,10 @@ defmodule CodePuppyControl.Pack.Dispatcher do
     try do
       GenServer.cast(worker_name, {:dispatch, dispatch_msg})
 
+      # Record dispatch for load tracking (Phase I.4)
+      safe_lb_record(:dispatch, target_node, run_id)
+      safe_register_run(target_node, run_id)
+
       # Await result from the worker.
       # Worker.send_result_back/2 uses GenServer.cast which wraps messages
       # in {:'$gen_cast', msg}. We match both the GenServer cast format
@@ -311,12 +315,18 @@ defmodule CodePuppyControl.Pack.Dispatcher do
       receive do
         {:"$gen_cast", {:result, ^run_id, result}} ->
           duration = System.monotonic_time(:millisecond) - start_mono
-          PackTelemetry.dispatch_stop(run_id, result_status(result), duration)
+          status = result_status(result)
+          PackTelemetry.dispatch_stop(run_id, status, duration)
+          safe_lb_record(:completion, target_node, run_id, status)
+          safe_unregister_run(target_node, run_id)
           format_remote_result(result, agent_name, session_id)
 
         {:result, ^run_id, result} ->
           duration = System.monotonic_time(:millisecond) - start_mono
-          PackTelemetry.dispatch_stop(run_id, result_status(result), duration)
+          status = result_status(result)
+          PackTelemetry.dispatch_stop(run_id, status, duration)
+          safe_lb_record(:completion, target_node, run_id, status)
+          safe_unregister_run(target_node, run_id)
           format_remote_result(result, agent_name, session_id)
       after
         timeout ->
@@ -326,6 +336,8 @@ defmodule CodePuppyControl.Pack.Dispatcher do
           )
 
           PackTelemetry.dispatch_exception(run_id, "timeout")
+          safe_lb_record(:completion, target_node, run_id, :failure)
+          safe_unregister_run(target_node, run_id)
 
           # Fall back to local execution
           local_fallback(agent_name, prompt, session_id)
@@ -338,6 +350,8 @@ defmodule CodePuppyControl.Pack.Dispatcher do
         )
 
         PackTelemetry.dispatch_exception(run_id, inspect(reason))
+        safe_lb_record(:completion, target_node, run_id, :failure)
+        safe_unregister_run(target_node, run_id)
 
         local_fallback(agent_name, prompt, session_id)
     end
@@ -350,18 +364,59 @@ defmodule CodePuppyControl.Pack.Dispatcher do
 
   # ── Private: Worker Selection ─────────────────────────────────────────────
 
+  # Uses LoadBalancer for intelligent selection (Phase I.4).
+  # Falls back to NamingService first-match if LoadBalancer isn't running.
   defp find_available_worker(sub_agent, constraints) do
-    nodes =
-      if constraints == [] do
-        NamingService.find_nodes(sub_agent)
-      else
-        NamingService.find_nodes(sub_agent, constraints)
-      end
-
-    case nodes do
-      [] -> :none
-      [node | _] -> {:ok, node}
+    case safe_lb_select(sub_agent, constraints) do
+      {:ok, node} -> {:ok, node}
+      :none -> :none
     end
+  end
+
+  # Wraps LoadBalancer.select_worker — falls back to NamingService
+  # first-match if LoadBalancer isn't running.
+  defp safe_lb_select(sub_agent, constraints) do
+    LoadBalancer.select_worker(sub_agent, constraints)
+  catch
+    :exit, _ ->
+      # LoadBalancer not running — fall back to NamingService first-match
+      nodes =
+        if constraints == [],
+          do: NamingService.find_nodes(sub_agent),
+          else: NamingService.find_nodes(sub_agent, constraints)
+
+      case nodes do
+        [] -> :none
+        [node | _] -> {:ok, node}
+      end
+  end
+
+  # ── Private: LoadBalancer Recording ──────────────────────────────────────
+
+  defp safe_lb_record(:dispatch, node, run_id) do
+    LoadBalancer.record_dispatch(node, run_id)
+  catch
+    :exit, _ -> :ok
+  end
+
+  defp safe_lb_record(:completion, node, run_id, status) do
+    LoadBalancer.record_completion(node, run_id, status)
+  catch
+    :exit, _ -> :ok
+  end
+
+  # ── Private: NodeMonitor Run Tracking ──────────────────────────────────
+
+  defp safe_register_run(node, run_id) do
+    NodeMonitor.register_run(node, run_id)
+  catch
+    :exit, _ -> :ok
+  end
+
+  defp safe_unregister_run(node, run_id) do
+    NodeMonitor.unregister_run(node, run_id)
+  catch
+    :exit, _ -> :ok
   end
 
   # ── Private: Result Helpers ──────────────────────────────────────────────

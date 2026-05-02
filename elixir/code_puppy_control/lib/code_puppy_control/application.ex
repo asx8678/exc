@@ -285,6 +285,7 @@ defmodule CodePuppyControl.Application do
       [
         {Registry, keys: :unique, name: CodePuppyControl.Pack.Registry},
         CodePuppyControl.Pack.NamingService,
+        CodePuppyControl.Pack.LoadBalancer,
         CodePuppyControl.Pack.DistributedSupervisor,
         CodePuppyControl.Pack.NodeMonitor
       ]

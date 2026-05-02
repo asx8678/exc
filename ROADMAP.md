@@ -206,10 +206,10 @@ design doc.
 
 ### Phase I.4: Automatic load balancing
 
-- [ ] Round-robin across workers with matching capabilities
-- [ ] Per-worker slot tracking (respects `max_concurrent_runs`)
-- [ ] Disconnect grace period with in-flight run management
-- [ ] Fallback to local dispatch on remote node failure
+- [x] Round-robin across workers with matching capabilities — implemented: `Pack.LoadBalancer` GenServer with `select_worker/2` round-robin, wired into `Dispatcher.find_available_worker/2` with fallback to NamingService first-match
+- [x] Per-worker slot tracking (respects `max_concurrent_runs`) — implemented: LoadBalancer tracks `active_dispatches` vs `max_concurrent` per node; workers at capacity excluded from selection
+- [x] Disconnect grace period with in-flight run management — implemented: NodeMonitor `register_run/2` / `unregister_run/2` / `active_runs/1`; grace expiry clears runs + removes from LoadBalancer
+- [x] Fallback to local dispatch on remote node failure — implemented: Dispatcher catches `:exit` on LoadBalancer calls, falls back to NamingService first-match, then to local dispatch
 
 ### Phase I.5: Production hardening
 

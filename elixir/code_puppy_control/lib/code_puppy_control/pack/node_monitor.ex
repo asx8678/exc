@@ -105,6 +105,30 @@ defmodule CodePuppyControl.Pack.NodeMonitor do
     GenServer.call(server, :enabled?)
   end
 
+  @doc """
+  Registers an in-flight run on a node (called by Dispatcher on dispatch).
+  """
+  @spec register_run(node(), String.t()) :: :ok
+  def register_run(node_name, run_id, server \\ __MODULE__) do
+    GenServer.cast(server, {:register_run, node_name, run_id})
+  end
+
+  @doc """
+  Unregisters an in-flight run (called by Dispatcher on result/timeout).
+  """
+  @spec unregister_run(node(), String.t()) :: :ok
+  def unregister_run(node_name, run_id, server \\ __MODULE__) do
+    GenServer.cast(server, {:unregister_run, node_name, run_id})
+  end
+
+  @doc """
+  Returns list of in-flight run IDs for a node.
+  """
+  @spec active_runs(node()) :: [String.t()]
+  def active_runs(node_name, server \\ __MODULE__) do
+    GenServer.call(server, {:active_runs, node_name})
+  end
+
   # ── GenServer Callbacks ──────────────────────────────────────────────────
 
   @impl true
@@ -194,6 +218,39 @@ defmodule CodePuppyControl.Pack.NodeMonitor do
     {:reply, state.enabled, state}
   end
 
+  @impl true
+  def handle_call({:active_runs, node_name}, _from, state) do
+    runs =
+      case Map.get(state.nodes, node_name) do
+        nil -> []
+        info -> info.active_runs
+      end
+
+    {:reply, runs, state}
+  end
+
+  # ── Cast: In-flight Run Tracking ────────────────────────────────────
+
+  @impl true
+  def handle_cast({:register_run, node_name, run_id}, state) do
+    state = update_in(state.nodes[node_name], fn
+      nil -> nil
+      info -> %{info | active_runs: [run_id | info.active_runs]}
+    end)
+
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_cast({:unregister_run, node_name, run_id}, state) do
+    state = update_in(state.nodes[node_name], fn
+      nil -> nil
+      info -> %{info | active_runs: List.delete(info.active_runs, run_id)}
+    end)
+
+    {:noreply, state}
+  end
+
   # ── Cast: Worker Capabilities ──────────────────────────────────────────
 
   @impl true
@@ -208,6 +265,9 @@ defmodule CodePuppyControl.Pack.NodeMonitor do
 
       # Register in NamingService
       CodePuppyControl.Pack.NamingService.register_capabilities(worker_node, capabilities)
+
+      # Sync load balancer (Phase I.4)
+      safe_sync_lb(worker_node)
 
       PackTelemetry.capabilities_updated(worker_node, capabilities)
 
@@ -246,6 +306,9 @@ defmodule CodePuppyControl.Pack.NodeMonitor do
         PackTelemetry.node_connected(node, info.capabilities || %{})
         Logger.info("NodeMonitor: node #{inspect(node)} connected")
       end
+
+      # Sync load balancer (Phase I.4)
+      safe_sync_lb(node)
 
       {:noreply, state}
     else
@@ -334,6 +397,9 @@ defmodule CodePuppyControl.Pack.NodeMonitor do
         # Unregister from NamingService
         CodePuppyControl.Pack.NamingService.unregister_node(node)
 
+        # Remove from load balancer (Phase I.4)
+        safe_remove_lb(node)
+
         {:noreply, state}
 
       _ ->
@@ -363,6 +429,20 @@ defmodule CodePuppyControl.Pack.NodeMonitor do
       capabilities: nil,
       active_runs: []
     }
+  end
+
+  # ── Private: LoadBalancer Integration ─────────────────────────────────
+
+  defp safe_sync_lb(node) do
+    CodePuppyControl.Pack.LoadBalancer.sync_node(node)
+  catch
+    :exit, _ -> :ok
+  end
+
+  defp safe_remove_lb(node) do
+    CodePuppyControl.Pack.LoadBalancer.remove_node(node)
+  catch
+    :exit, _ -> :ok
   end
 
   defp schedule_heartbeat(state) do
