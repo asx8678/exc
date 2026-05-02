@@ -51,7 +51,9 @@ defmodule CodePuppyControl.Pack.RemoteNodeProxy do
 
   require Logger
 
-  # ── Types ────────────────────────────────────────────────────────────────
+  alias CodePuppyControl.Pack.NamingService
+
+  # ── Types ────────────────────────────────────────────────────────────────────────
 
   @type status :: :connecting | :connected | :disconnected
 
@@ -200,6 +202,7 @@ defmodule CodePuppyControl.Pack.RemoteNodeProxy do
     case state.handshake_fn.(state.node_name, state.handshake_timeout) do
       {:ok, caps} ->
         emit_node_telemetry(:connected, state.node_name, caps)
+        safe_register_naming(state.node_name, caps)
         {:noreply, %{state | status: :connected, capabilities: caps}}
 
       {:error, _reason} ->
@@ -260,6 +263,7 @@ defmodule CodePuppyControl.Pack.RemoteNodeProxy do
     case state.handshake_fn.(node_name, state.handshake_timeout) do
       {:ok, caps} ->
         emit_node_telemetry(:connected, node_name, caps)
+        safe_register_naming(node_name, caps)
         {:noreply, %{state | status: :connected, capabilities: caps, reconnect_attempts: 0}}
 
       {:error, reason} ->
@@ -278,6 +282,9 @@ defmodule CodePuppyControl.Pack.RemoteNodeProxy do
   @impl true
   def handle_info({:nodedown, node_name}, %{node_name: node_name} = state) do
     Logger.warning("[RemoteNodeProxy] node down: #{inspect(node_name)}")
+
+    # Remove from NamingService so Dispatcher stops routing to this node
+    safe_unregister_naming(node_name)
 
     # Mark all in-flight runs as failed
     state.active_runs
@@ -407,6 +414,9 @@ defmodule CodePuppyControl.Pack.RemoteNodeProxy do
       %{capabilities: caps}
     )
 
+    # Update NamingService with latest capabilities so Dispatcher routes correctly
+    safe_register_naming(state.node_name, caps)
+
     {:noreply, %{state | status: :connected, capabilities: caps, reconnect_attempts: 0}}
   end
 
@@ -488,6 +498,24 @@ defmodule CodePuppyControl.Pack.RemoteNodeProxy do
     catch
       :exit, reason -> {:error, reason}
     end
+  end
+
+  # ── NamingService Integration ─────────────────────────────────────────────────
+
+  defp safe_register_naming(node_name, caps) do
+    NamingService.register_node(node_name, caps)
+  rescue
+    _ -> :ok
+  catch
+    :exit, _ -> :ok
+  end
+
+  defp safe_unregister_naming(node_name) do
+    NamingService.unregister_node(node_name)
+  rescue
+    _ -> :ok
+  catch
+    :exit, _ -> :ok
   end
 
   defp emit_node_telemetry(:connected, node_name, caps) do

@@ -2,8 +2,9 @@ defmodule CodePuppyControl.Pack.Supervisor do
   @moduledoc """
   Supervisor for Pack-related GenServers within `code_puppy_control`.
 
-  Currently supervises a single singleton:
+  Currently supervises:
     - `CodePuppyControl.Pack.NamingService` — ETS-backed capability index
+    - `CodePuppyControl.Pack.Dispatcher` — Round-robin worker dispatch
 
   This supervisor is intended to be started by the umbrella root supervision
   tree (e.g., `code_puppy_e2k`). It is **not** wired into
@@ -28,7 +29,8 @@ defmodule CodePuppyControl.Pack.Supervisor do
   @impl true
   def init(_opts) do
     children = [
-      CodePuppyControl.Pack.NamingService
+      CodePuppyControl.Pack.NamingService,
+      CodePuppyControl.Pack.Dispatcher
     ]
 
     Supervisor.init(children, strategy: :one_for_one)

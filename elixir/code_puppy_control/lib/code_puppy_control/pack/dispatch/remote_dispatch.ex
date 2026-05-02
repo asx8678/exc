@@ -27,8 +27,7 @@ defmodule CodePuppyControl.Pack.Dispatch.RemoteDispatch do
 
   require Logger
 
-  alias CodePuppyControl.Pack.DistributedSupervisor
-  alias CodePuppyControl.Pack.NamingService
+  alias CodePuppyControl.Pack.{Dispatcher, DistributedSupervisor, NamingService}
 
   # ── Types ────────────────────────────────────────────────────────────────
 
@@ -140,34 +139,43 @@ defmodule CodePuppyControl.Pack.Dispatch.RemoteDispatch do
       when is_atom(sub_agent) and is_map(params) and is_list(opts) do
     supervisor_name = Keyword.get(opts, :supervisor_name, @default_supervisor)
     run_id = resolve_run_id(opts, sub_agent)
-    candidate_nodes = find_candidate_nodes(sub_agent, supervisor_name)
 
-    case select_best_node(candidate_nodes) do
+    # Primary: use Dispatcher for round-robin selection (capability-aware)
+    case select_best_node_round_robin(sub_agent, opts) do
       {:ok, node_name} ->
-        dispatch_result =
-          do_dispatch_to_node(node_name, sub_agent, params, run_id, supervisor_name, opts)
-
-        case dispatch_result do
-          {:ok, ^run_id} ->
-            emit_telemetry(:start, %{run_id: run_id}, %{
-              node: node_name,
-              sub_agent: sub_agent,
-              mode: :auto
-            })
-
-            {:ok, {:remote, node_name, run_id}}
-
-          {:error, reason} ->
-            Logger.warning(
-              "[RemoteDispatch] auto-dispatch to #{inspect(node_name)} failed: " <>
-                "#{inspect(reason)} — falling back to local"
-            )
-
-            fallback_to_local(sub_agent, run_id)
+        case do_auto_dispatch_to_node(
+               node_name,
+               sub_agent,
+               params,
+               run_id,
+               supervisor_name,
+               opts
+             ) do
+          {:ok, _} = result -> result
+          {:fallback, fb_run_id} -> fallback_to_local(sub_agent, fb_run_id)
         end
 
       :no_remote ->
-        fallback_to_local(sub_agent, run_id)
+        # Fallback: first-fit via NamingService + DistributedSupervisor
+        candidate_nodes = find_candidate_nodes(sub_agent, supervisor_name)
+
+        case select_best_node_first_fit(candidate_nodes) do
+          {:ok, node_name} ->
+            case do_auto_dispatch_to_node(
+                   node_name,
+                   sub_agent,
+                   params,
+                   run_id,
+                   supervisor_name,
+                   opts
+                 ) do
+              {:ok, _} = result -> result
+              {:fallback, fb_run_id} -> fallback_to_local(sub_agent, fb_run_id)
+            end
+
+          :no_remote ->
+            fallback_to_local(sub_agent, run_id)
+        end
     end
   end
 
@@ -203,6 +211,27 @@ defmodule CodePuppyControl.Pack.Dispatch.RemoteDispatch do
         })
 
         {:error, {:dispatch_crashed, Exception.message(e)}}
+    end
+  end
+
+  defp do_auto_dispatch_to_node(node_name, sub_agent, params, run_id, supervisor_name, opts) do
+    case do_dispatch_to_node(node_name, sub_agent, params, run_id, supervisor_name, opts) do
+      {:ok, ^run_id} ->
+        emit_telemetry(:start, %{run_id: run_id}, %{
+          node: node_name,
+          sub_agent: sub_agent,
+          mode: :auto
+        })
+
+        {:ok, {:remote, node_name, run_id}}
+
+      {:error, reason} ->
+        Logger.warning(
+          "[RemoteDispatch] auto-dispatch to #{inspect(node_name)} failed: " <>
+            "#{inspect(reason)} — falling back to local"
+        )
+
+        {:fallback, run_id}
     end
   end
 
@@ -247,8 +276,10 @@ defmodule CodePuppyControl.Pack.Dispatch.RemoteDispatch do
       end
 
     if naming_nodes == [] do
-      # No NamingService entries — fall back to all connected nodes
-      connected_nodes
+      # No NamingService entries — no known capable workers.
+      # Don't blindly fall back to all connected nodes; return empty
+      # so caller falls through to local dispatch. (code_puppy-5vd.1)
+      []
     else
       # Intersection: only nodes that are both capable AND connected
       naming_set = MapSet.new(naming_nodes)
@@ -256,13 +287,21 @@ defmodule CodePuppyControl.Pack.Dispatch.RemoteDispatch do
     end
   end
 
-  defp select_best_node([]) do
+  defp select_best_node_round_robin(sub_agent, opts) do
+    # Use Dispatcher for round-robin selection.
+    # Dispatcher queries NamingService + DistributedSupervisor internally
+    # and performs atomic round-robin selection.
+    case Dispatcher.dispatch(sub_agent, opts) do
+      {:ok, node_name} -> {:ok, node_name}
+      {:error, _reason} -> :no_remote
+    end
+  end
+
+  defp select_best_node_first_fit([]) do
     :no_remote
   end
 
-  defp select_best_node([node_name | _rest]) do
-    # Simple first-fit selection. Future: load-aware selection via
-    # CapabilityQuery.best_worker/2 when that module is implemented.
+  defp select_best_node_first_fit([node_name | _rest]) do
     {:ok, node_name}
   end
 
