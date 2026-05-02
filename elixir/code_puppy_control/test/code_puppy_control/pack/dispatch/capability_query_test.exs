@@ -16,10 +16,10 @@ defmodule CodePuppyControl.Pack.Dispatch.CapabilityQueryTest do
 
   # ── Mock proxy opts ──────────────────────────────────────────────────────
 
-  defp mock_proxy_opts do
+  defp mock_proxy_opts(caps \\ %{}) do
     [
       monitor_fn: fn _node, _flag -> true end,
-      handshake_fn: fn _node, _timeout -> {:ok, %{}} end
+      handshake_fn: fn _node, _timeout -> {:ok, caps} end
     ]
   end
 
@@ -62,7 +62,7 @@ defmodule CodePuppyControl.Pack.Dispatch.CapabilityQueryTest do
     {:ok, _supervisor_pid} =
       DistributedSupervisor.add_node(node_name,
         supervisor_name: DistributedSupervisor,
-        proxy_opts: mock_proxy_opts()
+        proxy_opts: mock_proxy_opts(caps)
       )
 
     # Wait for the proxy to finish handshake (handle_continue) and

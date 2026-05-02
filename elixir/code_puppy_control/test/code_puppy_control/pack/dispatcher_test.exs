@@ -51,8 +51,19 @@ defmodule CodePuppyControl.Pack.DispatcherTest do
   # ── Setup ────────────────────────────────────────────────────────────────
 
   setup do
-    start_supervised!({NamingService, [name: NamingService]})
-    start_supervised!({Dispatcher, [name: Dispatcher]})
+    # If app already started NamingService/Dispatcher, just clear them.
+    # If running with --no-start, start them manually.
+    unless Process.whereis(NamingService) do
+      start_supervised!({NamingService, []})
+    end
+
+    unless Process.whereis(Dispatcher) do
+      start_supervised!({Dispatcher, []})
+    end
+
+    # Clear state for test isolation
+    NamingService.clear()
+    Dispatcher.clear()
 
     on_exit(fn ->
       # Detach any telemetry handlers left by tests

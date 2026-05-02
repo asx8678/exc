@@ -236,8 +236,8 @@ defmodule CodePuppyControl.Pack.Dispatcher do
   end
 
   @impl true
-  def handle_call(:clear, _from, _state) do
-    {:reply, :ok, %{round_robin: %{}}}
+  def handle_call(:clear, _from, state) do
+    {:reply, :ok, %{state | round_robin: %{}}}
   end
 
   # ── Private Helpers ─────────────────────────────────────────────────────
