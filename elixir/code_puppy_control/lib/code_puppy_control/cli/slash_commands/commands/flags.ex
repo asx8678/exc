@@ -8,7 +8,7 @@ defmodule CodePuppyControl.CLI.SlashCommands.Commands.Flags do
   Ports the Python /flags command from `code_puppy/command_line/workflow_commands.py`.
   """
 
-  alias CodePuppyControl.WorkflowState
+  alias CodePuppyControl.Workflow.State
 
   @usage "Usage: /flags [reset|set <flag>|clear <flag>]"
 
@@ -28,7 +28,7 @@ defmodule CodePuppyControl.CLI.SlashCommands.Commands.Flags do
         show_workflow_state()
 
       ["reset"] ->
-        WorkflowState.reset()
+        State.reset()
         print_success("Workflow state reset")
 
       ["set", flag_name] ->
@@ -47,8 +47,8 @@ defmodule CodePuppyControl.CLI.SlashCommands.Commands.Flags do
   # ── Subcommand Handlers ──────────────────────────────────────────────────
 
   defp show_workflow_state do
-    active_count = WorkflowState.active_count()
-    all_flags = WorkflowState.all_flags()
+    active_count = State.active_count()
+    all_flags = State.all_flags()
     total = length(all_flags)
 
     IO.puts("")
@@ -56,7 +56,7 @@ defmodule CodePuppyControl.CLI.SlashCommands.Commands.Flags do
     IO.puts("")
 
     Enum.each(all_flags, fn {flag_name, description} ->
-      if WorkflowState.has_flag?(flag_name) do
+      if State.has_flag?(flag_name) do
         IO.puts(
           "    ✓ #{IO.ANSI.green()}#{String.pad_trailing(to_string(flag_name), 27)}#{IO.ANSI.reset()} #{description}"
         )
@@ -70,7 +70,7 @@ defmodule CodePuppyControl.CLI.SlashCommands.Commands.Flags do
     IO.puts("")
     IO.puts("    #{IO.ANSI.faint()}Active flags: #{active_count}/#{total}#{IO.ANSI.reset()}")
 
-    metadata = WorkflowState.metadata()
+    metadata = State.metadata()
 
     if map_size(metadata) > 0 do
       IO.puts("")
@@ -90,8 +90,8 @@ defmodule CodePuppyControl.CLI.SlashCommands.Commands.Flags do
   defp set_flag_command(raw_name) do
     flag_atom = normalize_flag(raw_name)
 
-    if WorkflowState.known_flag?(flag_atom) do
-      WorkflowState.set_flag(flag_atom)
+    if State.known_flag?(flag_atom) do
+      State.set_flag(flag_atom)
       print_success("Flag #{flag_atom} set")
     else
       print_warning("Unknown flag: #{raw_name}")
@@ -101,8 +101,8 @@ defmodule CodePuppyControl.CLI.SlashCommands.Commands.Flags do
   defp clear_flag_command(raw_name) do
     flag_atom = normalize_flag(raw_name)
 
-    if WorkflowState.known_flag?(flag_atom) do
-      WorkflowState.clear_flag(flag_atom)
+    if State.known_flag?(flag_atom) do
+      State.clear_flag(flag_atom)
       print_success("Flag #{flag_atom} cleared")
     else
       print_warning("Unknown flag: #{raw_name}")
@@ -117,7 +117,7 @@ defmodule CodePuppyControl.CLI.SlashCommands.Commands.Flags do
   defp normalize_flag(name) when is_binary(name) do
     downcased = String.downcase(name)
 
-    WorkflowState.flag_names()
+    State.flag_names()
     |> Enum.find(fn atom -> Atom.to_string(atom) == downcased end)
   end
 

@@ -2,13 +2,13 @@ defmodule CodePuppyControl.ApplicationWiringTest do
   @moduledoc """
   Direct runtime coverage for application supervision wiring.
 
-  Verifies that key processes (WorkflowState, SlashCommands.Registry,
+  Verifies that key processes (Workflow.State [aliased as WorkflowState], SlashCommands.Registry,
   Callbacks.Registry) are startable and reachable in application context.
   """
 
   use ExUnit.Case, async: false
 
-  alias CodePuppyControl.WorkflowState
+  alias CodePuppyControl.Workflow.State, as: WorkflowState
   alias CodePuppyControl.CLI.SlashCommands.Registry
 
   describe "WorkflowState supervision wiring" do
@@ -118,10 +118,10 @@ defmodule CodePuppyControl.ApplicationWiringTest do
     end
   end
 
-  describe "Workflow.State callback registration wiring (code-puppy-ctj.3)" do
+  describe "WorkflowState callback registration wiring (code-puppy-ctj.3)" do
     test "workflow-state callbacks are auto-registered on startup" do
       # The Application.start/2 callback calls
-      # Workflow.State.register_callback_handlers() after the
+      # WorkflowState.register_callback_handlers() after the
       # Callbacks.Registry is started. This test verifies the
       # handlers are present in the live registry.
       CodePuppyControl.Callbacks.clear(:pre_tool_call)

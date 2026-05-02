@@ -69,9 +69,8 @@ defmodule CodePuppyControl.Workflow.State do
 
   # ── Child Spec (supervision tree compatibility) ─────────────────────
 
-  # The old module used `use Agent` which auto-defined child_spec/1.
-  # Since we're now a facade delegating to Store, we need to define it
-  # explicitly so supervision trees continue to work.
+  # We define child_spec explicitly so supervision trees can start the Store
+  # process under this module's name.
   @doc false
   def child_spec(opts) do
     %{
@@ -272,7 +271,7 @@ defmodule CodePuppyControl.Workflow.State do
   @spec unregister_callback_handlers() :: :ok
   defdelegate unregister_callback_handlers, to: CallbackHandlers
 
-  # ── State Struct (for backward compat with WorkflowState facade) ────
+  # ── State Struct ────
 
   defstruct flags: MapSet.new(), metadata: %{}, start_time: nil
 

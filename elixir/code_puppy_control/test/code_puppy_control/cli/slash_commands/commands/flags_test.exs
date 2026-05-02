@@ -3,7 +3,7 @@ defmodule CodePuppyControl.CLI.SlashCommands.Commands.FlagsTest do
 
   alias CodePuppyControl.CLI.SlashCommands.{CommandInfo, Dispatcher, Registry}
   alias CodePuppyControl.CLI.SlashCommands.Commands.Flags
-  alias CodePuppyControl.WorkflowState
+  alias CodePuppyControl.Workflow.State, as: WorkflowState
 
   # async: false because Registry and WorkflowState are named singletons.
 
@@ -19,7 +19,7 @@ defmodule CodePuppyControl.CLI.SlashCommands.Commands.FlagsTest do
 
     Registry.clear()
 
-    # Start WorkflowState agent if not already running
+    # Start Workflow.State agent if not already running
     case Process.whereis(WorkflowState) do
       nil -> start_supervised!({WorkflowState, name: WorkflowState})
       _pid -> :ok
@@ -233,7 +233,7 @@ defmodule CodePuppyControl.CLI.SlashCommands.Commands.FlagsTest do
 
       assert output =~ "Unknown flag"
       # The flag should not be known or active — this proves no atom was
-      # created and passed through to the WorkflowState API.
+      # created and passed through to the Workflow.State API.
       refute WorkflowState.known_flag?(:totally_malicious_atom)
       refute WorkflowState.has_flag?(:totally_malicious_atom)
     end
