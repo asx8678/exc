@@ -140,7 +140,10 @@ defmodule CodePuppyControl.Pack.Dispatch.RemoteDispatch do
     supervisor_name = Keyword.get(opts, :supervisor_name, @default_supervisor)
     run_id = resolve_run_id(opts, sub_agent)
 
-    # Primary: use Dispatcher for round-robin selection (capability-aware)
+    # Primary: use Dispatcher for round-robin selection (capability-aware).
+    # Dispatcher.dispatch/2 now atomically acquires a slot on selection,
+    # so callers MUST release via Dispatcher.release_slot/1 when the run
+    # completes (success or failure).
     case select_best_node_round_robin(sub_agent, opts) do
       {:ok, node_name} ->
         case do_auto_dispatch_to_node(
@@ -154,6 +157,12 @@ defmodule CodePuppyControl.Pack.Dispatch.RemoteDispatch do
           {:ok, _} = result -> result
           {:fallback, fb_run_id} -> fallback_to_local(sub_agent, fb_run_id)
         end
+
+      {:error, :all_workers_at_capacity} ->
+        # All capable workers are at their max_concurrent_runs limit.
+        # Do NOT fall through to first-fit — that would bypass capacity.
+        # Fall back to local dispatch instead.
+        fallback_to_local(sub_agent, run_id)
 
       :no_remote ->
         # Fallback: first-fit via NamingService + DistributedSupervisor
@@ -188,6 +197,9 @@ defmodule CodePuppyControl.Pack.Dispatch.RemoteDispatch do
           # The proxy generates its own run_id internally. We surface the
           # caller-provided run_id for correlation; the proxy's run_id is
           # used for wire-level tracking.
+          #
+          # NOTE: Callers must call Dispatcher.release_slot(node_name)
+          # when the dispatched run completes (success or failure).
           timeout = Keyword.get(opts, :timeout, @default_timeout)
 
           emit_telemetry(:start, %{run_id: run_id, timeout: timeout}, %{
@@ -199,10 +211,12 @@ defmodule CodePuppyControl.Pack.Dispatch.RemoteDispatch do
           {:ok, run_id}
 
         {:error, reason} ->
+          Dispatcher.release_slot(node_name)
           {:error, reason}
       end
     rescue
       e ->
+        Dispatcher.release_slot(node_name)
         Logger.error("[RemoteDispatch] dispatch_to_node crashed: #{Exception.message(e)}")
 
         emit_telemetry(:exception, %{run_id: run_id, error: Exception.message(e)}, %{
@@ -290,9 +304,10 @@ defmodule CodePuppyControl.Pack.Dispatch.RemoteDispatch do
   defp select_best_node_round_robin(sub_agent, opts) do
     # Use Dispatcher for round-robin selection.
     # Dispatcher queries NamingService + DistributedSupervisor internally
-    # and performs atomic round-robin selection.
+    # and performs atomic round-robin selection + slot acquisition.
     case Dispatcher.dispatch(sub_agent, opts) do
       {:ok, node_name} -> {:ok, node_name}
+      {:error, :all_workers_at_capacity} -> {:error, :all_workers_at_capacity}
       {:error, _reason} -> :no_remote
     end
   end

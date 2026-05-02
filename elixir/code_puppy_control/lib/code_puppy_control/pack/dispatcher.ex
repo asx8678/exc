@@ -309,10 +309,23 @@ defmodule CodePuppyControl.Pack.Dispatcher do
         selected = Enum.at(workers, safe_index)
 
         updated_round_robin = Map.put(round_robin, sub_agent_type, current_index + 1)
+        state_after_rr = %{state | round_robin: updated_round_robin}
 
+        # Atomically acquire a slot for the selected worker.
+        # This is safe because filter_by_capacity already verified capacity,
+        # and we're inside the GenServer — no concurrent state mutations.
+        {slot, state_with_slot} = get_or_init_slot(state_after_rr, selected)
+        acquired_slot = %{slot | active: slot.active + 1}
+
+        final_state = %{
+          state_with_slot
+          | slots: Map.put(state_with_slot.slots, selected, acquired_slot)
+        }
+
+        emit_slot_event(:slot_acquired, selected, acquired_slot)
         emit_selected(sub_agent_type, selected, length(workers))
 
-        {:reply, {:ok, selected}, %{state | round_robin: updated_round_robin}}
+        {:reply, {:ok, selected}, final_state}
     end
   end
 
