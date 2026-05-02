@@ -768,7 +768,7 @@ Before publishing or distributing a plugin, verify:
    for invariant checks, not hardcoded expected values.
 
 4. **CI gate** — Plugin tests run on every plugin-related commit
-   (see `lefthook.yml`).
+   (see `scripts/git-hooks/pre-push`).
 
 ### Elixir Plugin Testing
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # pre-commit — tracked native hook
-# Mirrors the lefthook.yml pre-commit block (isort, ruff-format, ruff-lint)
+# Python: isort, ruff-format, ruff-lint on staged files
 # Last sync: 2025-05-12
 #
 # Uses NUL-delimited git output + bash arrays to avoid unsafe filename handling.

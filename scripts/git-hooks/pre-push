@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # pre-push — tracked native hook
-# Mirrors the lefthook.yml pre-push block (elixir compile/test, python ruff/smoke)
+# Elixir: compile + fast tests | Python: ruff + smoke import
 # Last sync: 2025-05-12
 #
 # Uses NUL-delimited git output + bash arrays to avoid unsafe filename handling.

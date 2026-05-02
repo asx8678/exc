@@ -378,8 +378,8 @@ class StagedChangesSandbox:
 
         Uses atomic write-to-tmp-then-rename to avoid corruption if interrupted.
 
-        # FIXME(code-puppy-ctj.5): Triple-write bug — data block repeated 3x.
-        # The Elixir port fixes this by writing once.
+        # Note: save_to_disk is intentionally only called by the explicit /staged save command.
+        # Earlier versions had redundant calls in apply/reject paths which were removed.
         """
         self._ensure_stage_dir()
         save_path = STAGE_DIR / f"{self._session_id}.json"

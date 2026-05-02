@@ -53,4 +53,4 @@
 # - github.org
 # - github.repo
 
-sync.remote: "git+ssh://git@github.com/asx8678/code_puppy.git"
+# sync.remote: "git+ssh://git@github.com/asx8678/code_puppy.git"

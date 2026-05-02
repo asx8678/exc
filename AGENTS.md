@@ -195,7 +195,7 @@ Tests must prevent "drift" from implementation changes:
 | Ignoring error paths | Explicit error case coverage |
 | Stale comment assertions | `pytest --doctest-modules` |
 
-**CI Gate**: Plugin tests run on every plugin-related commit (see `lefthook.yml`).
+**CI Gate**: Plugin tests run on every plugin-related commit (see `scripts/git-hooks/pre-push`).
 
 ```python
 # CORRECT: Test the invariant, not the implementation

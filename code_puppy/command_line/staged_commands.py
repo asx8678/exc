@@ -227,9 +227,6 @@ def _apply_staged_changes() -> None:
             emit_error(f"Failed to apply change {change.change_id}: {e}")
             failed_count += 1
 
-    # Save state after applying
-    sandbox.save_to_disk()
-
     if failed_count == 0:
         emit_success(f"✅ Applied {applied_count} staged changes successfully")
     else:
@@ -336,7 +333,6 @@ def _reject_staged_changes() -> None:
     for change in sandbox.get_staged_changes():
         change.rejected = True
 
-    sandbox.save_to_disk()
     sandbox.clear()
 
     emit_success(f"❌ Rejected {count} staged changes")
