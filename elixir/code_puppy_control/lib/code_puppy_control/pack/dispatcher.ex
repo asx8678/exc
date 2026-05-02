@@ -161,9 +161,10 @@ defmodule CodePuppyControl.Pack.Dispatcher do
   # ── GenServer Callbacks ──────────────────────────────────────────────────
 
   @impl true
-  def init(_opts) do
+  def init(opts) do
     Logger.info("Dispatcher initialized")
-    {:ok, %{round_robin: %{}}}
+    supervisor_name = Keyword.get(opts, :supervisor_name, DistributedSupervisor)
+    {:ok, %{round_robin: %{}, supervisor_name: supervisor_name}}
   end
 
   @impl true
@@ -186,8 +187,10 @@ defmodule CodePuppyControl.Pack.Dispatcher do
     #
     # Only when both NamingService AND DistributedSupervisor are running AND
     # DistributedSupervisor lists connected nodes do we intersect the sets.
+    supervisor_name = state.supervisor_name
+
     connected =
-      safe_distributed(fn -> DistributedSupervisor.list_nodes(DistributedSupervisor) end, :unavailable)
+      safe_distributed(fn -> DistributedSupervisor.list_nodes(supervisor_name) end, :unavailable)
 
     candidates =
       case {eligible, connected} do

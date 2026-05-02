@@ -283,10 +283,9 @@ defmodule CodePuppyControl.Pack.DispatcherTest do
 
   describe "graceful degradation" do
     test "returns :dispatcher_not_started when Dispatcher is not running" do
-      assert {:error, :dispatcher_not_started} = Dispatcher.dispatch(:terrier, [], :nonexistent_dispatcher)
+      assert {:error, :dispatcher_not_started} =
+               Dispatcher.dispatch(:terrier, [], :nonexistent_dispatcher)
     end
-
-
   end
 
   # ── status/0 ─────────────────────────────────────────────────────────────

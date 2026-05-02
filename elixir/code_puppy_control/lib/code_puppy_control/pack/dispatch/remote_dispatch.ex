@@ -144,7 +144,12 @@ defmodule CodePuppyControl.Pack.Dispatch.RemoteDispatch do
     case select_best_node_round_robin(sub_agent, opts) do
       {:ok, node_name} ->
         case do_auto_dispatch_to_node(
-               node_name, sub_agent, params, run_id, supervisor_name, opts
+               node_name,
+               sub_agent,
+               params,
+               run_id,
+               supervisor_name,
+               opts
              ) do
           {:ok, _} = result -> result
           {:fallback, fb_run_id} -> fallback_to_local(sub_agent, fb_run_id)
@@ -157,7 +162,12 @@ defmodule CodePuppyControl.Pack.Dispatch.RemoteDispatch do
         case select_best_node_first_fit(candidate_nodes) do
           {:ok, node_name} ->
             case do_auto_dispatch_to_node(
-                   node_name, sub_agent, params, run_id, supervisor_name, opts
+                   node_name,
+                   sub_agent,
+                   params,
+                   run_id,
+                   supervisor_name,
+                   opts
                  ) do
               {:ok, _} = result -> result
               {:fallback, fb_run_id} -> fallback_to_local(sub_agent, fb_run_id)
@@ -266,8 +276,10 @@ defmodule CodePuppyControl.Pack.Dispatch.RemoteDispatch do
       end
 
     if naming_nodes == [] do
-      # No NamingService entries — fall back to all connected nodes
-      connected_nodes
+      # No NamingService entries — no known capable workers.
+      # Don't blindly fall back to all connected nodes; return empty
+      # so caller falls through to local dispatch. (code_puppy-5vd.1)
+      []
     else
       # Intersection: only nodes that are both capable AND connected
       naming_set = MapSet.new(naming_nodes)

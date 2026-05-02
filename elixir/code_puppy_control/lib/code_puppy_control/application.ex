@@ -137,6 +137,11 @@ defmodule CodePuppyControl.Application do
       CodePuppyControl.Concurrency.Supervisor,
       # Pack parallelism semaphore GenServer (replaces Python _async_active HACK)
       CodePuppyControl.Plugins.PackParallelism.Supervisor,
+      # Pack dispatch infrastructure — NamingService and Dispatcher must start
+      # before DistributedSupervisor since it depends on them for capability
+      # routing and round-robin selection. (code_puppy-5vd.1)
+      CodePuppyControl.Pack.NamingService,
+      CodePuppyControl.Pack.Dispatcher,
       # Pack distributed registries – started only when remote packs are enabled
       {CodePuppyControl.Pack.Registries, []},
       # Distributed pack orchestration — always start; modules are no-ops when disabled (§13.1)
