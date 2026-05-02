@@ -146,6 +146,8 @@ defmodule CodePuppyControl.TUI.Widgets.SessionBrowser do
     )
   end
 
+  @session_column_order %{"Session" => 0, "Messages" => 1, "Tokens" => 2, "Time" => 3, "Status" => 4}
+
   defp render_session_row({session, idx}) do
     name =
       if session.auto_saved do
@@ -161,9 +163,15 @@ defmodule CodePuppyControl.TUI.Widgets.SessionBrowser do
     auto_badge =
       if session.auto_saved,
         do: Owl.Data.tag(" auto ", [:black, :yellow_background]),
-        else: ""
+        else: Owl.Data.tag("", :default)
 
-    [name, "  ", msgs, "  ", tokens, "  ", time, auto_badge]
+    %{
+      "Session" => name,
+      "Messages" => msgs,
+      "Tokens" => tokens,
+      "Time" => time,
+      "Status" => auto_badge
+    }
   end
 
   defp format_tokens(0), do: Owl.Data.tag("0 tok", :faint)
@@ -193,23 +201,14 @@ defmodule CodePuppyControl.TUI.Widgets.SessionBrowser do
   defp format_timestamp(other), do: Owl.Data.tag(" #{inspect(other)}", :faint)
 
   defp build_table(rows) do
-    if function_exported?(Owl.Table, :new, 1) do
-      Owl.Table.new(rows)
-    else
-      # Fallback: extract plain text from Owl.Data tags
-      rows
-      |> Enum.map(fn row ->
-        plain =
-          row
-          |> Enum.map(fn
-            %Owl.Tag{data: data} -> data
-            other -> to_string(other)
-          end)
-          |> Enum.join("")
-
-        ["  ", plain, "\n"]
-      end)
-    end
+    Owl.Table.new(
+      rows,
+      border_style: :solid,
+      padding_x: 1,
+      sort_columns: fn a, b ->
+        Map.get(@session_column_order, a, 99) < Map.get(@session_column_order, b, 99)
+      end
+    )
   end
 
   # ── Private: Action Prompt ────────────────────────────────────────────────

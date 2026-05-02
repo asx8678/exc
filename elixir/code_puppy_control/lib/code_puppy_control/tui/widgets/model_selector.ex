@@ -190,7 +190,11 @@ defmodule CodePuppyControl.TUI.Widgets.ModelSelector do
 
     context_part = Owl.Data.tag(" ctx: #{context_str}", :faint)
 
-    [name_part, "  ", provider_tag, context_part]
+    %{
+      "Model" => name_part,
+      "Provider" => provider_tag,
+      "Context" => context_part
+    }
   end
 
   defp format_context_length(len) when len >= 1_000_000, do: "#{div(len, 1_000_000)}M"
@@ -207,24 +211,17 @@ defmodule CodePuppyControl.TUI.Widgets.ModelSelector do
   defp provider_bg("azure_openai"), do: :blue_background
   defp provider_bg(_), do: :black_background
 
-  defp build_table(rows) do
-    if function_exported?(Owl.Table, :new, 1) do
-      Owl.Table.new(rows)
-    else
-      # Fallback: extract plain text from Owl.Data tags
-      rows
-      |> Enum.map(fn row ->
-        plain =
-          row
-          |> Enum.map(fn
-            %Owl.Tag{data: data} -> data
-            other -> to_string(other)
-          end)
-          |> Enum.join("")
+  @model_column_order %{"Model" => 0, "Provider" => 1, "Context" => 2}
 
-        ["  ", plain, "\n"]
-      end)
-    end
+  defp build_table(rows) do
+    Owl.Table.new(
+      rows,
+      border_style: :solid,
+      padding_x: 1,
+      sort_columns: fn a, b ->
+        Map.get(@model_column_order, a, 99) < Map.get(@model_column_order, b, 99)
+      end
+    )
   end
 
   # ── Private: Interactive Selection ────────────────────────────────────────

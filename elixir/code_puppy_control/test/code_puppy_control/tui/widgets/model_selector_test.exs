@@ -749,4 +749,33 @@ defmodule CodePuppyControl.TUI.Widgets.ModelSelectorTest do
       assert models == []
     end
   end
+
+  # ── Owl.Table API compatibility ────────────────────────────────────────
+
+  describe "Owl.Table map format" do
+    test "build_table receives maps, not lists (prevents BadMapError)" do
+      # Owl.Table.new/1 requires a list of maps; passing lists causes BadMapError.
+      # This test ensures the rendering path uses the correct format.
+      output =
+        capture_io([input: "\n"], fn ->
+          ModelSelector.select()
+        end)
+
+      # If Owl.Table.new received lists, it would raise and no output would be produced.
+      # The presence of "Model Selector" confirms successful rendering.
+      assert output =~ "Model Selector"
+      assert output =~ "ctx:"
+    end
+
+    test "table renders with column headers" do
+      output =
+        capture_io([input: "\n"], fn ->
+          ModelSelector.select()
+        end)
+
+      # Owl.Table with maps should render column headers
+      assert output =~ "Model"
+      assert output =~ "Provider"
+    end
+  end
 end

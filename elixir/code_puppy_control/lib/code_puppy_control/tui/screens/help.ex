@@ -98,14 +98,14 @@ defmodule CodePuppyControl.TUI.Screens.Help do
         ]
       end)
 
-    # Use Owl.Table for structured output
     table =
-      if function_exported?(Owl.Table, :new, 1) do
-        Owl.Table.new(table_rows)
-      else
-        # Fallback: manual formatting
-        Enum.map(table_rows, fn [cmd, desc] -> ["    ", cmd, desc, "\n"] end)
-      end
+      table_rows
+      |> Enum.map(fn [cmd, desc] ->
+        %{"Command" => cmd, "Description" => desc}
+      end)
+      |> then(fn rows ->
+        Owl.Table.new(rows, border_style: :solid, padding_x: 1)
+      end)
 
     [header, "\n", table]
   end
