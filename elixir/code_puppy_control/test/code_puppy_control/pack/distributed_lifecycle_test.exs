@@ -36,7 +36,8 @@ defmodule CodePuppyControl.Pack.DistributedLifecycleTest do
     [
       monitor_fn: fn _node, _flag -> true end,
       handshake_fn: fn _node, _timeout -> {:error, :noproc} end,
-      name: nil
+      name: nil,
+      grace_period_timeout: 0
     ]
   end
 

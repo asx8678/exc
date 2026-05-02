@@ -9,7 +9,7 @@ defmodule CodePuppyControl.Pack.RemoteNodeProxy do
   ## State
 
   - `node_name` — the remote Erlang node atom
-  - `status` — `:connecting` | `:connected` | `:disconnected`
+  - `status` — `:connecting` | `:connected` | `:disconnected` | `:grace_period`
   - `capabilities` — last advertised capabilities map from the worker, or `nil`
   - `active_runs` — map of `%{run_id => run_info}` for in-flight dispatches
   - `node_ref` — reference for internal event correlation
@@ -21,7 +21,10 @@ defmodule CodePuppyControl.Pack.RemoteNodeProxy do
   1. `start_link/1` called by `RemoteNodeSupervisor`.
   2. On init, calls `Node.monitor/2` and attempts capability handshake.
   3. On `{:nodeup, node}`, re-attempts handshake and transitions to `:connected`.
-  4. On `{:nodedown, node}`, transitions to `:disconnected`.
+  4. On `{:nodedown, node}`, enters `:grace_period` (configurable, default 30s).
+     - In-flight runs are preserved during the grace period.
+     - If the node reconnects, the timer is cancelled and runs resume.
+     - If the grace period expires, remaining runs are orphaned.
   5. Dispatch is rejected unless status is `:connected`.
 
   ## Dispatch Protocol (per §6 & §11)
@@ -39,6 +42,10 @@ defmodule CodePuppyControl.Pack.RemoteNodeProxy do
   - `[:code_puppy, :distributed_pack, :node, :connected]`
   - `[:code_puppy, :distributed_pack, :node, :disconnected]`
   - `[:code_puppy, :distributed_pack, :capabilities, :updated]`
+  - `[:code_puppy, :pack, :node, :grace_period_started]`
+  - `[:code_puppy, :pack, :node, :grace_period_expired]`
+  - `[:code_puppy, :pack, :node, :grace_period_cancelled]`
+  - `[:code_puppy, :pack, :node, :run_orphaned]`
 
   ## References
 
@@ -55,7 +62,7 @@ defmodule CodePuppyControl.Pack.RemoteNodeProxy do
 
   # ── Types ────────────────────────────────────────────────────────────────────────
 
-  @type status :: :connecting | :connected | :disconnected
+  @type status :: :connecting | :connected | :disconnected | :grace_period
 
   @type run_info :: %{
           run_id: String.t(),
@@ -76,13 +83,16 @@ defmodule CodePuppyControl.Pack.RemoteNodeProxy do
           reconnect_attempts: non_neg_integer(),
           handshake_fn: (node(), timeout() -> {:ok, map()} | {:error, term()}),
           handshake_timeout: timeout(),
-          dispatch_timeout: timeout()
+          dispatch_timeout: timeout(),
+          grace_period_timeout: non_neg_integer(),
+          grace_timer_ref: reference() | nil
         }
 
   # ── Configuration ────────────────────────────────────────────────────────
 
   @default_handshake_timeout 30_000
   @default_dispatch_timeout 30_000
+  @default_grace_period_timeout 30_000
   @worker_name :pack_worker
 
   # ── Public API ───────────────────────────────────────────────────────────
@@ -100,6 +110,8 @@ defmodule CodePuppyControl.Pack.RemoteNodeProxy do
   - `:handshake_timeout` — (optional) handshake timeout in ms (default 30_000)
   - `:dispatch_timeout` — (optional) per-run dispatch timeout in ms
     (default 30_000); lost results are cleaned up after this timeout
+  - `:grace_period_timeout` — (optional) grace period in ms before orphaning
+    in-flight runs on disconnect (default 30_000); set to 0 to disable
   """
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts) do
@@ -162,6 +174,16 @@ defmodule CodePuppyControl.Pack.RemoteNodeProxy do
     GenServer.call(proxy, :capabilities)
   end
 
+  @doc """
+  Returns the map of in-flight runs currently tracked by this proxy.
+
+  Each key is a `run_id`, and each value is a `run_info()` map.
+  """
+  @spec in_flight_runs(GenServer.server()) :: %{String.t() => run_info()}
+  def in_flight_runs(proxy) do
+    GenServer.call(proxy, :in_flight_runs)
+  end
+
   # ── GenServer Callbacks ──────────────────────────────────────────────────
 
   @impl true
@@ -171,6 +193,7 @@ defmodule CodePuppyControl.Pack.RemoteNodeProxy do
     monitor_fn = Keyword.get(opts, :monitor_fn, &Node.monitor/2)
     handshake_timeout = Keyword.get(opts, :handshake_timeout, @default_handshake_timeout)
     dispatch_timeout = Keyword.get(opts, :dispatch_timeout, @default_dispatch_timeout)
+    grace_period_timeout = Keyword.get(opts, :grace_period_timeout, @default_grace_period_timeout)
 
     # Start monitoring the remote node for up/down events.
     # Node.monitor/2 returns a boolean — we generate our own reference
@@ -187,7 +210,9 @@ defmodule CodePuppyControl.Pack.RemoteNodeProxy do
       reconnect_attempts: 0,
       handshake_fn: handshake_fn,
       handshake_timeout: handshake_timeout,
-      dispatch_timeout: dispatch_timeout
+      dispatch_timeout: dispatch_timeout,
+      grace_period_timeout: grace_period_timeout,
+      grace_timer_ref: nil
     }
 
     # Defer the initial handshake to handle_continue so supervisor
@@ -241,12 +266,17 @@ defmodule CodePuppyControl.Pack.RemoteNodeProxy do
   end
 
   @impl true
+  def handle_call(:in_flight_runs, _from, state) do
+    {:reply, state.active_runs, state}
+  end
+
+  @impl true
   def handle_call({:dispatch, sub_agent, params, opts}, _from, state) do
     case state.status do
       :connected ->
         do_dispatch(sub_agent, params, opts, state)
 
-      :disconnected ->
+      status when status in [:disconnected, :grace_period] ->
         {:reply, {:error, {:node_disconnected, state.node_name}}, state}
 
       :connecting ->
@@ -259,6 +289,8 @@ defmodule CodePuppyControl.Pack.RemoteNodeProxy do
   @impl true
   def handle_info({:nodeup, node_name}, %{node_name: node_name} = state) do
     Logger.info("[RemoteNodeProxy] node up: #{inspect(node_name)}")
+
+    state = maybe_cancel_grace_period(node_name, state)
 
     case state.handshake_fn.(node_name, state.handshake_timeout) do
       {:ok, caps} ->
@@ -286,33 +318,52 @@ defmodule CodePuppyControl.Pack.RemoteNodeProxy do
     # Remove from NamingService so Dispatcher stops routing to this node
     safe_unregister_naming(node_name)
 
-    # Mark all in-flight runs as failed
-    state.active_runs
-    |> Enum.each(fn {run_id, _info} ->
+    emit_node_telemetry(:disconnected, node_name, %{
+      active_runs: Map.keys(state.active_runs)
+    })
+
+    if state.grace_period_timeout > 0 do
+      handle_nodedown_with_grace(state)
+    else
+      handle_nodedown_immediate(state)
+    end
+  end
+
+  @impl true
+  def handle_info(:grace_period_expired, %{status: :grace_period} = state) do
+    Logger.warning(
+      "[RemoteNodeProxy] grace period expired for #{inspect(state.node_name)}, " <>
+        "orphaning #{map_size(state.active_runs)} in-flight run(s)"
+    )
+
+    # Emit orphaned telemetry for each remaining in-flight run
+    Enum.each(state.active_runs, fn {run_id, run_info} ->
+      emit_grace_telemetry(:run_orphaned, state.node_name, %{
+        run_id: run_id,
+        sub_agent: run_info.sub_agent,
+        dispatched_at: run_info.started_at
+      })
+
       :telemetry.execute(
         [:code_puppy, :distributed_pack, :dispatch, :exception],
         %{run_id: run_id, error: "node_disconnected"},
         %{node: state.node_name}
       )
-    end)
 
-    emit_node_telemetry(:disconnected, node_name, %{
-      active_runs: Map.keys(state.active_runs)
-    })
-
-    # Cancel any outstanding dispatch timers for in-flight runs
-    state.active_runs
-    |> Enum.each(fn {_run_id, run_info} ->
       if run_info.timer_ref, do: Process.cancel_timer(run_info.timer_ref)
     end)
 
-    {:noreply,
-     %{
-       state
-       | status: :disconnected,
-         active_runs: %{},
-         reconnect_attempts: state.reconnect_attempts + 1
-     }}
+    emit_grace_telemetry(:grace_period_expired, state.node_name, %{
+      orphaned_runs: Map.keys(state.active_runs)
+    })
+
+    {:noreply, %{state | status: :disconnected, active_runs: %{}, grace_timer_ref: nil}}
+  end
+
+  # Grace period expired but we're no longer in :grace_period (e.g. reconnected)
+  @impl true
+  def handle_info(:grace_period_expired, state) do
+    {:noreply, state}
   end
 
   @impl true
@@ -531,6 +582,77 @@ defmodule CodePuppyControl.Pack.RemoteNodeProxy do
       [:code_puppy, :distributed_pack, :node, :disconnected],
       %{node: node_name},
       extra
+    )
+  end
+
+  # ── Grace Period Helpers ─────────────────────────────────────────────────
+
+  defp handle_nodedown_with_grace(state) do
+    grace_ref =
+      Process.send_after(self(), :grace_period_expired, state.grace_period_timeout)
+
+    emit_grace_telemetry(:grace_period_started, state.node_name, %{
+      timeout_ms: state.grace_period_timeout,
+      in_flight_runs: Map.keys(state.active_runs)
+    })
+
+    {:noreply,
+     %{
+       state
+       | status: :grace_period,
+         grace_timer_ref: grace_ref,
+         reconnect_attempts: state.reconnect_attempts + 1
+     }}
+  end
+
+  defp handle_nodedown_immediate(state) do
+    # Original behavior: immediately fail all in-flight runs
+    Enum.each(state.active_runs, fn {run_id, _info} ->
+      :telemetry.execute(
+        [:code_puppy, :distributed_pack, :dispatch, :exception],
+        %{run_id: run_id, error: "node_disconnected"},
+        %{node: state.node_name}
+      )
+    end)
+
+    Enum.each(state.active_runs, fn {_run_id, run_info} ->
+      if run_info.timer_ref, do: Process.cancel_timer(run_info.timer_ref)
+    end)
+
+    {:noreply,
+     %{
+       state
+       | status: :disconnected,
+         active_runs: %{},
+         reconnect_attempts: state.reconnect_attempts + 1
+     }}
+  end
+
+  defp maybe_cancel_grace_period(node_name, %{status: :grace_period} = state) do
+    if state.grace_timer_ref, do: Process.cancel_timer(state.grace_timer_ref)
+
+    Logger.info(
+      "[RemoteNodeProxy] grace period cancelled for #{inspect(node_name)}, " <>
+        "#{map_size(state.active_runs)} in-flight run(s) preserved"
+    )
+
+    emit_grace_telemetry(:grace_period_cancelled, node_name, %{
+      in_flight_runs: Map.keys(state.active_runs)
+    })
+
+    %{state | grace_timer_ref: nil}
+  end
+
+  defp maybe_cancel_grace_period(_node_name, state), do: state
+
+  defp emit_grace_telemetry(event, node_name, metadata) do
+    :telemetry.execute(
+      [:code_puppy, :pack, :node, event],
+      %{
+        system_time: System.system_time(:millisecond),
+        monotonic_time: System.monotonic_time(:millisecond)
+      },
+      Map.put(metadata, :node, node_name)
     )
   end
 end

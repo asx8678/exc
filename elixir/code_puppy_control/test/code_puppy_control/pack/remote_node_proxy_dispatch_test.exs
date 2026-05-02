@@ -12,7 +12,8 @@ defmodule CodePuppyControl.Pack.RemoteNodeProxyDispatchTest do
       node_name: @test_node,
       name: nil,
       monitor_fn: fn _node, _flag -> true end,
-      handshake_fn: fn _node, _timeout -> {:error, :noproc} end
+      handshake_fn: fn _node, _timeout -> {:error, :noproc} end,
+      grace_period_timeout: 0
     ]
 
     RemoteNodeProxy.start_link(Keyword.merge(base, opts))

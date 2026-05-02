@@ -19,7 +19,8 @@ defmodule CodePuppyControl.Pack.Dispatch.CapabilityQueryTest do
   defp mock_proxy_opts(caps) do
     [
       monitor_fn: fn _node, _flag -> true end,
-      handshake_fn: fn _node, _timeout -> {:ok, caps} end
+      handshake_fn: fn _node, _timeout -> {:ok, caps} end,
+      grace_period_timeout: 0
     ]
   end
 

@@ -34,7 +34,8 @@ defmodule CodePuppyControl.Pack.Dispatch.RemoteDispatchTest do
       handshake_fn: fn _node, _timeout ->
         {:ok, %{sub_agents: [:terrier, :watchdog], host_os: "linux"}}
       end,
-      name: nil
+      name: nil,
+      grace_period_timeout: 0
     ]
   end
 
