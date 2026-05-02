@@ -184,11 +184,10 @@ design doc.
 
 ### Phase I.1: Skeleton integration
 
-- [ ] Wire `NodeMonitor` + `DistributedSupervisor` into root supervision tree
-      (disabled by default via `packs.distributed.enabled = false`)
-- [ ] Add Registry tables for `:via` tuple routing
-- [ ] Add configuration keys to `puppy.cfg` spec
-- [ ] Wire telemetry events into the existing `Telemetry` module
+- [x] Wire `NodeMonitor` + `DistributedSupervisor` into root supervision tree (disabled by default via `packs.distributed.enabled = false`) — implemented: `Pack.NodeMonitor` (371 lines, heartbeat + grace period + telemetry), `Pack.DistributedSupervisor` (DynamicSupervisor with `:via` Registry), `Pack.NamingService` (ETS capability index), conditional startup via `maybe_pack_children/0` in `application.ex`
+- [x] Add Registry tables for `:via` tuple routing — implemented: `Pack.Registry` module with `via/1` helper, started as `{Registry, keys: :unique, name: Pack.Registry}` in pack subtree
+- [x] Add configuration keys to `puppy.cfg` spec — implemented: `Pack.Config` reads `[packs.distributed]` section (enabled, node_name, cookie, workers, connect_timeout, heartbeat_interval, disconnect_timeout, dispatch_style, sync_timeout)
+- [x] Wire telemetry events into the existing `Telemetry` module — already implemented: `Telemetry.DistributedPack` (node lifecycle + dispatch + capability events) + `Telemetry.ClusterDashboard` (aggregation GenServer)
 
 ### Phase I.2: Worker-mode application
 

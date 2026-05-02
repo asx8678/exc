@@ -169,7 +169,11 @@ defmodule CodePuppyControl.Application do
       # Periodic scheduler for cron tasks — excluded in test to avoid
       # Ecto-sandbox contention. CronScheduler tests start
       # their own supervised instance instead. (code_puppy-5xd.6)
-      | cron_scheduler_child() ++ [CodePuppyControlWeb.Endpoint]
+      | cron_scheduler_child() ++
+        # Distributed packs — Phase I (disabled by default)
+        # Only starts if packs.distributed.enabled = true in puppy.cfg
+        # (code_puppy-yge.2)
+        maybe_pack_children() ++ [CodePuppyControlWeb.Endpoint]
     ]
 
     # Relax restart intensity in test to tolerate repeated kills in OTP lifecycle
@@ -271,6 +275,24 @@ defmodule CodePuppyControl.Application do
   end
 
   # Detect Burrito runtime context. Burrito sets `__BURRITO` at launch.
+  # Distributed packs subtree — conditionally started based on config.
+  # When disabled (default), returns empty list — zero runtime cost.
+  # When enabled, starts Registry, NamingService, DistributedSupervisor,
+  # and NodeMonitor for cluster management.
+  # (Phase I.1 — code_puppy-yge.2)
+  defp maybe_pack_children do
+    if CodePuppyControl.Pack.Config.enabled?() do
+      [
+        {Registry, keys: :unique, name: CodePuppyControl.Pack.Registry},
+        CodePuppyControl.Pack.NamingService,
+        CodePuppyControl.Pack.DistributedSupervisor,
+        CodePuppyControl.Pack.NodeMonitor
+      ]
+    else
+      []
+    end
+  end
+
   defp burrito_cli_mode? do
     System.get_env("__BURRITO") != nil
   end
