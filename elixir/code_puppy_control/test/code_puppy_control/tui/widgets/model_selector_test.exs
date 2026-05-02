@@ -81,9 +81,28 @@ defmodule CodePuppyControl.TUI.Widgets.ModelSelectorTest do
       "context_length" => 16_000
     },
     "weird-provider-model" => %{
-      "type" => "unknown_provider",
+      "type" => "custom_openai",
       "name" => "mystery",
       "context_length" => 999
+    },
+    "alpha-test-model" => %{
+      "type" => "openai",
+      "name" => "alpha-test",
+      "context_length" => 100_000
+    },
+    "beta-test-model" => %{
+      "type" => "openai",
+      "name" => "beta-test"
+    },
+    "gamma-test-model" => %{
+      "type" => "openai",
+      "name" => "gamma-test"
+    },
+    "firepass-prefixed-model" => %{
+      "type" => "custom_openai",
+      "provider" => "firepass",
+      "name" => "prefixed-model",
+      "context_length" => 50_000
     }
   }
 
@@ -728,6 +747,35 @@ defmodule CodePuppyControl.TUI.Widgets.ModelSelectorTest do
     test "filter with no matches returns empty list" do
       models = ModelSelector.list_models(filter: "zzz_no_such_model_xyz_999")
       assert models == []
+    end
+  end
+
+  # ── Owl.Table API compatibility ────────────────────────────────────────
+
+  describe "Owl.Table map format" do
+    test "build_table receives maps, not lists (prevents BadMapError)" do
+      # Owl.Table.new/1 requires a list of maps; passing lists causes BadMapError.
+      # This test ensures the rendering path uses the correct format.
+      output =
+        capture_io([input: "\n"], fn ->
+          ModelSelector.select()
+        end)
+
+      # If Owl.Table.new received lists, it would raise and no output would be produced.
+      # The presence of "Model Selector" confirms successful rendering.
+      assert output =~ "Model Selector"
+      assert output =~ "ctx:"
+    end
+
+    test "table renders with column headers" do
+      output =
+        capture_io([input: "\n"], fn ->
+          ModelSelector.select()
+        end)
+
+      # Owl.Table with maps should render column headers
+      assert output =~ "Model"
+      assert output =~ "Provider"
     end
   end
 end

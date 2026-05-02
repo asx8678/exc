@@ -64,7 +64,7 @@ defmodule CodePuppyControl.Agent.Loop.Streaming do
   accumulated state.
   """
   @spec accumulate_response(Turn.t(), map()) :: Turn.t()
-  def accumulate_response(turn, %{text: text, tool_calls: tool_calls}) do
+  def accumulate_response(turn, %{text: text, tool_calls: tool_calls} = response) do
     turn =
       if text && text != "" do
         case Turn.append_text(turn, text) do
@@ -75,12 +75,19 @@ defmodule CodePuppyControl.Agent.Loop.Streaming do
         turn
       end
 
-    Enum.reduce(tool_calls || [], turn, fn tc, acc ->
-      case Turn.add_tool_call(acc, tc) do
-        {:ok, t} -> t
-        _ -> acc
-      end
-    end)
+    turn =
+      Enum.reduce(tool_calls || [], turn, fn tc, acc ->
+        case Turn.add_tool_call(acc, tc) do
+          {:ok, t} -> t
+          _ -> acc
+        end
+      end)
+
+    # Store usage data from provider response
+    case response[:usage] || response["usage"] do
+      nil -> turn
+      usage -> %{turn | usage: usage}
+    end
   end
 
   def accumulate_response(turn, _other), do: turn

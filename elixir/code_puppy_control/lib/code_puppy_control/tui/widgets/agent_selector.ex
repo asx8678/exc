@@ -168,6 +168,8 @@ defmodule CodePuppyControl.TUI.Widgets.AgentSelector do
     )
   end
 
+  @agent_column_order %{"Agent" => 0, "Slug" => 1, "Description" => 2}
+
   defp render_agent_row(agent, idx, default) do
     default_marker = if agent.slug == default, do: " ★", else: ""
 
@@ -181,28 +183,22 @@ defmodule CodePuppyControl.TUI.Widgets.AgentSelector do
     slug_part = Owl.Data.tag(" (#{agent.slug})", :faint)
     desc_part = Owl.Data.tag(" — #{agent.description}", :faint)
 
-    [name_part, slug_part, desc_part]
+    %{
+      "Agent" => name_part,
+      "Slug" => slug_part,
+      "Description" => desc_part
+    }
   end
 
   defp build_table(rows) do
-    if function_exported?(Owl.Table, :new, 1) and
-         not Application.get_env(:code_puppy_control, :force_build_table_fallback, false) do
-      Owl.Table.new(rows)
-    else
-      # Fallback: extract plain text from Owl.Data tags
-      rows
-      |> Enum.map(fn row ->
-        plain =
-          row
-          |> Enum.map(fn
-            %Owl.Tag{data: data} -> data
-            other -> to_string(other)
-          end)
-          |> Enum.join("")
-
-        ["  ", plain, "\n"]
-      end)
-    end
+    Owl.Table.new(
+      rows,
+      border_style: :solid,
+      padding_x: 1,
+      sort_columns: fn a, b ->
+        Map.get(@agent_column_order, a, 99) < Map.get(@agent_column_order, b, 99)
+      end
+    )
   end
 
   # ── Private: Interactive Selection ────────────────────────────────────────

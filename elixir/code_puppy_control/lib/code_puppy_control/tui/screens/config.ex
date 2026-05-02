@@ -119,22 +119,14 @@ defmodule CodePuppyControl.TUI.Screens.Config do
           display_value =
             if byte_size(value) > 60, do: binary_part(value, 0, 57) <> "...", else: value
 
-          [
-            Owl.Data.tag(key, :cyan),
-            Owl.Data.tag(" = ", :faint),
-            display_value
-          ]
+          %{
+            "Key" => Owl.Data.tag(key, :cyan),
+            " " => Owl.Data.tag(" = ", :faint),
+            "Value" => display_value
+          }
         end)
 
-      # Build with Owl.Table if available
-      if function_exported?(Owl.Table, :new, 1) do
-        "\n" <> Owl.Table.new(rows) <> "\n"
-      else
-        # Manual fallback
-        rows
-        |> Enum.map(fn parts -> ["  ", parts, "\n"] end)
-        |> then(&["\n", &1, "\n"])
-      end
+      ["\n", Owl.Table.new(rows, border_style: :solid, padding_x: 1), "\n"]
     end
   end
 

@@ -6,7 +6,23 @@ defmodule CodePuppyControlWeb.Admin.PackLiveTest do
   setup do
     original = Application.get_env(:code_puppy_control, :admin_ui, [])
     Application.put_env(:code_puppy_control, :admin_ui, allowed_ips: :loopback)
-    on_exit(fn -> Application.put_env(:code_puppy_control, :admin_ui, original) end)
+
+    # Start ClusterDashboard if not already running (needed by PackLive.mount/3)
+    {:ok, dashboard_pid} =
+      case GenServer.start(
+             CodePuppyControl.Telemetry.ClusterDashboard,
+             [],
+             name: CodePuppyControl.Telemetry.ClusterDashboard
+           ) do
+        {:ok, pid} -> {:ok, pid}
+        {:error, {:already_started, pid}} -> {:ok, pid}
+      end
+
+    on_exit(fn ->
+      Application.put_env(:code_puppy_control, :admin_ui, original)
+      GenServer.stop(dashboard_pid, :normal, 1000)
+    end)
+
     {:ok, conn: build_conn()}
   end
 
