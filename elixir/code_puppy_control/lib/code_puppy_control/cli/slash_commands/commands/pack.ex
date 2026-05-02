@@ -7,6 +7,7 @@ defmodule CodePuppyControl.CLI.SlashCommands.Commands.Pack do
   """
 
   alias CodePuppyControl.ModelPacks
+  alias CodePuppyControl.CLI.SlashCommands.Commands.PackCluster
 
   @doc """
   Handles `/pack` — shows current pack and available packs.
@@ -18,6 +19,9 @@ defmodule CodePuppyControl.CLI.SlashCommands.Commands.Pack do
     case extract_args(line) |> String.trim() do
       "" ->
         show_current_pack()
+
+      "cluster" <> rest ->
+        PackCluster.handle_cluster(String.trim(rest), state)
 
       args ->
         pack_name = String.downcase(args)

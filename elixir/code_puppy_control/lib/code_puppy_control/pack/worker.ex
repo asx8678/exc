@@ -120,6 +120,9 @@ defmodule CodePuppyControl.Pack.Worker do
         "#{length(Map.get(capabilities, :sub_agents, []))} sub-agents"
     )
 
+    # Subscribe to node events so we can detect leader connections
+    :net_kernel.monitor_nodes(true, [:nodedown_reason])
+
     # Start idle check timer for ephemeral workers
     if mode == :ephemeral do
       schedule_idle_check(state)
@@ -217,6 +220,33 @@ defmodule CodePuppyControl.Pack.Worker do
 
   @impl true
   def handle_info(:idle_check, state), do: {:noreply, state}
+
+  @impl true
+  def handle_info({:nodeup, node, _info}, state) do
+    Logger.info("PackWorker: node #{inspect(node)} connected — advertising capabilities")
+
+    # Try to register our capabilities with the remote NamingService
+    try do
+      GenServer.cast(
+        {CodePuppyControl.Pack.NodeMonitor, node},
+        {:worker_capabilities, Node.self(), state.capabilities}
+      )
+    catch
+      :exit, _ -> Logger.debug("PackWorker: could not reach NodeMonitor on #{inspect(node)}")
+    end
+
+    {:noreply, %{state | leader: node}}
+  end
+
+  @impl true
+  def handle_info({:nodedown, node, _info}, state) do
+    if node == state.leader do
+      Logger.warning("PackWorker: leader node #{inspect(node)} disconnected")
+      {:noreply, %{state | leader: nil}}
+    else
+      {:noreply, state}
+    end
+  end
 
   @impl true
   def handle_info(_msg, state) do

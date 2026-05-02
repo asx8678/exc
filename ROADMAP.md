@@ -191,11 +191,11 @@ design doc.
 
 ### Phase I.2: Worker-mode application
 
-- [ ] Create `CodePuppyControl.Pack.Worker.Application` as a startable OTP app
-- [ ] Support `--sname` / `--name` + `--cookie` CLI flags for workers
-- [ ] Worker detects and advertises capabilities on leader connect
-- [ ] Add `/pack cluster` slash command for cluster status/management
-- [ ] Integration test: one leader + one worker on localhost
+- [x] Create `CodePuppyControl.Pack.Worker.Application` as a startable OTP app — implemented: lightweight Supervisor with Finch, ProviderRegistry, SubAgentPool, Worker
+- [x] Support `--sname` / `--name` + `--cookie` CLI flags for workers — implemented: parser + CLI worker_mode + Node.start/set_cookie integration
+- [x] Worker detects and advertises capabilities on leader connect — implemented: Worker monitors :nodeup, casts capabilities to leader NodeMonitor; NodeMonitor registers in NamingService
+- [x] Add `/pack cluster` slash command for cluster status/management — implemented: PackCluster module with status/nodes/capabilities subcommands, wired into existing /pack dispatch
+- [x] Integration test: one leader + one worker on localhost — implemented: Worker.Application supervisor test + PackCluster command test + parser flag tests
 
 ### Phase I.3: Capability-aware dispatch
 

@@ -165,4 +165,57 @@ defmodule CodePuppyControl.CLI.ParserTest do
       assert opts[:prompt] == nil
     end
   end
+
+  describe "parse/1 — worker flags" do
+    test "--worker is parsed" do
+      assert {:ok, opts} = Parser.parse(["--worker"])
+      assert opts[:worker] == true
+    end
+
+    test "-w is parsed as worker alias" do
+      assert {:ok, opts} = Parser.parse(["-w"])
+      assert opts[:worker] == true
+    end
+
+    test "--sname with value" do
+      assert {:ok, opts} = Parser.parse(["--sname", "pup_worker_01"])
+      assert opts[:sname] == "pup_worker_01"
+    end
+
+    test "--name with value" do
+      assert {:ok, opts} = Parser.parse(["--name", "pup_worker@host.example.com"])
+      assert opts[:name] == "pup_worker@host.example.com"
+    end
+
+    test "--cookie with value" do
+      assert {:ok, opts} = Parser.parse(["--cookie", "secret"])
+      assert opts[:cookie] == "secret"
+    end
+
+    test "--sname + --cookie together" do
+      assert {:ok, opts} = Parser.parse(["--worker", "--sname", "pup_w1", "--cookie", "abc"])
+      assert opts[:worker] == true
+      assert opts[:sname] == "pup_w1"
+      assert opts[:cookie] == "abc"
+    end
+
+    test "--name + --cookie together" do
+      assert {:ok, opts} = Parser.parse(["--worker", "--name", "pup@host.com", "--cookie", "xyz"])
+      assert opts[:worker] == true
+      assert opts[:name] == "pup@host.com"
+      assert opts[:cookie] == "xyz"
+    end
+
+    test "worker defaults to false" do
+      assert {:ok, opts} = Parser.parse([])
+      assert opts[:worker] == false
+    end
+
+    test "sname/name/cookie default to nil" do
+      assert {:ok, opts} = Parser.parse([])
+      assert opts[:sname] == nil
+      assert opts[:name] == nil
+      assert opts[:cookie] == nil
+    end
+  end
 end

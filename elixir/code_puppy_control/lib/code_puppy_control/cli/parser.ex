@@ -14,7 +14,11 @@ defmodule CodePuppyControl.CLI.Parser do
     continue: :boolean,
     prompt: :string,
     interactive: :boolean,
-    bridge_mode: :boolean
+    bridge_mode: :boolean,
+    worker: :boolean,
+    sname: :string,
+    name: :string,
+    cookie: :string
   ]
 
   @aliases [
@@ -25,7 +29,8 @@ defmodule CodePuppyControl.CLI.Parser do
     a: :agent,
     c: :continue,
     p: :prompt,
-    i: :interactive
+    i: :interactive,
+    w: :worker
   ]
 
   @doc """
@@ -83,5 +88,9 @@ defmodule CodePuppyControl.CLI.Parser do
     |> Map.put_new(:continue, false)
     |> Map.put_new(:interactive, false)
     |> Map.put_new(:bridge_mode, false)
+    |> Map.put_new(:worker, false)
+    |> Map.put_new(:sname, nil)
+    |> Map.put_new(:name, nil)
+    |> Map.put_new(:cookie, nil)
   end
 end

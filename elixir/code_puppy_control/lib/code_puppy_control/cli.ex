@@ -70,9 +70,12 @@ defmodule CodePuppyControl.CLI do
     * `:interactive_default`     — Plain interactive REPL (no prompt / empty prompt)
   """
   @spec resolve_run_mode(map()) ::
-          :one_shot | :interactive_with_prompt | :continue_session | :interactive_default
+          :one_shot | :interactive_with_prompt | :continue_session | :interactive_default | :worker_mode
   def resolve_run_mode(opts) do
     case opts do
+      %{worker: true} ->
+        :worker_mode
+
       %{continue: true} ->
         :continue_session
 
@@ -105,6 +108,9 @@ defmodule CodePuppyControl.CLI do
     Application.ensure_all_started(:code_puppy_control)
 
     case resolve_run_mode(opts) do
+      :worker_mode ->
+        run_worker(opts)
+
       :one_shot ->
         run_single_prompt(opts)
 
@@ -145,6 +151,33 @@ defmodule CodePuppyControl.CLI do
     module.run(opts)
   end
 
+  defp run_worker(opts) do
+    # Start Erlang distribution if not already started
+    node_name = opts[:sname] || opts[:name]
+
+    if node_name do
+      name_type = if opts[:sname], do: :shortnames, else: :longnames
+      Node.start(String.to_atom(node_name), name_type)
+    end
+
+    # Set cookie if provided
+    if opts[:cookie] do
+      Node.set_cookie(String.to_atom(opts[:cookie]))
+    end
+
+    # Start the worker application
+    IO.puts("Starting worker node: #{Node.self()}")
+    IO.puts("Waiting for leader connection...")
+
+    {:ok, _} = CodePuppyControl.Pack.Worker.Application.start_link(
+      node_name: Node.self(),
+      mode: :persistent
+    )
+
+    # Block until shutdown (worker runs indefinitely)
+    Process.sleep(:infinity)
+  end
+
   defp run_single_prompt(opts) do
     case CodePuppyControl.REPL.OneShot.run(opts) do
       :ok ->
@@ -177,19 +210,25 @@ defmodule CodePuppyControl.CLI do
     Usage: pup [OPTIONS] [PROMPT]
 
     Options:
-      -h, --help Show this help message and exit
-      -v, -V, --version Show version and exit
-      -m, --model MODEL Model to use (default: from config)
-      -a, --agent AGENT Agent to use (default: code-puppy)
-      -c, --continue Resume the most recent persisted session
-      -p, --prompt PROMPT Execute a single prompt and exit
-      -i, --interactive Run in interactive mode
-      --bridge-mode Force Python runtime (sets PUP_RUNTIME=python for this session)
+      -h, --help            Show this help message and exit
+      -v, -V, --version     Show version and exit
+      -m, --model MODEL     Model to use (default: from config)
+      -a, --agent AGENT     Agent to use (default: code-puppy)
+      -c, --continue        Resume the most recent persisted session
+      -p, --prompt PROMPT   Execute a single prompt and exit
+      -i, --interactive     Run in interactive mode
+      --bridge-mode         Force Python runtime (sets PUP_RUNTIME=python for this session)
+      -w, --worker          Start as a headless pack worker node
+          --sname SNAME     Short node name for Erlang distribution
+          --name NAME       Full node name for Erlang distribution
+          --cookie COOKIE   Erlang distribution cookie for cluster auth
 
     Examples:
-      pup Start interactive mode
-      pup "explain this code" Run single prompt
+      pup                           Start interactive mode
+      pup "explain this code"        Run single prompt
       pup -m claude-sonnet -c       Resume latest session with a model override
+      pup --worker --sname pup_worker_01 --cookie secret
+                                    Start as worker node
 
     For more information: https://github.com/anthropics/code-puppy
     """

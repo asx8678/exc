@@ -221,10 +221,12 @@ defmodule CodePuppyControl.CLI.SlashCommands.Registry do
       ),
       CommandInfo.new(
         name: "pack",
-        description: "Show or switch model pack",
+        description: "Show or switch model pack; /pack cluster for cluster status",
         handler: &Commands.Pack.handle_pack/2,
-        usage: "/pack [pack_name]",
-        category: "context"
+        usage: "/pack [pack_name | cluster [status|nodes|capabilities]]",
+        category: "context",
+        detailed_help:
+          "Show or switch model packs. Use '/pack cluster' for distributed cluster status, '/pack cluster nodes' for worker details, '/pack cluster capabilities' for the agent–worker matrix."
       ),
       CommandInfo.new(
         name: "mode",

@@ -12,6 +12,21 @@ defmodule CodePuppyControl.CLITest do
       assert opts[:prompt] == nil
       assert CLI.resolve_run_mode(opts) == :continue_session
     end
+
+    test "worker flag resolves to :worker_mode" do
+      assert {:ok, opts} = Parser.parse(["--worker"])
+      assert CLI.resolve_run_mode(opts) == :worker_mode
+    end
+
+    test "-w alias resolves to :worker_mode" do
+      assert {:ok, opts} = Parser.parse(["-w"])
+      assert CLI.resolve_run_mode(opts) == :worker_mode
+    end
+
+    test "worker flag takes priority over continue" do
+      assert {:ok, opts} = Parser.parse(["--worker", "-c"])
+      assert CLI.resolve_run_mode(opts) == :worker_mode
+    end
   end
 
   describe "help_text/0" do
@@ -31,7 +46,11 @@ defmodule CodePuppyControl.CLITest do
             "--continue",
             "--prompt PROMPT",
             "--interactive",
-            "--bridge-mode"
+            "--bridge-mode",
+            "--worker",
+            "--sname SNAME",
+            "--name NAME",
+            "--cookie COOKIE"
           ] do
         assert text =~ flag, "Expected help text to contain #{flag}"
       end
@@ -42,6 +61,13 @@ defmodule CodePuppyControl.CLITest do
       assert text =~ "Examples:"
       assert text =~ "pup \"explain this code\""
       assert text =~ "Resume latest session"
+    end
+
+    test "contains worker example" do
+      text = CLI.help_text()
+      assert text =~ "--worker"
+      assert text =~ "--sname"
+      assert text =~ "--cookie"
     end
 
     test "does not describe --continue as a parsed-only stub" do

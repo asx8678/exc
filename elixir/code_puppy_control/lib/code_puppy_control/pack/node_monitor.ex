@@ -194,6 +194,30 @@ defmodule CodePuppyControl.Pack.NodeMonitor do
     {:reply, state.enabled, state}
   end
 
+  # ── Cast: Worker Capabilities ──────────────────────────────────────────
+
+  @impl true
+  def handle_cast({:worker_capabilities, worker_node, capabilities}, state) do
+    if Map.has_key?(state.nodes, worker_node) do
+      Logger.info("NodeMonitor: received capabilities from #{inspect(worker_node)}")
+
+      # Update node info with capabilities
+      state = update_in(state.nodes[worker_node], fn info ->
+        %{info | capabilities: capabilities}
+      end)
+
+      # Register in NamingService
+      CodePuppyControl.Pack.NamingService.register_capabilities(worker_node, capabilities)
+
+      PackTelemetry.capabilities_updated(worker_node, capabilities)
+
+      {:noreply, state}
+    else
+      Logger.debug("NodeMonitor: ignoring capabilities from unconfigured node #{inspect(worker_node)}")
+      {:noreply, state}
+    end
+  end
+
   # ── Info: Node Up ────────────────────────────────────────────────────────
 
   @impl true
