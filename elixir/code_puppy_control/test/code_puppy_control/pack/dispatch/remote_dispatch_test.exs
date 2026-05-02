@@ -116,9 +116,7 @@ defmodule CodePuppyControl.Pack.Dispatch.RemoteDispatchTest do
 
     test "returns error when node option is not an atom" do
       result =
-        RemoteDispatch.dispatch_to_node(:terrier, %{worktree_path: "../wt"},
-          node: "not_an_atom"
-        )
+        RemoteDispatch.dispatch_to_node(:terrier, %{worktree_path: "../wt"}, node: "not_an_atom")
 
       assert {:error, {:invalid_node, "not_an_atom"}} = result
     end
@@ -225,6 +223,16 @@ defmodule CodePuppyControl.Pack.Dispatch.RemoteDispatchTest do
         )
 
       assert {:ok, {:remote, @test_node, _run_id}} = result
+    end
+
+    test "dispatch_auto returns {:ok, :local} when NamingService is not running" do
+      # NamingService may not be running in test env
+      result =
+        RemoteDispatch.dispatch_auto(:terrier, %{task: "test"},
+          supervisor_name: :nonexistent_supervisor
+        )
+
+      assert result == {:ok, :local}
     end
 
     test "falls back to local when NamingService has entries but no nodes connected" do

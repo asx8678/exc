@@ -195,9 +195,7 @@ defmodule CodePuppyControl.Pack.Dispatch.RemoteDispatch do
       end
     rescue
       e ->
-        Logger.error(
-          "[RemoteDispatch] dispatch_to_node crashed: #{Exception.message(e)}"
-        )
+        Logger.error("[RemoteDispatch] dispatch_to_node crashed: #{Exception.message(e)}")
 
         emit_telemetry(:exception, %{run_id: run_id, error: Exception.message(e)}, %{
           node: node_name,
@@ -211,7 +209,8 @@ defmodule CodePuppyControl.Pack.Dispatch.RemoteDispatch do
   defp resolve_run_id(opts, sub_agent) do
     case Keyword.get(opts, :run_id) do
       nil -> generate_run_id(sub_agent)
-      run_id when is_binary(run_id) -> run_id
+      run_id when is_binary(run_id) and run_id != "" -> run_id
+      _ -> generate_run_id(sub_agent)
     end
   end
 
@@ -226,16 +225,34 @@ defmodule CodePuppyControl.Pack.Dispatch.RemoteDispatch do
 
   defp find_candidate_nodes(sub_agent, supervisor_name) do
     # Query NamingService for nodes advertising this sub-agent capability.
-    # Fall back to all connected nodes if NamingService has no index entries.
-    naming_nodes = NamingService.find_nodes(sub_agent)
+    # Wrap calls in try/catch — NamingService or DistributedSupervisor may not
+    # be running (e.g. test env without full app tree), and we gracefully fall
+    # back to empty candidates → local dispatch.
+    naming_nodes =
+      try do
+        NamingService.find_nodes(sub_agent)
+      rescue
+        _ -> []
+      catch
+        :exit, _ -> []
+      end
+
+    connected_nodes =
+      try do
+        DistributedSupervisor.list_nodes(supervisor_name)
+      rescue
+        _ -> []
+      catch
+        :exit, _ -> []
+      end
 
     if naming_nodes == [] do
-      DistributedSupervisor.list_nodes(supervisor_name)
+      # No NamingService entries — fall back to all connected nodes
+      connected_nodes
     else
-      # Only include nodes that are actually connected
-      connected = DistributedSupervisor.list_nodes(supervisor_name)
-
-      Enum.filter(naming_nodes, &(&1 in connected))
+      # Intersection: only nodes that are both capable AND connected
+      naming_set = MapSet.new(naming_nodes)
+      Enum.filter(connected_nodes, &MapSet.member?(naming_set, &1))
     end
   end
 
