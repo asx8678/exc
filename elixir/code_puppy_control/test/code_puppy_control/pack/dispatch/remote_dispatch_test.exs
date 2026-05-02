@@ -371,4 +371,188 @@ defmodule CodePuppyControl.Pack.Dispatch.RemoteDispatchTest do
       :telemetry.detach(handler_id)
     end
   end
+
+  # ── Failover helpers ─────────────────────────────────────────────────────
+
+  # Get the proxy PID from a RemoteNodeSupervisor PID by querying its children.
+  defp get_proxy_pid(sup_pid) do
+    [{:remote_node_proxy, proxy_pid, :worker, _}] = Supervisor.which_children(sup_pid)
+    proxy_pid
+  end
+
+  # Transition a proxy to :disconnected by sending a :nodedown message.
+  # Uses RemoteNodeProxy.status/1 as a synchronization barrier to ensure
+  # the handle_info has completed before we return.
+  defp disconnect_proxy!(sup_pid, node_name) do
+    proxy_pid = get_proxy_pid(sup_pid)
+    send(proxy_pid, {:nodedown, node_name})
+    # GenServer.call synchronizes — guarantees nodedown was processed
+    status = CodePuppyControl.Pack.RemoteNodeProxy.status(proxy_pid)
+    assert status.status == :disconnected
+    proxy_pid
+  end
+
+  # Sets up a node that is connected, registered in NamingService, then
+  # disconnected (but still supervised + re-registered in NamingService).
+  # This creates the TOCTOU scenario: the node is findable but dispatch fails.
+  defp setup_disconnected_node(opts \\ []) do
+    sub_agents = Keyword.get(opts, :sub_agents, [:terrier])
+
+    {:ok, sup_pid} =
+      DistributedSupervisor.add_node(@test_node,
+        supervisor_name: @ds_name,
+        proxy_opts: mock_proxy_opts()
+      )
+
+    :ok =
+      NamingService.register_node(@test_node, %{
+        sub_agents: sub_agents,
+        host_os: "linux"
+      })
+
+    # Disconnect the proxy — simulates a nodedown event
+    _proxy_pid = disconnect_proxy!(sup_pid, @test_node)
+
+    # Re-register in NamingService after the nodedown unregistered it.
+    # This is the key: the node is findable via NamingService and
+    # DistributedSupervisor, but the proxy will reject dispatch.
+    :ok =
+      NamingService.register_node(@test_node, %{
+        sub_agents: sub_agents,
+        host_os: "linux"
+      })
+
+    sup_pid
+  end
+
+  # ── dispatch_auto/3 failover ─────────────────────────────────────────────
+
+  describe "dispatch_auto/3 failover" do
+    test "falls back to local when selected remote node is disconnected" do
+      setup_disconnected_node()
+
+      result =
+        RemoteDispatch.dispatch_auto(:terrier, %{worktree_path: "../wt"},
+          supervisor_name: @ds_name
+        )
+
+      assert result == {:ok, :local}
+    end
+
+    test "returns error when fallback: :none and remote node fails" do
+      setup_disconnected_node()
+
+      result =
+        RemoteDispatch.dispatch_auto(:terrier, %{worktree_path: "../wt"},
+          supervisor_name: @ds_name,
+          fallback: :none
+        )
+
+      assert {:error, {:remote_dispatch_failed, @test_node, :nodedown}} = result
+    end
+
+    test "default fallback is :local" do
+      setup_disconnected_node()
+
+      # No :fallback option — should default to :local
+      result =
+        RemoteDispatch.dispatch_auto(:terrier, %{worktree_path: "../wt"},
+          supervisor_name: @ds_name
+        )
+
+      # Must not return an error — default is always safe local fallback
+      assert {:ok, :local} = result
+    end
+
+    test "emits [:code_puppy, :pack, :dispatch, :failover] telemetry on failover" do
+      setup_disconnected_node()
+
+      handler_id = make_ref()
+
+      :telemetry.attach(
+        handler_id,
+        [:code_puppy, :pack, :dispatch, :failover],
+        fn _name, measurements, metadata, acc ->
+          send(acc, {:telemetry_failover, measurements, metadata})
+        end,
+        self()
+      )
+
+      RemoteDispatch.dispatch_auto(:terrier, %{worktree_path: "../wt"},
+        run_id: "failover-telemetry-test",
+        supervisor_name: @ds_name
+      )
+
+      assert_received {:telemetry_failover, measurements, metadata}
+      assert measurements.run_id == "failover-telemetry-test"
+      assert is_integer(measurements.system_time)
+      assert metadata.original_node == @test_node
+      assert metadata.sub_agent == :terrier
+      assert metadata.reason == :nodedown
+      assert metadata.fallback == :local
+
+      :telemetry.detach(handler_id)
+    end
+
+    test "does not emit failover telemetry when fallback is :none" do
+      setup_disconnected_node()
+
+      handler_id = make_ref()
+
+      :telemetry.attach(
+        handler_id,
+        [:code_puppy, :pack, :dispatch, :failover],
+        fn _name, measurements, metadata, acc ->
+          send(acc, {:telemetry_failover, measurements, metadata})
+        end,
+        self()
+      )
+
+      RemoteDispatch.dispatch_auto(:terrier, %{worktree_path: "../wt"},
+        supervisor_name: @ds_name,
+        fallback: :none
+      )
+
+      refute_received {:telemetry_failover, _, _}
+
+      :telemetry.detach(handler_id)
+    end
+
+    test "still falls back to local normally when no remote workers exist" do
+      # This tests backward compat: when no nodes are registered at all,
+      # the existing :no_remote_workers path still works (NOT failover).
+      result =
+        RemoteDispatch.dispatch_auto(:terrier, %{worktree_path: "../wt"},
+          supervisor_name: @ds_name
+        )
+
+      assert result == {:ok, :local}
+    end
+  end
+
+  # ── classify_failure/1 ───────────────────────────────────────────────────
+
+  describe "classify_failure/1" do
+    test "classifies node-unavailability errors as :nodedown" do
+      assert RemoteDispatch.classify_failure({:node_not_available, :n@h}) == :nodedown
+      assert RemoteDispatch.classify_failure({:node_not_connected, :n@h}) == :nodedown
+      assert RemoteDispatch.classify_failure({:node_disconnected, :n@h}) == :nodedown
+      assert RemoteDispatch.classify_failure({:node_not_ready, :n@h}) == :nodedown
+    end
+
+    test "classifies timeout errors as :timeout" do
+      assert RemoteDispatch.classify_failure(:timeout) == :timeout
+      assert RemoteDispatch.classify_failure({:timeout, make_ref()}) == :timeout
+    end
+
+    test "classifies dispatch crashes as :error" do
+      assert RemoteDispatch.classify_failure({:dispatch_crashed, "kaboom"}) == :error
+    end
+
+    test "classifies unknown errors as :error" do
+      assert RemoteDispatch.classify_failure(:something_unexpected) == :error
+      assert RemoteDispatch.classify_failure({:unknown, :stuff}) == :error
+      assert RemoteDispatch.classify_failure("a string error") == :error
+    end
+  end
 end

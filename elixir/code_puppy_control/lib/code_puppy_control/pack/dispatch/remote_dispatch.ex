@@ -21,6 +21,9 @@ defmodule CodePuppyControl.Pack.Dispatch.RemoteDispatch do
     * `[:code_puppy, :distributed_pack, :remote_dispatch, :start]`
     * `[:code_puppy, :distributed_pack, :remote_dispatch, :fallback]`
     * `[:code_puppy, :distributed_pack, :remote_dispatch, :exception]`
+    * `[:code_puppy, :pack, :dispatch, :failover]` — emitted when a remote
+      dispatch attempt fails and the system falls back to local execution.
+      Metadata includes `original_node`, `sub_agent`, `reason`, and `fallback`.
 
   Refs: code_puppy-aeg.2
   """
@@ -35,7 +38,8 @@ defmodule CodePuppyControl.Pack.Dispatch.RemoteDispatch do
           node: node(),
           run_id: String.t(),
           timeout: pos_integer(),
-          supervisor_name: atom()
+          supervisor_name: atom(),
+          fallback: :local | :none
         ]
 
   @default_timeout 30_000
@@ -115,11 +119,13 @@ defmodule CodePuppyControl.Pack.Dispatch.RemoteDispatch do
 
   Uses `NamingService.find_nodes/2` to find an optimal remote worker
   for the given sub-agent type. Falls back to local dispatch if no
-  remote workers are available.
+  remote workers are available, or if a selected remote node fails
+  during dispatch (failover).
 
-  Returns `{:ok, :local}` when dispatching locally (no remote workers).
+  Returns `{:ok, :local}` when dispatching locally (no remote workers
+  or failover from a failed remote node).
   Returns `{:ok, {:remote, node, run_id}}` when dispatched to a remote worker.
-  Returns `{:error, reason}` on failure.
+  Returns `{:error, reason}` on failure (only when `fallback: :none`).
 
   ## Options
 
@@ -127,11 +133,19 @@ defmodule CodePuppyControl.Pack.Dispatch.RemoteDispatch do
     * `:timeout` — dispatch timeout in ms (default: 30_000).
     * `:supervisor_name` — DistributedSupervisor registration name
       (default: `CodePuppyControl.Pack.DistributedSupervisor`).
+    * `:fallback` — what to do when remote dispatch fails:
+      - `:local` (default) — fall back to local execution, emit
+        `[:code_puppy, :pack, :dispatch, :failover]` telemetry.
+      - `:none` — return `{:error, {:remote_dispatch_failed, node, reason}}`
+        with no automatic fallback.
 
   ## Examples
 
       iex> RemoteDispatch.dispatch_auto(:terrier, %{worktree_path: "../wt"}, [])
       {:ok, :local}
+
+      iex> RemoteDispatch.dispatch_auto(:terrier, %{params: true}, fallback: :none)
+      {:error, {:remote_dispatch_failed, :"worker@host", :nodedown}}
   """
   @spec dispatch_auto(atom(), map(), keyword()) ::
           {:ok, :local} | {:ok, {:remote, node(), String.t()}} | {:error, term()}
@@ -139,6 +153,19 @@ defmodule CodePuppyControl.Pack.Dispatch.RemoteDispatch do
       when is_atom(sub_agent) and is_map(params) and is_list(opts) do
     supervisor_name = Keyword.get(opts, :supervisor_name, @default_supervisor)
     run_id = resolve_run_id(opts, sub_agent)
+
+    fallback_mode =
+      case Keyword.get(opts, :fallback, :local) do
+        mode when mode in [:local, :none] ->
+          mode
+
+        other ->
+          Logger.warning(
+            "[RemoteDispatch] Invalid fallback mode: #{inspect(other)}, defaulting to :local"
+          )
+
+          :local
+      end
 
     # Primary: use Dispatcher for round-robin selection (capability-aware)
     case select_best_node_round_robin(sub_agent, opts) do
@@ -151,8 +178,11 @@ defmodule CodePuppyControl.Pack.Dispatch.RemoteDispatch do
                supervisor_name,
                opts
              ) do
-          {:ok, _} = result -> result
-          {:fallback, fb_run_id} -> fallback_to_local(sub_agent, fb_run_id)
+          {:ok, _} = result ->
+            result
+
+          {:failover, fb_run_id, failed_node, reason} ->
+            handle_dispatch_failover(sub_agent, fb_run_id, failed_node, reason, fallback_mode)
         end
 
       :no_remote ->
@@ -169,8 +199,17 @@ defmodule CodePuppyControl.Pack.Dispatch.RemoteDispatch do
                    supervisor_name,
                    opts
                  ) do
-              {:ok, _} = result -> result
-              {:fallback, fb_run_id} -> fallback_to_local(sub_agent, fb_run_id)
+              {:ok, _} = result ->
+                result
+
+              {:failover, fb_run_id, failed_node, reason} ->
+                handle_dispatch_failover(
+                  sub_agent,
+                  fb_run_id,
+                  failed_node,
+                  reason,
+                  fallback_mode
+                )
             end
 
           :no_remote ->
@@ -211,6 +250,18 @@ defmodule CodePuppyControl.Pack.Dispatch.RemoteDispatch do
         })
 
         {:error, {:dispatch_crashed, Exception.message(e)}}
+    catch
+      :exit, reason ->
+        # GenServer.call failures (timeout, noproc, nodedown, etc.) are exits,
+        # not exceptions — rescue won't catch them.
+        Logger.warning("[RemoteDispatch] dispatch_to_node exited: #{inspect(reason)}")
+
+        emit_telemetry(:exception, %{run_id: run_id, error: inspect(reason)}, %{
+          node: node_name,
+          sub_agent: sub_agent
+        })
+
+        {:error, reason}
     end
   end
 
@@ -228,10 +279,10 @@ defmodule CodePuppyControl.Pack.Dispatch.RemoteDispatch do
       {:error, reason} ->
         Logger.warning(
           "[RemoteDispatch] auto-dispatch to #{inspect(node_name)} failed: " <>
-            "#{inspect(reason)} — falling back to local"
+            "#{inspect(reason)} — evaluating failover"
         )
 
-        {:fallback, run_id}
+        {:failover, run_id, node_name, reason}
     end
   end
 
@@ -312,6 +363,54 @@ defmodule CodePuppyControl.Pack.Dispatch.RemoteDispatch do
     })
 
     {:ok, :local}
+  end
+
+  # ── Failover ─────────────────────────────────────────────────────────────
+
+  defp handle_dispatch_failover(sub_agent, run_id, failed_node, reason, :local) do
+    classified = classify_failure(reason)
+
+    Logger.warning(
+      "[RemoteDispatch] failover: #{inspect(failed_node)} failed " <>
+        "(#{classified}), falling back to local dispatch"
+    )
+
+    emit_failover_telemetry(run_id, %{
+      original_node: failed_node,
+      sub_agent: sub_agent,
+      reason: classified,
+      fallback: :local
+    })
+
+    {:ok, :local}
+  end
+
+  defp handle_dispatch_failover(_sub_agent, _run_id, failed_node, reason, :none) do
+    classified = classify_failure(reason)
+    {:error, {:remote_dispatch_failed, failed_node, classified}}
+  end
+
+  @doc false
+  # Exposed for testing — classifies raw dispatch error reasons into
+  # high-level failure categories used in telemetry metadata.
+  @spec classify_failure(term()) :: :nodedown | :timeout | :error
+  def classify_failure({:node_not_available, _}), do: :nodedown
+  def classify_failure({:node_not_connected, _}), do: :nodedown
+  def classify_failure({:node_disconnected, _}), do: :nodedown
+  def classify_failure({:node_not_ready, _}), do: :nodedown
+  def classify_failure(:timeout), do: :timeout
+  def classify_failure({:timeout, _}), do: :timeout
+  def classify_failure({:dispatch_crashed, _}), do: :error
+  def classify_failure(_reason), do: :error
+
+  # ── Telemetry ────────────────────────────────────────────────────────────
+
+  defp emit_failover_telemetry(run_id, metadata) do
+    :telemetry.execute(
+      [:code_puppy, :pack, :dispatch, :failover],
+      %{run_id: run_id, system_time: System.system_time(:millisecond)},
+      metadata
+    )
   end
 
   defp emit_telemetry(event, measurements, metadata) do
