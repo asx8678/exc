@@ -1,7 +1,24 @@
 defmodule CodePuppyControl.TUI.Screens.ChatTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias CodePuppyControl.TUI.Screens.Chat
+
+  # Mock agent for tests — avoids needing a real LLM
+  defmodule MockAgent do
+    @behaviour CodePuppyControl.Agent.Behaviour
+
+    @impl true
+    def name, do: :mock_agent
+
+    @impl true
+    def system_prompt(_ctx), do: "You are a mock test agent."
+
+    @impl true
+    def allowed_tools, do: []
+
+    @impl true
+    def model_preference, do: "mock-model"
+  end
 
   describe "init/1" do
     test "creates default state with generated session_id" do
@@ -9,7 +26,7 @@ defmodule CodePuppyControl.TUI.Screens.ChatTest do
 
       assert is_binary(state.session_id)
       assert byte_size(state.session_id) == 16
-      assert state.agent == CodePuppyControl.Agent.Behaviour
+      assert state.agent == CodePuppyControl.Agents.CodePuppy
       assert state.model != nil
       assert state.messages == []
       assert state.renderer_pid == nil
@@ -92,13 +109,20 @@ defmodule CodePuppyControl.TUI.Screens.ChatTest do
       assert {:ok, ^state} = Chat.handle_input("", state)
     end
 
-    test "regular text adds user + placeholder assistant message", %{state: state} do
+    test "regular text starts agent loop and returns error without LLM", %{state: state} do
+      # Use MockAgent — no real LLM configured, so we expect an error
+      state = %{state | agent: MockAgent}
       {:ok, new_state} = Chat.handle_input("Hello agent!", state)
 
+      # Should have user message + assistant error response
       assert length(new_state.messages) == 2
       assert Enum.at(new_state.messages, 0).role == :user
       assert Enum.at(new_state.messages, 0).content == "Hello agent!"
       assert Enum.at(new_state.messages, 1).role == :assistant
+      # Error message contains "Error" since no LLM is configured
+      assert String.contains?(Enum.at(new_state.messages, 1).content, "Error")
+      # Status should be idle after completion
+      assert new_state.status == :idle
     end
 
     test "input is ignored while streaming", %{state: state} do

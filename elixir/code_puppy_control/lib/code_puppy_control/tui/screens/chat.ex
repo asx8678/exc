@@ -27,7 +27,11 @@ defmodule CodePuppyControl.TUI.Screens.Chat do
 
   @behaviour CodePuppyControl.TUI.Screen
 
+  require Logger
+
   alias CodePuppyControl.TUI.Markdown
+  alias CodePuppyControl.TUI.Renderer
+  alias CodePuppyControl.Agent.Loop
   alias CodePuppyControl.Config
 
   # ── Types ──────────────────────────────────────────────────────────────────
@@ -48,7 +52,7 @@ defmodule CodePuppyControl.TUI.Screens.Chat do
   @impl true
   def init(opts) do
     session_id = Map.get(opts, :session_id, generate_session_id())
-    agent = Map.get(opts, :agent, CodePuppyControl.Agent.Behaviour)
+    agent = Map.get(opts, :agent, CodePuppyControl.Agents.CodePuppy)
     model = Map.get(opts, :model, default_model())
 
     {:ok,
@@ -103,12 +107,121 @@ defmodule CodePuppyControl.TUI.Screens.Chat do
     user_msg = %{role: :user, content: input}
     new_messages = state.messages ++ [user_msg]
 
-    # TODO(prg-3): Wire to Agent.Loop.run_turn/1 for real agent invocation.
-    # For now, record the message and echo a placeholder assistant response.
-    assistant_msg = %{role: :assistant, content: "(agent not yet wired — you said: #{input})"}
-    final_messages = new_messages ++ [assistant_msg]
+    # Set status to streaming and update messages immediately
+    state = %{state | messages: new_messages, status: :streaming}
 
-    {:ok, %{state | messages: final_messages}}
+    # Start a Renderer for streaming output
+    run_id = Loop.generate_run_id()
+    renderer_name = {:via, Registry, {CodePuppyControl.REPL.RendererRegistry, state.session_id}}
+
+    renderer_pid =
+      case Renderer.start_link(name: renderer_name, session_id: state.session_id, run_id: run_id) do
+        {:ok, pid} ->
+          Process.unlink(pid)
+          pid
+
+        {:error, {:already_started, pid}} ->
+          if Process.alive?(pid) do
+            try do
+              Renderer.reset(pid)
+              pid
+            catch
+              :exit, _ -> start_fresh_renderer(state.session_id, run_id)
+            end
+          else
+            start_fresh_renderer(state.session_id, run_id)
+          end
+
+        {:error, reason} ->
+          Logger.warning("Chat: failed to start renderer: #{inspect(reason)}")
+          nil
+      end
+
+    # Start the agent loop
+    agent_module = state.agent
+
+    loop_opts = [
+      run_id: run_id,
+      session_id: state.session_id,
+      model: state.model
+    ]
+
+    try do
+      case Loop.start_link(agent_module, new_messages, loop_opts) do
+        {:ok, loop_pid} ->
+          try do
+            case Loop.run_until_done(loop_pid, :infinity) do
+              :ok ->
+                final_messages = Loop.get_messages(loop_pid)
+
+                # Best-effort finalize renderer
+                finalize_renderer(renderer_pid)
+
+                {:ok, %{state | messages: final_messages, status: :idle, renderer_pid: nil}}
+
+              {:error, reason} ->
+                Logger.error("Chat: agent loop error: #{inspect(reason)}")
+                finalize_renderer(renderer_pid)
+
+                error_msg = %{role: :assistant, content: "Error: #{inspect(reason)}"}
+                {:ok, %{state | messages: new_messages ++ [error_msg], status: :idle, renderer_pid: nil}}
+            end
+          after
+            safe_stop_loop(loop_pid)
+          end
+
+        {:error, reason} ->
+          Logger.error("Chat: failed to start agent loop: #{inspect(reason)}")
+          finalize_renderer(renderer_pid)
+
+          error_msg = %{role: :assistant, content: "Error: failed to start agent loop: #{inspect(reason)}"}
+          {:ok, %{state | messages: new_messages ++ [error_msg], status: :idle, renderer_pid: nil}}
+      end
+    catch
+      kind, reason ->
+        Logger.error("Chat: agent loop crashed: #{inspect(kind)}: #{inspect(reason)}")
+        finalize_renderer(renderer_pid)
+
+        error_msg = %{role: :assistant, content: "Error: agent loop crashed — #{inspect(reason)}"}
+        {:ok, %{state | messages: new_messages ++ [error_msg], status: :idle, renderer_pid: nil}}
+    end
+  end
+
+  defp start_fresh_renderer(session_id, run_id) do
+    renderer_name = {:via, Registry, {CodePuppyControl.REPL.RendererRegistry, session_id}}
+
+    case Renderer.start_link(name: renderer_name, session_id: session_id, run_id: run_id) do
+      {:ok, pid} ->
+        Process.unlink(pid)
+        pid
+
+      {:error, _reason} ->
+        nil
+    end
+  end
+
+  defp finalize_renderer(nil), do: :ok
+
+  defp finalize_renderer(pid) when is_pid(pid) do
+    if Process.alive?(pid) do
+      try do
+        Renderer.finalize(pid)
+      rescue
+        _ -> :ok
+      catch
+        :exit, _ -> :ok
+      end
+    end
+  end
+
+  defp safe_stop_loop(pid) when is_pid(pid) do
+    if Process.alive?(pid) do
+      try do
+        GenServer.stop(pid, :normal, 5_000)
+      catch
+        :exit, _ -> :ok
+      end
+    end
   end
 
   @impl true
