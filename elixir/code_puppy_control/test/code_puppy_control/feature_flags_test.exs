@@ -3,7 +3,7 @@ defmodule CodePuppyControl.FeatureFlagsTest do
   Tests for the FeatureFlags GenServer. (code_puppy-djs.4)
 
   Covers:
-  - Default state (all false when no file exists)
+  - Default state (all true when no file exists) (Phase J.1)
   - enabled?/1 returns false for valid but disabled flags
   - enabled?/1 returns false for unknown flags
   - set_flag/2 updates in-memory AND persists to disk
@@ -44,18 +44,22 @@ defmodule CodePuppyControl.FeatureFlagsTest do
   # ===========================================================================
 
   describe "default state (no flags.json)" do
-    test "all capabilities default to false" do
+    test "all capabilities default to true" do
+      # Reload to pick up missing file defaults
+      :ok = FeatureFlags.reload()
       for cap <- FeatureFlags.capabilities() do
-        assert FeatureFlags.enabled?(cap) == false
+        assert FeatureFlags.enabled?(cap) == true
       end
     end
 
-    test "all_flags/0 returns all capabilities as false" do
+    test "all_flags/0 returns all capabilities as true" do
+      # Reload to pick up missing file defaults
+      :ok = FeatureFlags.reload()
       flags = FeatureFlags.all_flags()
 
       for cap <- FeatureFlags.capabilities() do
         assert Map.has_key?(flags, cap)
-        assert flags[cap] == false
+        assert flags[cap] == true
       end
     end
   end
@@ -196,7 +200,7 @@ defmodule CodePuppyControl.FeatureFlagsTest do
       :ok = FeatureFlags.reload()
 
       for cap <- FeatureFlags.capabilities() do
-        assert FeatureFlags.enabled?(cap) == false
+        assert FeatureFlags.enabled?(cap) == true
       end
     end
   end
@@ -244,7 +248,7 @@ defmodule CodePuppyControl.FeatureFlagsTest do
       :ok = FeatureFlags.reload()
 
       for cap <- FeatureFlags.capabilities() do
-        assert FeatureFlags.enabled?(cap) == false
+        assert FeatureFlags.enabled?(cap) == true
       end
     end
 
@@ -255,7 +259,7 @@ defmodule CodePuppyControl.FeatureFlagsTest do
       :ok = FeatureFlags.reload()
 
       for cap <- FeatureFlags.capabilities() do
-        assert FeatureFlags.enabled?(cap) == false
+        assert FeatureFlags.enabled?(cap) == true
       end
     end
 

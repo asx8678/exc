@@ -222,6 +222,19 @@ design doc.
 > the cluster code is a no-op. The existing local pack parallelism behavior
 > is preserved.
 
+## Phase J: Elixir-native end-to-end verification + feature flag enablement
+
+> Tracking: code-puppy-rj0
+> Goal: Validate and enable the Elixir-native runtime path as the default,
+> completing the Python-to-Elixir migration payoff.
+
+- [ ] J.1: Enable Elixir-native path — flip FeatureFlags defaults to `true`, update RuntimeSelector unknown-capability fallback to `:elixir`
+- [ ] J.2: Wire TUI Chat screen to Agent.Loop — implement `chat.ex:106` TODO, streaming integration, message history
+- [ ] J.3: Implement CommandRegistry — port Python `command_registry` to Elixir, wire CommandsController endpoints
+- [ ] J.4: OAuth validation — implement token validation for claude_code and chatgpt_oauth in `Credentials.validate/2`
+- [ ] J.5: Stale issues cleanup — audit and close 73+ stale open entries in `issues.jsonl`
+- [ ] J.6: End-to-end smoke test — deterministic no-network test exercising full Elixir path, CI gate
+
 ## Deferred / ideas
 
 - [x] Replace lefthook with Git-native hooks — removed lefthook.yml, native hooks in scripts/git-hooks/, installer at scripts/install-hooks.sh

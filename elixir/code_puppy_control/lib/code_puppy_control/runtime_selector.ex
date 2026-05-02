@@ -14,7 +14,7 @@ defmodule CodePuppyControl.RuntimeSelector do
   | `python`    | `:python` | Always delegate to Python                   |
   | `elixir`    | `:elixir` | Always handle in Elixir                     |
   | `auto`      | `:auto`   | Route per-capability via `FeatureFlags`     |
-  | *(unset)*   | `:auto`   | Same as `auto` — conservative default       |
+  | *(unset)*   | `:auto`   | Same as `auto` — Elixir-native default (Phase J.1) |
 
   ## Auto-mode routing
 
@@ -23,8 +23,8 @@ defmodule CodePuppyControl.RuntimeSelector do
     - `true`  → `:elixir`
     - `false` → `:python`
 
-  Unknown capabilities in auto mode always fall back to `:python`
-  (conservative default during migration — safety first).
+  Unknown capabilities in auto mode default to `:elixir`
+  (Phase J.1 — Elixir-native path is now the default).
 
   ## Answering the question
 
@@ -126,10 +126,15 @@ defmodule CodePuppyControl.RuntimeSelector do
 
   @spec auto_select(String.t()) :: {runtime(), reason()}
   defp auto_select(capability) do
-    if FeatureFlags.enabled?(capability) do
-      {:elixir, :feature_flag}
+    if capability in FeatureFlags.capabilities() do
+      if FeatureFlags.enabled?(capability) do
+        {:elixir, :feature_flag}
+      else
+        {:python, :feature_flag}
+      end
     else
-      {:python, :default}
+      # Unknown capability defaults to :elixir in auto mode (Phase J.1)
+      {:elixir, :default}
     end
   end
 end

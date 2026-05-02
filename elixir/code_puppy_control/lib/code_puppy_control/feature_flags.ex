@@ -24,7 +24,7 @@ defmodule CodePuppyControl.FeatureFlags do
 
   - ETS table: `:feature_flags_ets` — `:set, :public, :named_table`
   - On-disk: `~/.code_puppy_ex/flags.json` (Jason-encoded)
-  - Missing/corrupt file defaults all flags to `false` with a warning
+  - Missing/corrupt file defaults all flags to `true` with a warning (Phase J.1)
 
   ## API
 
@@ -241,7 +241,7 @@ defmodule CodePuppyControl.FeatureFlags do
 
   defp set_defaults do
     for cap <- @capabilities do
-      :ets.insert(@ets_table, {cap, false})
+      :ets.insert(@ets_table, {cap, true})
     end
 
     :ok

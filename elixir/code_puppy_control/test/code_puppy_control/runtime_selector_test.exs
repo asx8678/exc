@@ -10,7 +10,7 @@ defmodule CodePuppyControl.RuntimeSelectorTest do
   - select/1 in :auto mode returns based on FeatureFlags
   - select_with_reason/1 returns correct reason atoms
   - elixir_handles?/1 convenience wrapper works
-  - Unknown capability in auto mode → :python (conservative default)
+  - Unknown capability in auto mode → :elixir (Phase J.1 default)
   - Integration: set flag → select changes result
 
   async: false because tests mutate the PUP_RUNTIME env var globally.
@@ -165,12 +165,12 @@ defmodule CodePuppyControl.RuntimeSelectorTest do
       assert RuntimeSelector.select("elixir.llm_client") == :elixir
     end
 
-    test "returns :python for unknown capability (conservative default)" do
-      assert RuntimeSelector.select("elixir.nonexistent") == :python
+    test "returns :elixir for unknown capability (Phase J.1 default)" do
+      assert RuntimeSelector.select("elixir.nonexistent") == :elixir
     end
 
-    test "returns :python for empty string" do
-      assert RuntimeSelector.select("") == :python
+    test "returns :elixir for empty string (unknown capability)" do
+      assert RuntimeSelector.select("") == :elixir
     end
 
     test "routes each capability independently" do
@@ -226,15 +226,15 @@ defmodule CodePuppyControl.RuntimeSelectorTest do
       assert RuntimeSelector.select_with_reason("elixir.tools") == {:elixir, :feature_flag}
     end
 
-    test "returns {:python, :default} in auto mode with flag disabled" do
+    test "returns {:python, :feature_flag} in auto mode with flag disabled" do
       System.put_env(@env_var, "auto")
       FeatureFlags.reset_all()
-      assert RuntimeSelector.select_with_reason("elixir.base_agent") == {:python, :default}
+      assert RuntimeSelector.select_with_reason("elixir.base_agent") == {:python, :feature_flag}
     end
 
-    test "returns {:python, :default} for unknown capability in auto mode" do
+    test "returns {:elixir, :default} for unknown capability in auto mode" do
       System.put_env(@env_var, "auto")
-      assert RuntimeSelector.select_with_reason("elixir.unknown") == {:python, :default}
+      assert RuntimeSelector.select_with_reason("elixir.unknown") == {:elixir, :default}
     end
   end
 
@@ -265,9 +265,9 @@ defmodule CodePuppyControl.RuntimeSelectorTest do
       assert RuntimeSelector.elixir_handles?("elixir.plugins") == false
     end
 
-    test "returns false for unknown capability in auto mode" do
+    test "returns true for unknown capability in auto mode (Phase J.1)" do
       System.put_env(@env_var, "auto")
-      assert RuntimeSelector.elixir_handles?("unknown.capability") == false
+      assert RuntimeSelector.elixir_handles?("unknown.capability") == true
     end
   end
 
