@@ -16,7 +16,7 @@ defmodule CodePuppyControl.Pack.Dispatch.CapabilityQueryTest do
 
   # ── Mock proxy opts ──────────────────────────────────────────────────────
 
-  defp mock_proxy_opts(caps \\ %{}) do
+  defp mock_proxy_opts(caps) do
     [
       monitor_fn: fn _node, _flag -> true end,
       handshake_fn: fn _node, _timeout -> {:ok, caps} end
@@ -109,13 +109,24 @@ defmodule CodePuppyControl.Pack.Dispatch.CapabilityQueryTest do
   # ── Setup ─────────────────────────────────────────────────────────────────
 
   setup do
-    if Process.whereis(NamingService) do
-      NamingService.clear()
-    else
-      {:ok, _pid} = NamingService.start_link([])
-    end
-
+    ensure_naming_service!()
     :ok
+  end
+
+  defp ensure_naming_service! do
+    case Process.whereis(CodePuppyControl.Pack.NamingService) do
+      nil ->
+        case CodePuppyControl.Pack.NamingService.start_link([]) do
+          {:ok, _pid} ->
+            :ok
+
+          {:error, {:already_started, _pid}} ->
+            CodePuppyControl.Pack.NamingService.clear()
+        end
+
+      _pid ->
+        CodePuppyControl.Pack.NamingService.clear()
+    end
   end
 
   # ── find_eligible/2 ──────────────────────────────────────────────────────
@@ -423,9 +434,7 @@ defmodule CodePuppyControl.Pack.Dispatch.CapabilityQueryTest do
   describe "graceful fallback when services are down" do
     setup do
       on_exit(fn ->
-        unless Process.whereis(NamingService) do
-          CodePuppyControl.Pack.NamingService.start_link([])
-        end
+        ensure_naming_service!()
       end)
 
       :ok

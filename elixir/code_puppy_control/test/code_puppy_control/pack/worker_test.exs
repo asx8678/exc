@@ -401,8 +401,12 @@ defmodule CodePuppyControl.Pack.WorkerTest do
 
   describe "NamingService registration" do
     test "worker registers with NamingService on init when available" do
-      # Start NamingService so registration succeeds
-      start_supervised!(CodePuppyControl.Pack.NamingService)
+      # Start NamingService so registration succeeds (or clear if app already started it)
+      if Process.whereis(CodePuppyControl.Pack.NamingService) do
+        CodePuppyControl.Pack.NamingService.clear()
+      else
+        start_supervised!(CodePuppyControl.Pack.NamingService)
+      end
 
       {:ok, pid} =
         Worker.start_link(name: :worker_test_naming_reg, host_os: :linux)
