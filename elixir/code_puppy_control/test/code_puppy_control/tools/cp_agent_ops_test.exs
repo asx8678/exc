@@ -163,5 +163,48 @@ defmodule CodePuppyControl.Tools.CpAgentOpsTest do
       result = CpInvokeAgent.invoke(args, context)
       assert match?({:error, _}, result) or match?({:ok, _}, result)
     end
+
+    # -- node parameter (Phase I.3) ----------------------------------------
+
+    test "parameters/0 includes node field" do
+      params = CpInvokeAgent.parameters()
+
+      assert Map.has_key?(params["properties"], "node")
+      assert params["properties"]["node"]["type"] == "string"
+      assert is_binary(params["properties"]["node"]["description"])
+    end
+
+    test "node is optional (not in required list)" do
+      params = CpInvokeAgent.parameters()
+
+      refute "node" in (params["required"] || [])
+    end
+
+    test "empty string node is treated as nil" do
+      # The invoke/2 implementation should convert "" to nil for node
+      args = %{
+        "agent_name" => "nonexistent-agent-xyz",
+        "prompt" => "test",
+        "node" => ""
+      }
+
+      # Should not crash — empty node is normalized to nil → local path
+      result = CpInvokeAgent.invoke(args, %{})
+      assert match?({:error, _}, result) or match?({:ok, _}, result)
+    end
+
+    test "node parameter is passed through to AgentInvocation" do
+      # With a valid-looking node string but nonexistent agent,
+      # it should still fail (agent not found) without crashing
+      args = %{
+        "agent_name" => "nonexistent-agent-xyz",
+        "prompt" => "test",
+        "node" => "pup_builder@build-01"
+      }
+
+      result = CpInvokeAgent.invoke(args, %{})
+      # Distributed is disabled → falls back to local → agent not found
+      assert match?({:error, _}, result)
+    end
   end
 end

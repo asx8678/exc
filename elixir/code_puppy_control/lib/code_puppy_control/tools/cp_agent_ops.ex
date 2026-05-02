@@ -56,6 +56,14 @@ defmodule CodePuppyControl.Tools.CpAgentOps do
               "Optional session ID for continuing a conversation. " <>
                 "Auto-generated with a unique hash suffix if omitted. " <>
                 "Must be kebab-case (lowercase, hyphens only)."
+          },
+          "node" => %{
+            "type" => "string",
+            "description" =>
+              "Optional target node for remote execution. " <>
+                "Format: 'worker_name@hostname' (e.g., 'pup_builder@build-01'). " <>
+                "Only used when distributed packs are enabled. " <>
+                "If omitted, dispatches locally or auto-selects a worker."
           }
         },
         "required" => ["agent_name", "prompt"]
@@ -68,6 +76,14 @@ defmodule CodePuppyControl.Tools.CpAgentOps do
       prompt = Map.get(args, "prompt", "")
       session_id = Map.get(args, "session_id")
 
+      # Extract node target for remote dispatch (distributed packs)
+      node_target =
+        case Map.get(args, "node") do
+          nil -> nil
+          "" -> nil
+          node_str -> String.to_atom(node_str)
+        end
+
       # Extract parent context from the tool invocation context
       # for sub-agent isolation filtering
       parent_context = extract_parent_context(context)
@@ -75,7 +91,8 @@ defmodule CodePuppyControl.Tools.CpAgentOps do
       result =
         AgentInvocation.invoke(agent_name, prompt,
           session_id: session_id,
-          context: parent_context
+          context: parent_context,
+          node: node_target
         )
 
       # Convert to {:ok, ...} / {:error, ...} for Tool behaviour

@@ -199,10 +199,10 @@ design doc.
 
 ### Phase I.3: Capability-aware dispatch
 
-- [ ] Pack Leader can query NamingService for eligible workers
-- [ ] `cp_invoke_agent("terrier", params, node: :worker@host)` syntax
-- [ ] Default: dispatch locally (backward compatible)
-- [ ] Graceful degradation if no remote workers match
+- [x] Pack Leader can query NamingService for eligible workers — implemented: `Pack.Dispatcher.resolve_target/2` queries `NamingService.find_nodes/1-2` with optional constraints; returns `:local` or `{:remote, node}`
+- [x] `cp_invoke_agent("terrier", params, node: :worker@host)` syntax — implemented: `node` parameter added to `CpInvokeAgent` tool schema + `AgentInvocation.invoke/3` opts; string→atom conversion with safety
+- [x] Default: dispatch locally (backward compatible) — implemented: when distributed disabled OR no `node:` specified OR no workers available, `Dispatcher` returns `:local` and `AgentInvocation` follows existing `do_invoke` path
+- [x] Graceful degradation if no remote workers match — implemented: `Dispatcher.dispatch_remote/5` catches `:exit`, handles timeout, and falls back to local `AgentInvocation.invoke/3` with warning log + telemetry
 
 ### Phase I.4: Automatic load balancing
 

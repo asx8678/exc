@@ -111,6 +111,7 @@ defmodule CodePuppyControl.Tools.AgentInvocation do
     - `:context` — Optional parent context map (filtered before passing)
     - `:model` — Optional model override
     - `:config` — Optional additional config map
+    - `:node` — Optional target node for remote dispatch (requires distributed packs)
 
   ## Returns
 
@@ -141,7 +142,28 @@ defmodule CodePuppyControl.Tools.AgentInvocation do
     # Step 5: Validate agent exists
     case validate_agent(agent_name) do
       {:ok, _module} ->
-        do_invoke(agent_name, prompt, session_id, is_new_session, model, config)
+        # Step 5b: Check for remote dispatch
+        node_target = Keyword.get(opts, :node)
+
+        if node_target != nil and CodePuppyControl.Pack.Config.enabled?() do
+          # Route through distributed dispatcher
+          dispatch_result =
+            CodePuppyControl.Pack.Dispatcher.dispatch(agent_name, prompt,
+              node: node_target,
+              session_id: session_id,
+              model: model,
+              timeout: Keyword.get(opts, :timeout)
+            )
+
+          # Unwrap Dispatcher's {:ok, _} | {:error, _} to flat map shape
+          case dispatch_result do
+            {:ok, result} -> result
+            {:error, result} -> result
+          end
+        else
+          # Existing local path
+          do_invoke(agent_name, prompt, session_id, is_new_session, model, config)
+        end
 
       {:error, reason} ->
         error_msg = "Agent not found: #{reason}"

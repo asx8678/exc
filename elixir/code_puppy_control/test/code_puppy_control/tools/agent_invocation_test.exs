@@ -352,6 +352,39 @@ defmodule CodePuppyControl.Tools.AgentInvocationTest do
   # extract_response normalization (code_puppy-mmk.4)
   # ---------------------------------------------------------------------------
 
+  # ---------------------------------------------------------------------------
+  # invoke/3 - Remote Dispatch (Phase I.3)
+  # ---------------------------------------------------------------------------
+
+  describe "invoke/3 remote dispatch" do
+    test "with node: nil follows existing local path" do
+      # Explicit nil should go through local invoke
+      result = AgentInvocation.invoke("nonexistent-agent-xyz", "test", node: nil)
+
+      # Should fail with agent-not-found error (local path)
+      assert result.error != nil
+      assert result.agent_name == "nonexistent-agent-xyz"
+    end
+
+    test "with node: :some_node when distributed disabled follows local path" do
+      # Distributed packs disabled by default → any node: opt is ignored
+      result =
+        AgentInvocation.invoke(
+          "nonexistent-agent-xyz",
+          "test",
+          node: :pup_worker@somewhere
+        )
+
+      # Falls back to local path because Config.enabled?() is false
+      assert result.error != nil
+      assert result.agent_name == "nonexistent-agent-xyz"
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # extract_response normalization (code_puppy-mmk.4)
+  # ---------------------------------------------------------------------------
+
   describe "extract_response normalization" do
     test "extracts atom-keyed response from metadata" do
       # Simulate Run.State with atom-keyed metadata
