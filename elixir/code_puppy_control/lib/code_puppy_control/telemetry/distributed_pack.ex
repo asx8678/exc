@@ -5,10 +5,6 @@ defmodule CodePuppyControl.Telemetry.DistributedPack do
   Emits events defined in `docs/distributed-packs.md §14` for node lifecycle,
   dispatch lifecycle, and capability changes in the multi-node pack cluster.
 
-  These functions were extracted from `CodePuppyControl.Telemetry` to keep
-  the parent module under the 600-line cap. The parent module delegates to
-  these functions for backward compatibility.
-
   ## Events
 
   ### Node Lifecycle
@@ -24,7 +20,7 @@ defmodule CodePuppyControl.Telemetry.DistributedPack do
   | Event | Measurements | Metadata |
   |-------|-------------|----------|
   | `[:code_puppy, :distributed_pack, :dispatch, :start]` | `system_time`, `monotonic_time` | `run_id`, `sub_agent`, `target_node` |
-  | `[:code_puppy, :distributed_pack, :dispatch, :stop]` | `duration_ms`, `system_time` | `run_id`, `status`, `duration_ms` |
+  | `[:code_puppy, :distributed_pack, :dispatch, :stop]` | `duration_ms`, `system_time` | `run_id`, `status` |
   | `[:code_puppy, :distributed_pack, :dispatch, :exception]` | `system_time`, `monotonic_time` | `run_id`, `error` |
 
   ### Capability Events
@@ -45,7 +41,7 @@ defmodule CodePuppyControl.Telemetry.DistributedPack do
 
   ## Examples
 
-      Telemetry.DistributedPack.node_connected(Node.self(), %{sub_agents: [:terrier]})
+      Telemetry.DistributedPack.node_connected(:pup_worker@10.0.0.50, %{sub_agents: [:terrier]})
   """
   @spec node_connected(node(), map()) :: :ok
   def node_connected(node, capabilities) do
@@ -59,11 +55,9 @@ defmodule CodePuppyControl.Telemetry.DistributedPack do
   @doc """
   Emits a node-disconnected event when a worker node leaves the cluster.
 
-  Includes the list of active run IDs that were in-flight on that node.
-
   ## Examples
 
-      Telemetry.DistributedPack.node_disconnected(Node.self(), ["run-1"], :nodedown)
+      Telemetry.DistributedPack.node_disconnected(:pup_worker@10.0.0.50, ["run-1"], :nodedown)
   """
   @spec node_disconnected(node(), [String.t()], term()) :: :ok
   def node_disconnected(node, active_runs, reason) do
@@ -79,7 +73,7 @@ defmodule CodePuppyControl.Telemetry.DistributedPack do
 
   ## Examples
 
-      Telemetry.DistributedPack.node_reconnected(Node.self(), 30_000)
+      Telemetry.DistributedPack.node_reconnected(:pup_worker@10.0.0.50, 5000)
   """
   @spec node_reconnected(node(), non_neg_integer()) :: :ok
   def node_reconnected(node, grace_period_ms) do
@@ -95,11 +89,11 @@ defmodule CodePuppyControl.Telemetry.DistributedPack do
   # ============================================================================
 
   @doc """
-  Emits a dispatch-start event when the leader dispatches a sub-agent to a worker.
+  Emits a dispatch-start event when a sub-agent is dispatched to a worker.
 
   ## Examples
 
-      Telemetry.DistributedPack.dispatch_start("run-123", :terrier, Node.self())
+      Telemetry.DistributedPack.dispatch_start("run-123", :terrier, :pup_worker@10.0.0.50)
   """
   @spec dispatch_start(String.t(), atom(), node()) :: :ok
   def dispatch_start(run_id, sub_agent, target_node) do
@@ -115,14 +109,14 @@ defmodule CodePuppyControl.Telemetry.DistributedPack do
 
   ## Examples
 
-      Telemetry.DistributedPack.dispatch_stop("run-123", :ok, 1_500)
+      Telemetry.DistributedPack.dispatch_stop("run-123", :success, 1500)
   """
   @spec dispatch_stop(String.t(), atom(), non_neg_integer()) :: :ok
   def dispatch_stop(run_id, status, duration_ms) do
     :telemetry.execute(
       @event_prefix ++ [:dispatch, :stop],
       %{duration_ms: duration_ms, system_time: System.system_time(:millisecond)},
-      %{run_id: run_id, status: status, duration_ms: duration_ms}
+      %{run_id: run_id, status: status}
     )
   end
 
@@ -131,7 +125,7 @@ defmodule CodePuppyControl.Telemetry.DistributedPack do
 
   ## Examples
 
-      Telemetry.DistributedPack.dispatch_exception("run-123", "unsupported_sub_agent")
+      Telemetry.DistributedPack.dispatch_exception("run-123", "timeout")
   """
   @spec dispatch_exception(String.t(), String.t()) :: :ok
   def dispatch_exception(run_id, error) do
@@ -151,7 +145,7 @@ defmodule CodePuppyControl.Telemetry.DistributedPack do
 
   ## Examples
 
-      Telemetry.DistributedPack.capabilities_updated(Node.self(), %{sub_agents: [:terrier]})
+      Telemetry.DistributedPack.capabilities_updated(:pup_worker@10.0.0.50, %{sub_agents: [:terrier, :watchdog]})
   """
   @spec capabilities_updated(node(), map()) :: :ok
   def capabilities_updated(node, capabilities) do

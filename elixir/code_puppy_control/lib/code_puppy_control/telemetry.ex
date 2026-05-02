@@ -49,18 +49,6 @@ defmodule CodePuppyControl.Telemetry do
   |-------|-------------|----------|
   | `[:code_puppy, :session, :resume]` | `system_time`, `monotonic_time` | `session_id`, `restored`, `reason` |
 
-  ### Distributed Pack
-
-  | Event | Measurements | Metadata |
-  |-------|-------------|----------|
-  | `[:code_puppy, :distributed_pack, :node, :connected]` | `system_time`, `monotonic_time` | `node`, `capabilities` |
-  | `[:code_puppy, :distributed_pack, :node, :disconnected]` | `system_time`, `monotonic_time` | `node`, `active_runs`, `reason` |
-  | `[:code_puppy, :distributed_pack, :node, :reconnected]` | `system_time`, `monotonic_time` | `node`, `grace_period_ms` |
-  | `[:code_puppy, :distributed_pack, :dispatch, :start]` | `system_time`, `monotonic_time` | `run_id`, `sub_agent`, `target_node` |
-  | `[:code_puppy, :distributed_pack, :dispatch, :stop]` | `duration_ms`, `system_time` | `run_id`, `status`, `duration_ms` |
-  | `[:code_puppy, :distributed_pack, :dispatch, :exception]` | `system_time`, `monotonic_time` | `run_id`, `error` |
-  | `[:code_puppy, :distributed_pack, :capabilities, :updated]` | `system_time`, `monotonic_time` | `node`, `capabilities` |
-
   ## Usage
 
   Emit events using the helper functions:
@@ -68,13 +56,6 @@ defmodule CodePuppyControl.Telemetry do
       Telemetry.run_start(run_id, session_id, agent_name)
       Telemetry.run_complete(run_id, session_id, agent_name, start_monotonic_time)
       Telemetry.request_duration(run_id, method, request_id, duration_ms)
-
-      Telemetry.distributed_node_connected(node, capabilities)
-      Telemetry.distributed_dispatch_start(run_id, :terrier, target_node)
-      Telemetry.distributed_dispatch_stop(run_id, :ok, duration_ms)
-
-  See `CodePuppyControl.Telemetry.DistributedPack` for the submodule with
-  the actual implementations.
 
   ## Metrics Handling
 
@@ -98,6 +79,12 @@ defmodule CodePuppyControl.Telemetry do
           Telemetry.Metrics.last_value("code_puppy.request.duration", unit: :millisecond)
         ]
       end
+
+  ## Submodules
+
+  - `CodePuppyControl.Telemetry.DistributedPack` — Telemetry helpers for
+     distributed pack node lifecycle, dispatch, and capability events.
+     See `docs/distributed-packs.md §14` for the full event specification.
   """
 
   @typedoc "Run identifier"
@@ -111,18 +98,6 @@ defmodule CodePuppyControl.Telemetry do
 
   @typedoc "Monotonic timestamp (millisecond precision)"
   @type monotonic_time :: integer()
-
-  @typedoc "Distributed pack node"
-  @type dist_node :: node()
-
-  @typedoc "Run identifier (distributed dispatch)"
-  @type dist_run_id :: String.t()
-
-  @typedoc "Sub-agent atom identifier"
-  @type sub_agent :: atom()
-
-  @typedoc "Capability map"
-  @type capabilities :: map()
 
   # ============================================================================
   # Run Lifecycle Events
@@ -462,63 +437,6 @@ defmodule CodePuppyControl.Telemetry do
       }
     )
   end
-
-  # ============================================================================
-  # Distributed Pack Events (delegated to DistributedPack submodule)
-  # ============================================================================
-
-  # Distributed pack telemetry helpers live in CodePuppyControl.Telemetry.DistributedPack
-  # to keep this module under the 600-line cap. These delegations preserve
-  # backward compatibility for callers using Telemetry.distributed_*.
-
-  @doc """
-  Delegates to `DistributedPack.node_connected/2`.
-  """
-  defdelegate distributed_node_connected(node, capabilities),
-    to: CodePuppyControl.Telemetry.DistributedPack,
-    as: :node_connected
-
-  @doc """
-  Delegates to `DistributedPack.node_disconnected/3`.
-  """
-  defdelegate distributed_node_disconnected(node, active_runs, reason),
-    to: CodePuppyControl.Telemetry.DistributedPack,
-    as: :node_disconnected
-
-  @doc """
-  Delegates to `DistributedPack.node_reconnected/2`.
-  """
-  defdelegate distributed_node_reconnected(node, grace_period_ms),
-    to: CodePuppyControl.Telemetry.DistributedPack,
-    as: :node_reconnected
-
-  @doc """
-  Delegates to `DistributedPack.dispatch_start/3`.
-  """
-  defdelegate distributed_dispatch_start(run_id, sub_agent, target_node),
-    to: CodePuppyControl.Telemetry.DistributedPack,
-    as: :dispatch_start
-
-  @doc """
-  Delegates to `DistributedPack.dispatch_stop/3`.
-  """
-  defdelegate distributed_dispatch_stop(run_id, status, duration_ms),
-    to: CodePuppyControl.Telemetry.DistributedPack,
-    as: :dispatch_stop
-
-  @doc """
-  Delegates to `DistributedPack.dispatch_exception/2`.
-  """
-  defdelegate distributed_dispatch_exception(run_id, error),
-    to: CodePuppyControl.Telemetry.DistributedPack,
-    as: :dispatch_exception
-
-  @doc """
-  Delegates to `DistributedPack.capabilities_updated/2`.
-  """
-  defdelegate distributed_capabilities_updated(node, capabilities),
-    to: CodePuppyControl.Telemetry.DistributedPack,
-    as: :capabilities_updated
 
   # ============================================================================
   # Span Tracking

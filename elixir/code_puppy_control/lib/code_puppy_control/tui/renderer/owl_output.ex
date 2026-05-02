@@ -2,11 +2,16 @@ defmodule CodePuppyControl.TUI.Renderer.OwlOutput do
   @moduledoc """
   Owl terminal output helpers for the TUI Renderer.
 
-  Provides safe Owl.IO.puts, banner rendering, color mapping,
-  and spinner lifecycle management. All functions are pure
-  (no GenServer state) — the main Renderer GenServer threads
-  state through these as needed.
+  Implements the `TUI.Output` behaviour, providing safe Owl.IO.puts,
+  banner rendering, color mapping, and spinner lifecycle management.
+  All functions are pure (no GenServer state) — the main Renderer
+  GenServer threads state through these as needed.
+
+  This module can be swapped out for a test mock or alternative
+  terminal backend per ADR-007 (code_puppy-057.3).
   """
+
+  @behaviour CodePuppyControl.TUI.Output
 
   require Logger
 
@@ -39,6 +44,29 @@ defmodule CodePuppyControl.TUI.Renderer.OwlOutput do
     "mcp_tool_call" => {"MCP TOOL", :magenta, "🔧"}
   }
 
+  # ── Behaviour Conforming Wrappers ────────────────────────────────────────
+
+  # These implement TUI.Output callbacks so OwlOutput can be used as
+  # a swappable output_mod per ADR-007 (code_puppy-057.3).
+
+  @impl true
+  def puts(data), do: owl_puts(data)
+
+  @impl true
+  def banner(label, color, icon), do: print_banner(label, color, icon)
+
+  @impl true
+  def tool_banner(tool_name), do: print_tool_banner(tool_name)
+
+  @impl true
+  def start_spinner(loading_index, idx), do: start_tool_spinner(loading_index, idx)
+
+  @impl true
+  def stop_tool_spinner(spinner_ids, idx), do: stop_tool_spinner_by_idx(spinner_ids, idx)
+
+  @impl true
+  def color_background(color), do: color_background_atom(color)
+
   # ── Safe Owl Output ──────────────────────────────────────────────────────
 
   @doc """
@@ -55,6 +83,9 @@ defmodule CodePuppyControl.TUI.Renderer.OwlOutput do
     catch
       :error, :terminated -> :ok
       :exit, :terminated -> :ok
+      kind, reason ->
+        Logger.error("TUI.Renderer.OwlOutput: Owl.IO.puts failed: #{kind} #{inspect(reason)}")
+        :ok
     end
   end
 
@@ -62,7 +93,7 @@ defmodule CodePuppyControl.TUI.Renderer.OwlOutput do
 
   @spec print_banner(String.t(), atom(), String.t()) :: :ok
   def print_banner(label, color, icon) do
-    tag = Owl.Data.tag(" #{label} ", [:white, color_background(color)])
+    tag = Owl.Data.tag(" #{label} ", [:white, color_background_atom(color)])
     icon_str = if icon && icon != "", do: " #{icon}", else: ""
     owl_puts(["\n", tag, icon_str])
     :ok
@@ -74,14 +105,14 @@ defmodule CodePuppyControl.TUI.Renderer.OwlOutput do
     print_banner(label, color, icon)
   end
 
-  @spec color_background(atom()) :: atom()
-  def color_background(:cyan), do: :cyan_background
-  def color_background(:green), do: :green_background
-  def color_background(:yellow), do: :yellow_background
-  def color_background(:red), do: :red_background
-  def color_background(:blue), do: :blue_background
-  def color_background(:magenta), do: :magenta_background
-  def color_background(_), do: :blue_background
+  @spec color_background_atom(atom()) :: atom()
+  def color_background_atom(:cyan), do: :cyan_background
+  def color_background_atom(:green), do: :green_background
+  def color_background_atom(:yellow), do: :yellow_background
+  def color_background_atom(:red), do: :red_background
+  def color_background_atom(:blue), do: :blue_background
+  def color_background_atom(:magenta), do: :magenta_background
+  def color_background_atom(_), do: :blue_background
 
   # ── Spinner Management ──────────────────────────────────────────────────
 
@@ -118,6 +149,7 @@ defmodule CodePuppyControl.TUI.Renderer.OwlOutput do
   @doc """
   Stop a specific spinner by ref. Catches exit errors from Owl.Spinner.
   """
+  @impl true
   @spec stop_spinner(reference()) :: :ok
   def stop_spinner(ref) do
     try do
@@ -132,9 +164,9 @@ defmodule CodePuppyControl.TUI.Renderer.OwlOutput do
   @doc """
   Stop the spinner for a given part index. Returns updated spinner_ids.
   """
-  @spec stop_tool_spinner(%{non_neg_integer() => reference()}, non_neg_integer()) ::
+  @spec stop_tool_spinner_by_idx(%{non_neg_integer() => reference()}, non_neg_integer()) ::
           %{non_neg_integer() => reference()}
-  def stop_tool_spinner(spinner_ids, idx) do
+  def stop_tool_spinner_by_idx(spinner_ids, idx) do
     case Map.get(spinner_ids, idx) do
       nil ->
         Logger.debug("TUI.Renderer: no spinner to stop for index #{idx}")
@@ -149,6 +181,7 @@ defmodule CodePuppyControl.TUI.Renderer.OwlOutput do
   @doc """
   Stop all active spinners. Returns empty spinner_ids map.
   """
+  @impl true
   @spec stop_all_spinners(%{non_neg_integer() => reference()}) ::
           %{non_neg_integer() => reference()}
   def stop_all_spinners(spinner_ids) do

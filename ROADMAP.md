@@ -73,12 +73,12 @@ Prerequisites before launching the Python-to-Elixir port.
 
 #### Phase D follow-ups (post-ctj.1)
 
-- [ ] Fix mislabeled `save_session_async/3` Store-routing test in `session_storage_async_test.exs:135-149` — currently passes `base_dir:` so it exercises FileBackend, not Store
-- [ ] Add explicit Store-backed facade tests for `search_sessions/1` and `export_*` (call without `base_dir`, assert Store-backed behavior)
-- [ ] Correct `load_session_full/2` type/spec — `@type session_data` uses atom keys but Store returns string-keyed maps (`session_storage.ex:54-62` vs `:149-163`)
-- [ ] Harden Store operation error returns — `Store.Operations.do_delete_session/1` and `do_recover_from_disk/0` pattern-match `:ok`/`{:ok, _}` and could crash on persistence errors
-- [ ] Clarify `application.ex` supervision tree comment — currently says "Session storage ETS cache + PubSub" which echoes the removed dual-cache; reword to "SessionStorage.Store — ETS-backed session store + PubSub"
-- [ ] Resolve CronScheduler Ecto-sandbox contention — `pool_size: 1` causes ~15 DB-dependent workflow test failures because CronScheduler holds the only connection. Either exclude scheduler in test env or raise pool_size. Pre-existing, not a regression.
+- [x] Fix mislabeled `save_session_async/3` Store-routing test in `session_storage_async_test.exs:135-149` — fixed: Store-routing test at line 142-155 correctly tests without `base_dir:`
+- [x] Add explicit Store-backed facade tests for `search_sessions/1` and `export_*` (call without `base_dir`, assert Store-backed behavior) — implemented in `session_storage_facade_test.exs`
+- [x] Correct `load_session_full/2` type/spec — `@type session_data` uses atom keys but Store returns string-keyed maps (`session_storage.ex:54-62` vs `:149-163`) — typedoc clarified
+- [x] Harden Store operation error returns — `Store.Operations.do_delete_session/1` and `do_recover_from_disk/0` pattern-match `:ok`/`{:ok, _}` and could crash on persistence errors — already hardened with try/rescue
+- [x] Clarify `application.ex` supervision tree comment — currently says "Session storage ETS cache + PubSub" which echoes the removed dual-cache; reword to "SessionStorage.Store — ETS-backed session store + PubSub" — updated
+- [x] Resolve CronScheduler Ecto-sandbox contention — `pool_size: 1` causes ~15 DB-dependent workflow test failures because CronScheduler holds the only connection. Either exclude scheduler in test env or raise pool_size. Pre-existing, not a regression. — resolved: CronScheduler excluded in test env via compile-time `@exclude_cron_scheduler` flag
 
 ### Phase E: Tools
 
@@ -120,30 +120,30 @@ Prerequisites before launching the Python-to-Elixir port.
 #### Phase G follow-ups (post-prg.3)
 
 **Renderer / TUI robustness:**
-- [ ] Replace O(n²) `++` in `Renderer.Buffer` text accumulation with a reversed-list pattern (`[text | acc]` + reverse on flush) — `renderer/buffer.ex`
-- [ ] Mirror `TUI.App.owl_puts/1` defensive logging pattern in `Renderer.OwlOutput.owl_puts/1` (currently only catches `:terminated`)
-- [ ] Add a `TUI.Output` / `TUI.RenderTarget` adapter to reduce Owl coupling per ADR-007's "make Owl swappable" intent
-- [ ] Replace `Task.shutdown(:brutal_kill)` in `Input.terminate/2` with monitor-aware graceful shutdown + bounded fallback
-- [ ] Handle string-keyed legacy events in `Renderer.EventMapper.legacy_event_to_canonical/1` (currently atom-keyed only)
-- [ ] Make `@flush_threshold` configurable in `Renderer` (currently hardcoded at 20 — likely too low for streaming)
-- [ ] Align `Input` module docs with implementation OR implement advertised line-editing/history/Ctrl+W/tab-completion features
+- [x] Replace O(n²) `++` in `Renderer.Buffer` text accumulation with a reversed-list pattern (`[text | acc]` + reverse on flush) — `renderer/buffer.ex` — implemented: uses `[text | &1]` prepend + `Enum.reverse` on flush
+- [x] Mirror `TUI.App.owl_puts/1` defensive logging pattern in `Renderer.OwlOutput.owl_puts/1` (currently only catches `:terminated`) — implemented: catches `:error/:exit :terminated` + generic `kind, reason`
+- [x] Add a `TUI.Output` / `TUI.RenderTarget` adapter to reduce Owl coupling per ADR-007's "make Owl swappable" intent — implemented: `TUI.Output` behaviour + `OwlOutput` conforming module
+- [x] Replace `Task.shutdown(:brutal_kill)` in `Input.terminate/2` with monitor-aware graceful shutdown + bounded fallback — implemented: monitor + `:shutdown` + 3s timeout (code_puppy-057.4)
+- [x] Handle string-keyed legacy events in `Renderer.EventMapper.legacy_event_to_canonical/1` (currently atom-keyed only) — implemented: handles both `%{"type" => _}` and `%{type: _}`
+- [x] Make `@flush_threshold` configurable in `Renderer` (currently hardcoded at 20 — likely too low for streaming) — implemented: accepted via `:flush_threshold` option in `start_link`
+- [x] Align `Input` module docs with implementation OR implement advertised line-editing/history/Ctrl+W/tab-completion features — aligned: docs clarify Input does NOT implement line editing, only history add/dedup/retrieval
 
 **Test quality / drift prevention:**
-- [ ] Reduce `:sys.get_state/1` reliance in `renderer_test.exs` (drift risk — should test boundary behavior)
-- [ ] Strengthen `markdown_test.exs` beyond `assert is_list(result)` smoke checks
-- [ ] Make `model_selector_test.exs` deterministic — currently passes vacuously when no models configured
-- [ ] Tighten config screen test boundaries — currently accepts both success and `write_error` outcomes
+- [x] Reduce `:sys.get_state/1` reliance in `renderer_test.exs` (drift risk — should test boundary behavior) — resolved: renderer tests use public API queries (`streaming?/2`, `token_count/1`, `all_buffers_flushed?/1`); no `:sys.get_state` calls remain
+- [x] Strengthen `markdown_test.exs` beyond `assert is_list(result)` smoke checks — resolved: comprehensive tests with `render_to_string` helper, content assertions, tag checks, unicode/emoji/nil edge cases (7.2KB test file)
+- [x] Make `model_selector_test.exs` deterministic — currently passes vacuously when no models configured — resolved: injects 12 `@test_models` into ETS with temp API keys; never passes vacuously (22.6KB test file)
+- [x] Tighten config screen test boundaries — currently accepts both success and `write_error` outcomes — resolved: deterministic "set then get" tests, specific error assertions; dual-outcome cases have explicit justification comments
 
 **Plugin / CLI integration (post-prg.1+2 audit):**
-- [ ] Implement `--continue` session restore — currently parsed but routes to plain interactive mode (`cli.ex` docstring acknowledges)
-- [ ] Implement `--bridge-mode` runtime effect — currently parsed and reserved (no spec yet; defer until requirements clarify)
+- [x] Implement `--continue` session restore — currently parsed but routes to plain interactive mode (`cli.ex` docstring acknowledges) — implemented: `CLI.SessionResume` module (6.4KB) loads newest session into `Agent.State`, then starts REPL with restored `:session_id`; telemetry + test coverage in `session_resume_test.exs`
+- [x] Implement `--bridge-mode` runtime effect — implemented via RuntimeSelector (code_puppy-bwt): `--bridge-mode` sets `PUP_RUNTIME=python` for the session, forcing all capabilities to delegate to the Python bridge
 
 **Coverage gaps (no CI gate, but flag for future):**
-- [ ] `TUI.Widgets.ModelSelector` — 7.23% coverage
-- [ ] `TUI.Widgets.SessionBrowser` — 18.75% coverage
-- [ ] `TUI.Widgets.AgentSelector` — 21.05% coverage
-- [ ] `TUI.Input` — 36.59% coverage
-- [ ] `TUI.Renderer.EventMapper` — 45.45% coverage
+- [x] `TUI.Widgets.ModelSelector` — was 7.23% coverage — resolved: 22.6KB test file with 12 injected test models, exercises list_models, short_name, context_length, parse_selection, maybe_filter, select/1
+- [x] `TUI.Widgets.SessionBrowser` — was 18.75% coverage — resolved: 9.3KB test file covering format_session, timestamps (DateTime/ISO8601/nil/garbage), token formatting (k/M), auto_saved edge cases
+- [x] `TUI.Widgets.AgentSelector` — was 21.05% coverage — resolved: 10.1KB test file covering list_agents, slug kebab-case validation, sorting, filtering, module resolution
+- [x] `TUI.Input` — was 36.59% coverage — resolved: 9.0KB test file covering lifecycle, history dedup, input forwarding, EOF handling, prompt changes, clear_history
+- [x] `TUI.Renderer.EventMapper` — was 45.45% coverage — resolved: 4.2KB test file covering wire-format events, atom-keyed legacy, string-keyed legacy, non-map/nil/empty edge cases
 
 ### Phase H: Cutover
 
@@ -151,15 +151,15 @@ Prerequisites before launching the Python-to-Elixir port.
 > Historical: epic `code_puppy-3f9` (filed 2026-04-25, 7 child tasks)
 > Phase H reality audit: [docs/triage/phase-h-reality-audit-2026-04-29.md](docs/triage/phase-h-reality-audit-2026-04-29.md)
 
-- [x] Feature-flag Elixir code paths (code_puppy-djs.4) — FeatureFlags GenServer + ETS + Python mirror + /feature-flags command
-- [x] Gradual rollout per capability (code_puppy-djs.6) — percentage-based engine + metrics + CLI /rollout command
-- [x] Delete Python tree when Elixir is at parity (code_puppy-djs.2) — 535 .py files removed
-- [x] Runtime selector + dual-run router (code_puppy-bwt) — Elixir + Python + auto-fallback + doctor
-- [x] Implement --continue session restore (code_puppy-djs.5)
-- [x] Implement --bridge-mode runtime effect (code_puppy-djs.3)
-- [x] Update CONTRIBUTING.md (code_puppy-djs.7)
+- [x] Feature-flag Elixir code paths (code_puppy-djs.4) — implemented: `FeatureFlags` GenServer with ETS-backed flags.json, per-capability toggles, atomic disk persistence
+- [x] Gradual rollout per capability (code_puppy-djs.6) — implemented: `Rollout` GenServer with percentage-based routing, `:ets.update_counter` observability, error-rate rollback detection
+- [x] Delete Python tree when Elixir is at parity (code_puppy-djs.2) — Categories A, B, D complete (~17.4K LoC removed: api/, state_migration, ttsr, frontend_emitter, tracing_*, auto_test_control, synthetic_status, completion_notifier, render_check, error_logger, example_custom_command, browser/, scheduler/, plugins/scheduler/, scheduler_screen, repo_compass, code_explorer, code_context, code_skeleton); see `docs/triage/djs2-deletion-manifest.md`
+- [x] Runtime selector + dual-run router (code_puppy-bwt) — child of code_puppy-djs — implemented: `RuntimeSelector` module with mode/0, select/1, select_with_reason/1, elixir_handles?/1; auto mode routes per-capability via FeatureFlags; `--bridge-mode` now forces PUP_RUNTIME=python
+- [x] Implement --continue session restore (code_puppy-djs.5) — implemented: `CLI.SessionResume` module loads newest persisted session into `Agent.State`, then starts REPL with restored `:session_id`
+- [x] Implement --bridge-mode runtime effect (code_puppy-djs.3) — done: `--bridge-mode` sets PUP_RUNTIME=python via RuntimeSelector (code_puppy-bwt)
+- [x] Update CONTRIBUTING.md (code_puppy-djs.7) — added Phase H runtime routing infrastructure section documenting FeatureFlags, RuntimeSelector, and Rollout
 
-> **Phase H is now COMPLETE.** All 7 sub-items merged to main. Python tree deleted, feature flags + runtime selector + gradual rollout operational. See merge commit for details.
+> **Phase H reality audit (code_puppy-djs.1) is ✅ COMPLETE.** See [audit document](docs/triage/phase-h-reality-audit-2026-04-29.md). The audit is separate from djs.4 implementation.
 
 ## Phase I: Distributed packs (multi-node Erlang cluster)
 
@@ -184,11 +184,11 @@ design doc.
 
 ### Phase I.1: Skeleton integration
 
-- [x] Wire `NodeMonitor` + `DistributedSupervisor` into root supervision tree
+- [ ] Wire `NodeMonitor` + `DistributedSupervisor` into root supervision tree
       (disabled by default via `packs.distributed.enabled = false`)
-- [x] Add Registry tables for `:via` tuple routing
-- [x] Add configuration keys to `puppy.cfg` spec
-- [x] Wire telemetry events into the existing `Telemetry` module
+- [ ] Add Registry tables for `:via` tuple routing
+- [ ] Add configuration keys to `puppy.cfg` spec
+- [ ] Wire telemetry events into the existing `Telemetry` module
 
 ### Phase I.2: Worker-mode application
 

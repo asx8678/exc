@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# ─────────────────────────────────────────────────────────────
+# Code Puppy — pre-commit hook (code_puppy-df1.1)
+#
+# Replaces lefthook.yml with native Git hooks.
+# Installed by: scripts/install-hooks.sh
+# ─────────────────────────────────────────────────────────────
+
+set -euo pipefail
+
+# Get staged Python files
+STAGED_PY=$(git diff --cached --name-only --diff-filter=ACM -- '*.py' 2>/dev/null || true)
+
+if [ -n "$STAGED_PY" ]; then
+    echo "🐕 Pre-commit: Formatting Python files..."
+
+    # isort / ruff import sorting
+    if command -v uv >/dev/null 2>&1; then
+        uv run ruff check --select I --fix $STAGED_PY 2>/dev/null || true
+    elif command -v ruff >/dev/null 2>&1; then
+        ruff check --select I --fix $STAGED_PY 2>/dev/null || true
+    fi
+
+    # ruff format
+    if command -v uv >/dev/null 2>&1; then
+        uv run ruff format $STAGED_PY 2>/dev/null || true
+    elif command -v ruff >/dev/null 2>&1; then
+        ruff format $STAGED_PY 2>/dev/null || true
+    fi
+
+    # ruff lint
+    if command -v uv >/dev/null 2>&1; then
+        uv run ruff check --fix $STAGED_PY 2>/dev/null || true
+    elif command -v ruff >/dev/null 2>&1; then
+        ruff check --fix $STAGED_PY 2>/dev/null || true
+    fi
+
+    # Re-stage any fixed files
+    git add $STAGED_PY 2>/dev/null || true
+fi
+
+# Elixir format check (advisory, not blocking)
+STAGED_EX=$(git diff --cached --name-only --diff-filter=ACM -- '*.ex' '*.exs' 2>/dev/null || true)
+if [ -n "$STAGED_EX" ]; then
+    echo "🐕 Pre-commit: Elixir files changed — consider running 'mix format'"
+fi
+
+exit 0

@@ -325,7 +325,7 @@ defmodule CodePuppyControl.Config.IsolationGatesTest do
 
       # Update this number when you add a new audited function intentionally.
       # This test is the tripwire that catches accidental additions.
-      expected_count = 22
+      expected_count = 21
 
       assert audited_count == expected_count,
              "GATE-5 tripwire: found #{audited_count} _dir/_file functions, " <>

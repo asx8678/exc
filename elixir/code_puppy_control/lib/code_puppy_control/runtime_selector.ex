@@ -1,202 +1,135 @@
 defmodule CodePuppyControl.RuntimeSelector do
   @moduledoc """
-  Tri-state runtime selector for Python-to-Elixir migration (ADR-004).
+  Runtime selector + dual-run router. (code_puppy-bwt)
 
-  Reads the `PUP_RUNTIME` environment variable on startup to determine
-  the routing mode:
+  Determines whether a given capability should be handled by the Elixir
+  runtime or delegated to the Python bridge.
 
-    - `:python` — force all capabilities to the Python runtime
-    - `:elixir` — force all capabilities to the Elixir runtime
-    - `:auto`   — delegate per-capability to `FeatureFlags.enabled?/1`
+  ## Modes
 
-  In `:auto` mode, each `select_runtime/1` call checks the feature-flag
-  file (`~/.code_puppy_ex/flags.json`) via `FeatureFlags`. If the feature
-  flag is enabled the capability routes to Elixir; otherwise Python.
+  Controlled by the `PUP_RUNTIME` environment variable:
 
-  ## Environment Variable
+  | Value        | Mode     | Behaviour                                  |
+  |-------------|----------|---------------------------------------------|
+  | `python`    | `:python` | Always delegate to Python                   |
+  | `elixir`    | `:elixir` | Always handle in Elixir                     |
+  | `auto`      | `:auto`   | Route per-capability via `FeatureFlags`     |
+  | *(unset)*   | `:auto`   | Same as `auto` — conservative default       |
 
-      export PUP_RUNTIME=elixir    # Force all to Elixir
-      export PUP_RUNTIME=python    # Force all to Python
-      export PUP_RUNTIME=auto      # Per-capability via feature flags (default)
-      unset PUP_RUNTIME            # Same as `auto`
+  ## Auto-mode routing
 
-  Parsing is case-insensitive. Unknown values default to `:auto`.
+  In `:auto` mode, `FeatureFlags.enabled?(capability)` decides:
+
+    - `true`  → `:elixir`
+    - `false` → `:python`
+
+  Unknown capabilities in auto mode always fall back to `:python`
+  (conservative default during migration — safety first).
+
+  ## Answering the question
+
+  Since this module *runs inside* Elixir, the primary question it answers
+  is: *"Should I handle this capability myself, or delegate to the Python
+  bridge?"*
+
+  ## ADR-004 reference
+
+  This implements the Runtime Selector + Dual-Run Router from ADR-004
+  Phase H (`code_puppy-bwt`).
   """
 
-  use GenServer
+  alias CodePuppyControl.FeatureFlags
 
-  require Logger
+  @type runtime :: :python | :elixir
+  @type mode :: :python | :elixir | :auto
+  @type reason :: :env_override | :feature_flag | :default
 
-  @valid_modes [:python, :elixir, :auto]
+  @env_var "PUP_RUNTIME"
 
-  # ── Public API ─────────────────────────────────────────────────────────
+  # ===========================================================================
+  # Public API
+  # ===========================================================================
 
   @doc """
-  Starts the RuntimeSelector GenServer.
+  Returns the current runtime mode from the `PUP_RUNTIME` env var.
 
-  ## Options
-
-    * `:name` — registered name (default: `__MODULE__`)
-
-  The mode is read from `PUP_RUNTIME` env var on init.
+  Values are parsed case-insensitively.  Unset or unrecognised values
+  default to `:auto`.
   """
-  @spec start_link(keyword()) :: GenServer.on_start()
-  def start_link(opts \\ []) do
-    name = Keyword.get(opts, :name, __MODULE__)
-    GenServer.start_link(__MODULE__, opts, name: name)
-  end
-
-  @doc """
-  Selects the runtime for a given capability.
-
-  Returns `:python` or `:elixir` based on the current mode:
-
-    - `:python` → always `:python`
-    - `:elixir` → always `:elixir`
-    - `:auto`   → `FeatureFlags.enabled?(capability) ? :elixir : :python`
-
-  Emits telemetry on every call:
-  `[:code_puppy, :runtime, :select]` with metadata
-  `%{capability: cap, selected: runtime, mode: mode}`.
-
-  Falls back to `:python` if the GenServer is unavailable (safe default).
-  """
-  @spec select_runtime(atom()) :: :python | :elixir
-  def select_runtime(capability) when is_atom(capability) do
-    GenServer.call(__MODULE__, {:select_runtime, capability})
-  catch
-    :exit, _ -> :python
-  end
-
-  @doc """
-  Returns the current routing mode: `:python`, `:elixir`, or `:auto`.
-  """
-  @spec current_mode() :: :python | :elixir | :auto
-  def current_mode do
-    GenServer.call(__MODULE__, :current_mode)
-  catch
-    :exit, _ -> :auto
-  end
-
-  @doc """
-  Dynamically sets the routing mode at runtime.
-
-  Primarily intended for testing. Valid modes: `:python`, `:elixir`, `:auto`.
-
-  Raises `ArgumentError` for invalid modes.
-  """
-  @spec set_mode(:python | :elixir | :auto) :: :ok
-  def set_mode(mode) when mode in @valid_modes do
-    GenServer.call(__MODULE__, {:set_mode, mode})
-  catch
-    :exit, _ -> {:error, "RuntimeSelector GenServer not running"}
-  end
-
-  def set_mode(invalid) do
-    raise ArgumentError,
-          "Invalid RuntimeSelector mode: #{inspect(invalid)}. " <>
-            "Expected one of: #{inspect(@valid_modes)}"
-  end
-
-  # ── GenServer Callbacks ────────────────────────────────────────────────
-
-  @impl true
-  def init(_opts) do
-    mode = parse_env_mode()
-    Logger.debug("RuntimeSelector initialized with mode: #{inspect(mode)}")
-    emit_telemetry(:init, mode)
-    {:ok, %{mode: mode}}
-  end
-
-  @impl true
-  def handle_call({:select_runtime, capability}, _from, %{mode: mode} = state) do
-    {selected, extra_metadata} = resolve_runtime(mode, capability)
-
-    metadata =
-      %{capability: capability, selected: selected, mode: mode}
-      |> Map.merge(extra_metadata)
-
-    :telemetry.execute(
-      [:code_puppy, :runtime, :select],
-      %{},
-      metadata
-    )
-
-    {:reply, selected, state}
-  end
-
-  @impl true
-  def handle_call(:current_mode, _from, %{mode: mode} = state) do
-    {:reply, mode, state}
-  end
-
-  @impl true
-  def handle_call({:set_mode, mode}, _from, state) when mode in @valid_modes do
-    Logger.debug("RuntimeSelector mode changed: #{inspect(state.mode)} -> #{inspect(mode)}")
-    emit_telemetry(:set_mode, mode, %{previous_mode: state.mode})
-    {:reply, :ok, %{state | mode: mode}}
-  end
-
-  # ── Private ────────────────────────────────────────────────────────────
-
-  # Parse PUP_RUNTIME env var into a mode atom.
-  # Case-insensitive. Unknown or missing values default to :auto.
-  defp parse_env_mode do
-    case System.get_env("PUP_RUNTIME") do
-      nil ->
-        :auto
-
-      raw when is_binary(raw) ->
-        case String.downcase(raw) do
-          "python" ->
-            :python
-
-          "elixir" ->
-            :elixir
-
-          "auto" ->
-            :auto
-
-          unknown ->
-            Logger.warning(
-              "RuntimeSelector: unknown PUP_RUNTIME value #{inspect(unknown)}. Defaulting to :auto."
-            )
-
-            :auto
-        end
+  @spec mode() :: mode()
+  def mode do
+    case System.get_env(@env_var) do
+      nil -> :auto
+      value -> parse_mode(value)
     end
   end
 
-  # Resolve which runtime handles a capability given the current mode.
-  # In :auto mode, delegates to FeatureFlags.enabled?/1.
-  # Returns :python on any error (safe default — keeps Python path active).
-  # Returns {runtime, extra_metadata} with extra_metadata containing
-  # percentage info for :auto mode.
-  defp resolve_runtime(:python, _capability), do: {:python, %{}}
-  defp resolve_runtime(:elixir, _capability), do: {:elixir, %{}}
+  @doc """
+  Returns `:elixir` or `:python` for the given capability.
 
-  defp resolve_runtime(:auto, capability) do
-    # FeatureFlags.enabled?/1 raises ArgumentError for unknown capabilities.
-    # We catch that here and fall back to :python (safe default).
-    enabled = CodePuppyControl.FeatureFlags.enabled?(capability)
-    percentage = CodePuppyControl.FeatureFlags.percentage(capability)
-    runtime = if enabled, do: :elixir, else: :python
-    {runtime, %{percentage: percentage}}
-  rescue
-    e in ArgumentError ->
-      Logger.warning(
-        "RuntimeSelector: FeatureFlags raised on capability #{inspect(capability)}: " <>
-          "#{Exception.message(e)}. Falling back to :python."
-      )
-
-      {:python, %{}}
+  - `:elixir` mode  → always `:elixir`
+  - `:python` mode  → always `:python`
+  - `:auto` mode    → checks `FeatureFlags.enabled?(capability)`;
+                       `true` → `:elixir`, `false` → `:python`
+  """
+  @spec select(capability :: String.t()) :: runtime()
+  def select(capability) do
+    {runtime, _reason} = select_with_reason(capability)
+    runtime
   end
 
-  defp emit_telemetry(action, mode, extra_metadata \\ %{}) do
-    :telemetry.execute(
-      [:code_puppy, :runtime, action],
-      %{},
-      Map.merge(%{mode: mode}, extra_metadata)
-    )
+  @doc """
+  Returns `{runtime, reason}` for the given capability.
+
+  Reason atoms:
+    - `:env_override`  — mode was forced by `PUP_RUNTIME` env
+    - `:feature_flag`   — auto mode resolved via FeatureFlags
+    - `:default`        — auto mode, capability unknown, conservative fallback
+  """
+  @spec select_with_reason(capability :: String.t()) :: {runtime(), reason()}
+  def select_with_reason(capability) do
+    case mode() do
+      :elixir ->
+        {:elixir, :env_override}
+
+      :python ->
+        {:python, :env_override}
+
+      :auto ->
+        auto_select(capability)
+    end
+  end
+
+  @doc """
+  Convenience: returns `true` if Elixir should handle the given capability.
+
+  Equivalent to `select(capability) == :elixir`.
+  """
+  @spec elixir_handles?(capability :: String.t()) :: boolean()
+  def elixir_handles?(capability) do
+    select(capability) == :elixir
+  end
+
+  # ===========================================================================
+  # Private helpers
+  # ===========================================================================
+
+  @spec parse_mode(String.t()) :: mode()
+  defp parse_mode(value) do
+    case String.downcase(value) do
+      "python" -> :python
+      "elixir" -> :elixir
+      "auto" -> :auto
+      _ -> :auto
+    end
+  end
+
+  @spec auto_select(String.t()) :: {runtime(), reason()}
+  defp auto_select(capability) do
+    if FeatureFlags.enabled?(capability) do
+      {:elixir, :feature_flag}
+    else
+      {:python, :default}
+    end
   end
 end

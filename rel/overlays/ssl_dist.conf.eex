@@ -1,0 +1,39 @@
+## ─────────────────────────────────────────────────────────────
+## SSL distribution config for Code Puppy cluster (code_puppy-jqr.1)
+##
+## Used when -proto_dist inet_tls is enabled in vm.args.
+## Place certificates at the paths below, or override via env vars.
+##
+## For development, generate self-signed certs with:
+##   mix code_puppy.gen_dist_certs
+## ─────────────────────────────────────────────────────────────
+
+[
+  {server, [
+    {certfile, "${PUP_DIST_CERT_PATH:/tmp/code_puppy_dist/server.pem}"},
+    {keyfile,  "${PUP_DIST_KEY_PATH:/tmp/code_puppy_dist/server.key}"},
+    {cacertfile, "${PUP_DIST_CACERT_PATH:/tmp/code_puppy_dist/ca.pem}"},
+    {verify,    verify_peer},
+    {fail_if_no_peer_cert, true},
+    {secure_renegotiate, true},
+    {ciphers, [
+      "TLS_AES_256_GCM_SHA384",
+      "TLS_AES_128_GCM_SHA256",
+      "ECDHE-ECDSA-AES256-GCM-SHA384",
+      "ECDHE-RSA-AES256-GCM-SHA384"
+    ]}
+  ]},
+  {client, [
+    {certfile, "${PUP_DIST_CERT_PATH:/tmp/code_puppy_dist/client.pem}"},
+    {keyfile,  "${PUP_DIST_KEY_PATH:/tmp/code_puppy_dist/client.key}"},
+    {cacertfile, "${PUP_DIST_CACERT_PATH:/tmp/code_puppy_dist/ca.pem}"},
+    {verify,    verify_peer},
+    {secure_renegotiate, true},
+    {ciphers, [
+      "TLS_AES_256_GCM_SHA384",
+      "TLS_AES_128_GCM_SHA256",
+      "ECDHE-ECDSA-AES256-GCM-SHA384",
+      "ECDHE-RSA-AES256-GCM-SHA384"
+    ]}
+  ]}
+].

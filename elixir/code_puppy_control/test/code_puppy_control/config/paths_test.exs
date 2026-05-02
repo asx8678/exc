@@ -272,18 +272,6 @@ defmodule CodePuppyControl.Config.PathsTest do
     end
   end
 
-  describe "flags_file/0" do
-    test "returns path ending in flags.json under home_dir" do
-      assert Paths.flags_file() == Path.join(Paths.home_dir(), "flags.json")
-    end
-
-    test "respects PUP_EX_HOME override" do
-      System.put_env("PUP_EX_HOME", "/custom/ex_home")
-
-      assert Paths.flags_file() == "/custom/ex_home/flags.json"
-    end
-  end
-
   describe "models_file/0" do
     test "returns path ending in models.json" do
       assert String.ends_with?(Paths.models_file(), "models.json")

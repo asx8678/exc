@@ -46,8 +46,11 @@ defmodule CodePuppyControl.LLM.Providers.AzureTest do
     end
 
     test "constructs correct Azure URL with deployment and api-version" do
+      captured_url = :atom
+
       MockLLMHTTP.register(fn :post, url, _opts ->
-        send(self(), {:captured_url, url})
+        captured_url = url
+        send(self(), {:captured_url, captured_url})
 
         {:ok,
          %{

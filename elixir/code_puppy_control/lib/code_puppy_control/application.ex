@@ -8,9 +8,11 @@ defmodule CodePuppyControl.Application do
   3. CodePuppyControl.Repo - SQLite database for state persistence
   4. Phoenix.PubSub - Event distribution
   5. CodePuppyControl.EventStore - ETS-based event history for replay
-  5a. CodePuppyControl.SessionStorage.Store - ETS session cache + PubSub + terminal recovery (code_puppy-ctj.1)
+  5a. CodePuppyControl.SessionStorage.Store - ETS-backed session store + PubSub + terminal recovery (code_puppy-ctj.1)
   5b. CodePuppyControl.SessionStorage.AutosaveTracker - Autosave debounce/dedup
   6. CodePuppyControl.RuntimeState - Global runtime state (autosave ID, session model)
+  6a. CodePuppyControl.FeatureFlags - Per-capability feature flags for Phase H cutover (code_puppy-djs.4)
+  6b. CodePuppyControl.Rollout - Gradual rollout controller with percentage routing + rollback detection (code_puppy-djs.6)
   7. CodePuppyControl.Callbacks.Registry - ETS-backed callback storage (must start before PolicyEngine)
   7a. CodePuppyControl.HookEngine - Configurable hook script engine (must start after Callbacks.Registry)
   8. CodePuppyControl.PolicyEngine - Priority-based policy rule engine
@@ -34,7 +36,6 @@ defmodule CodePuppyControl.Application do
   18b. CodePuppyControl.Plugins.PackParallelism.Supervisor - Pack run semaphore (replaces Python _async_active HACK)
   19. CodePuppyControl.TokenLedger - Token usage accounting
   19b. CodePuppyControl.Config.Writer - Atomic puppy.cfg write-back
-  19c. CodePuppyControl.FeatureFlags - ADR-004 Phase H feature flag system
   20. CodePuppyControl.RequestTracker - Tracks JSON-RPC request/response correlation
   21. CodePuppyControl.Tools.CommandRunner.ProcessManager - Shell process tracking
   22. CodePuppyControl.PtyManager - PTY session manager for interactive terminals
@@ -50,7 +51,7 @@ defmodule CodePuppyControl.Application do
   # are forbidden in application startup because Mix may not be available
   # in a Burrito release. (code_puppy-5xd.6)
   @env Mix.env()
-  @test_supervisor_opts if @env == :test, do: [max_restarts: 100, max_seconds: 1], else: []
+  @test_supervisor_opts if @env == :test, do: [max_restarts: 1000, max_seconds: 60], else: []
   @exclude_cron_scheduler @env == :test
 
   @impl true
@@ -80,13 +81,19 @@ defmodule CodePuppyControl.Application do
       CodePuppyControl.Repo,
       {Phoenix.PubSub, name: CodePuppyControl.PubSub},
       CodePuppyControl.EventStore,
-      # Session storage ETS cache + PubSub (must start before AutosaveTracker)
+      # SessionStorage.Store — ETS-backed session store + PubSub (must start before AutosaveTracker)
       # (code_puppy-ctj.1) Provides crash-survivable write-through caching
       # and terminal session recovery tracking.
       CodePuppyControl.SessionStorage.Store,
       # Autosave debounce/dedup tracker for session storage
       CodePuppyControl.SessionStorage.AutosaveTracker,
       CodePuppyControl.RuntimeState,
+      # Feature flags for Phase H cutover — per-capability Elixir/Python routing
+      # (code_puppy-djs.4) Reads ~/.code_puppy_ex/flags.json; defaults all to false
+      CodePuppyControl.FeatureFlags,
+      # Gradual rollout controller — percentage-based capability routing with
+      # error-rate observability and rollback detection. (code_puppy-djs.6)
+      CodePuppyControl.Rollout,
       # Workflow state tracking for /flags command
       # TODO(code-puppy-ctj.3): Migrated from WorkflowState to Workflow.State
       {CodePuppyControl.Workflow.State, name: CodePuppyControl.Workflow.State},
@@ -137,34 +144,15 @@ defmodule CodePuppyControl.Application do
       CodePuppyControl.Concurrency.Supervisor,
       # Pack parallelism semaphore GenServer (replaces Python _async_active HACK)
       CodePuppyControl.Plugins.PackParallelism.Supervisor,
-      # Pack dispatch infrastructure — NamingService and Dispatcher must start
-      # before DistributedSupervisor since it depends on them for capability
-      # routing and round-robin selection. (code_puppy-5vd.1)
-      CodePuppyControl.Pack.NamingService,
-      CodePuppyControl.Pack.Dispatcher,
-      # Pack distributed registries – started only when remote packs are enabled
-      {CodePuppyControl.Pack.Registries, []},
-      # Distributed pack orchestration — always start; modules are no-ops when disabled (§13.1)
-      CodePuppyControl.Pack.DistributedSupervisor,
-      CodePuppyControl.Pack.NodeMonitor,
       # Adaptive rate limiter with circuit breaker
       CodePuppyControl.RateLimiter.Supervisor,
       # Token ledger for per-run/session token accounting
       CodePuppyControl.TokenLedger,
       # Atomic write-back for puppy.cfg
-      # Must start before any /mode or /preset command can be dispatched,
+      # Must start before any /mode or preset command can be dispatched,
       # since Presets.apply_preset/1 calls Writer.set_values/1 which
       # requires the GenServer to be alive.
       CodePuppyControl.Config.Writer,
-      # ADR-004 Phase H feature flags — reads ~/.code_puppy_ex/flags.json
-      # on startup; must start before any component queries flags.
-      CodePuppyControl.FeatureFlags,
-      # ADR-004 tri-state runtime selector — reads PUP_RUNTIME env var and
-      # delegates per-capability routing to FeatureFlags in :auto mode.
-      # Must start after FeatureFlags so :auto mode can query flags.
-      CodePuppyControl.RuntimeSelector,
-      # Rollout observability — ETS-based metrics for runtime selection + fallback telemetry
-      CodePuppyControl.Rollout.Metrics,
       CodePuppyControl.RequestTracker,
       # Renderer registry — avoids String.to_atom for per-session renderers
       {Registry, keys: :unique, name: CodePuppyControl.REPL.RendererRegistry},

@@ -93,11 +93,11 @@ defmodule CodePuppyControl.Telemetry.DistributedPackTest do
       event = @event_prefix ++ [:dispatch, :stop]
       attach_handler(event, self(), ref)
 
-      PackTelemetry.dispatch_stop("run-123", :ok, 1500)
+      PackTelemetry.dispatch_stop("run-123", :success, 1500)
 
       assert_receive {^ref, ^event, measurements, metadata}
       assert metadata.run_id == "run-123"
-      assert metadata.status == :ok
+      assert metadata.status == :success
       assert measurements.duration_ms == 1500
       assert is_integer(measurements.system_time)
     end

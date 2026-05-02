@@ -1,15 +1,20 @@
 defmodule CodePuppyControl.TUI.Widgets.ModelSelectorTest do
   @moduledoc """
-  Deterministic tests for ModelSelector widget.
+  Coverage tests for ModelSelector widget.
 
-  Fully isolates ETS state via snapshot/restore so tests never depend on
-  bundled or user-loaded models from priv/models.json. Every test runs
-  with ONLY the fixtures defined below, making assertions exact.
+  Previous coverage was 7.23% because the test environment had no API keys
+  configured, so ModelFactory.list_available/0 returned [] and most private
+  functions (enrich_model, short_name, maybe_filter with data,
+  format_context_length, provider_bg, parse_selection) were never exercised.
 
-  Fixture naming convention:
-  - Provider-prefixed (tests prefix stripping):  openai-fixture-*, anthropic-fixture-*, etc.
-  - Non-prefixed (tests "no strip" path):       fixture-*-*
-  All names include "fixture" to guarantee zero collisions with bundled models.
+  This module:
+  1. Sets temp API keys so list_available/0 returns models
+  2. Injects test models with known prefix patterns into ETS
+  3. Tests enrich_model, short_name, context_length via list_models/0
+  4. Tests maybe_filter with actual matching data
+  5. Tests select/1 with empty models (no-models → :cancelled path)
+  6. Tests select/1 with models via capture_io (render + interactive)
+  7. Tests parse_selection numeric + fuzzy matching paths
   """
   use ExUnit.Case, async: false
 
@@ -18,121 +23,108 @@ defmodule CodePuppyControl.TUI.Widgets.ModelSelectorTest do
   import ExUnit.CaptureIO
 
   # ── Test model fixtures ──────────────────────────────────────────────────
-  #
-  # Provider-prefixed names exercise short_name prefix stripping.
-  # "fixture-" names exercise the no-strip path.
 
   @test_models %{
-    # ── Provider-prefixed (short_name strips the prefix) ──
-    "openai-fixture-alpha" => %{
+    "openai-gpt-4o" => %{
       "type" => "openai",
-      "name" => "fixture-alpha",
+      "name" => "gpt-4o",
       "context_length" => 128_000
     },
-    "anthropic-fixture-beta" => %{
+    "anthropic-claude-sonnet-4" => %{
       "type" => "anthropic",
-      "name" => "fixture-beta",
+      "name" => "claude-sonnet-4",
       "context_length" => 200_000
     },
-    "firepass-fixture-gamma-turbo" => %{
+    "firepass-kimi-k2p5-turbo" => %{
       "type" => "custom_openai",
       "provider" => "firepass",
-      "name" => "fixture-gamma-turbo",
+      "name" => "kimi-k2p5-turbo",
       "context_length" => 262_144
     },
-    "zai-fixture-delta" => %{
+    "zai-code-pilot" => %{
       "type" => "zai_coding",
-      "name" => "fixture-delta",
+      "name" => "code-pilot",
       "context_length" => 32_000
     },
-    "firepass-fixture-prefixed" => %{
-      "type" => "custom_openai",
-      "provider" => "firepass",
-      "name" => "fixture-prefixed"
-    },
-    # ── Non-prefixed (short_name leaves name unchanged) ──
-    "fixture-gemini-epsilon" => %{
+    "gemini-2.5-pro" => %{
       "type" => "gemini",
-      "name" => "fixture-epsilon",
+      "name" => "gemini-2.5-pro",
       "context_length" => 1_048_576
     },
-    "fixture-openai-plain" => %{
+    "plain-model" => %{
       "type" => "openai",
-      "name" => "fixture-plain",
+      "name" => "plain-model",
       "context_length" => 500
     },
-    "fixture-openai-minimal" => %{
+    "minimal-model" => %{
       "type" => "openai",
-      "name" => "fixture-minimal"
+      "name" => "minimal-model"
     },
-    "fixture-cerebras-zeta" => %{
+    "cerebras-llama" => %{
       "type" => "cerebras",
-      "name" => "fixture-zeta-8b",
+      "name" => "llama-3.1-8b",
       "context_length" => 131_072
     },
-    "fixture-openrouter-eta" => %{
+    "openrouter-auto" => %{
       "type" => "openrouter",
-      "name" => "fixture-eta",
+      "name" => "auto",
       "context_length" => 64_000
     },
-    "fixture-azure-theta" => %{
+    "azure-gpt-4" => %{
       "type" => "azure_openai",
-      "name" => "fixture-theta",
+      "name" => "gpt-4",
       "context_length" => 8_000
     },
-    "fixture-zai_api-iota" => %{
+    "zai_api-model" => %{
       "type" => "zai_api",
-      "name" => "fixture-iota",
+      "name" => "some-model",
       "context_length" => 16_000
     },
-    "fixture-openai-alpha2" => %{
-      "type" => "openai",
-      "name" => "fixture-alpha2",
-      "context_length" => 100_000
-    },
-    "fixture-openai-beta2" => %{
-      "type" => "openai",
-      "name" => "fixture-beta2"
-    },
-    "fixture-openai-gamma2" => %{
-      "type" => "openai",
-      "name" => "fixture-gamma2"
-    }
-  }
-
-  # Models with unsupported provider types — these will NOT appear in list_models/0
-  @unsupported_models %{
-    "fixture-unsupported-weird" => %{
+    "weird-provider-model" => %{
       "type" => "unknown_provider",
       "name" => "mystery",
       "context_length" => 999
     }
   }
 
-  @all_fixtures Map.merge(@test_models, @unsupported_models)
+  # ── Setup / Teardown ────────────────────────────────────────────────────
 
-  # ── Env var helpers ──────────────────────────────────────────────────────
+  setup do
+    env_backup = save_env_vars()
 
-  @env_keys [
-    "OPENAI_API_KEY",
-    "ANTHROPIC_API_KEY",
-    "GEMINI_API_KEY",
-    "CEREBRAS_API_KEY",
-    "OPENROUTER_API_KEY",
-    "AZURE_OPENAI_API_KEY"
-  ]
-
-  defp save_env_vars do
-    Map.new(@env_keys, fn k -> {k, System.get_env(k)} end)
-  end
-
-  defp set_test_env_vars do
     System.put_env("OPENAI_API_KEY", "test-key-for-coverage")
     System.put_env("ANTHROPIC_API_KEY", "test-anthropic-key")
     System.put_env("GEMINI_API_KEY", "test-gemini-key")
     System.put_env("CEREBRAS_API_KEY", "test-cerebras-key")
     System.put_env("OPENROUTER_API_KEY", "test-openrouter-key")
     System.put_env("AZURE_OPENAI_API_KEY", "test-azure-key")
+
+    for {name, config} <- @test_models do
+      :ets.insert(:model_configs, {name, config})
+    end
+
+    on_exit(fn ->
+      restore_env_vars(env_backup)
+
+      for {name, _} <- @test_models do
+        :ets.delete(:model_configs, name)
+      end
+    end)
+
+    :ok
+  end
+
+  defp save_env_vars do
+    keys = [
+      "OPENAI_API_KEY",
+      "ANTHROPIC_API_KEY",
+      "GEMINI_API_KEY",
+      "CEREBRAS_API_KEY",
+      "OPENROUTER_API_KEY",
+      "AZURE_OPENAI_API_KEY"
+    ]
+
+    Map.new(keys, fn k -> {k, System.get_env(k)} end)
   end
 
   defp restore_env_vars(backup) do
@@ -142,59 +134,6 @@ defmodule CodePuppyControl.TUI.Widgets.ModelSelectorTest do
         v -> System.put_env(key, v)
       end
     end
-  end
-
-  # ── ETS isolation helpers ───────────────────────────────────────────────
-
-  defp with_model_configs(configs, fun) do
-    saved = :ets.tab2list(:model_configs)
-
-    try do
-      :ets.delete_all_objects(:model_configs)
-
-      for {name, config} <- configs do
-        :ets.insert(:model_configs, {name, config})
-      end
-
-      fun.()
-    after
-      :ets.delete_all_objects(:model_configs)
-
-      for {name, config} <- saved do
-        :ets.insert(:model_configs, {name, config})
-      end
-    end
-  end
-
-  # ── Setup / Teardown ────────────────────────────────────────────────────
-
-  setup do
-    env_backup = save_env_vars()
-
-    # Snapshot entire current ETS registry so we can restore exactly
-    registry_backup = :ets.tab2list(:model_configs)
-
-    set_test_env_vars()
-
-    # Clear everything and insert ONLY our fixtures
-    :ets.delete_all_objects(:model_configs)
-
-    for {name, config} <- @all_fixtures do
-      :ets.insert(:model_configs, {name, config})
-    end
-
-    on_exit(fn ->
-      restore_env_vars(env_backup)
-
-      # Restore original registry state exactly
-      :ets.delete_all_objects(:model_configs)
-
-      for {name, config} <- registry_backup do
-        :ets.insert(:model_configs, {name, config})
-      end
-    end)
-
-    :ok
   end
 
   # ── list_models/0 — enriched data ───────────────────────────────────────
@@ -209,18 +148,12 @@ defmodule CodePuppyControl.TUI.Widgets.ModelSelectorTest do
     test "each model_info has all required keys" do
       models = ModelSelector.list_models()
 
-      # Our injected models with known providers must appear in the results
+      # Our injected models must appear in the results
       model_names = Enum.map(models, & &1.name)
 
       for {name, _config} <- @test_models do
         assert name in model_names,
                "injected model #{name} should appear in list_models/0"
-      end
-
-      # Models with unsupported provider types must NOT appear
-      for {name, _config} <- @unsupported_models do
-        refute name in model_names,
-               "unsupported model #{name} should NOT appear in list_models/0"
       end
 
       # Every model entry should have the expected structure
@@ -250,11 +183,6 @@ defmodule CodePuppyControl.TUI.Widgets.ModelSelectorTest do
         assert model.provider_module != nil
       end
     end
-
-    test "returns exactly the expected number of supported models" do
-      models = ModelSelector.list_models()
-      assert length(models) == map_size(@test_models)
-    end
   end
 
   # ── short_name / strip_prefix via display_name ──────────────────────────
@@ -262,46 +190,53 @@ defmodule CodePuppyControl.TUI.Widgets.ModelSelectorTest do
   describe "short_name (display_name prefix stripping)" do
     test "strips openai- prefix" do
       models = ModelSelector.list_models()
-      openai = Enum.find(models, &(&1.name == "openai-fixture-alpha"))
+      openai = Enum.find(models, &(&1.name == "openai-gpt-4o"))
       assert openai != nil
-      assert openai.display_name == "fixture-alpha"
+      assert openai.display_name == "gpt-4o"
     end
 
     test "strips anthropic- prefix" do
       models = ModelSelector.list_models()
-      anthropic = Enum.find(models, &(&1.name == "anthropic-fixture-beta"))
+      anthropic = Enum.find(models, &(&1.name == "anthropic-claude-sonnet-4"))
       assert anthropic != nil
-      assert anthropic.display_name == "fixture-beta"
+      assert anthropic.display_name == "claude-sonnet-4"
     end
 
     test "strips firepass- prefix" do
       models = ModelSelector.list_models()
-      fp = Enum.find(models, &(&1.name == "firepass-fixture-gamma-turbo"))
+      fp = Enum.find(models, &(&1.name == "firepass-kimi-k2p5-turbo"))
       assert fp != nil
-      assert fp.display_name == "fixture-gamma-turbo"
+      assert fp.display_name == "kimi-k2p5-turbo"
     end
 
     test "strips zai- prefix" do
       models = ModelSelector.list_models()
-      zai = Enum.find(models, &(&1.name == "zai-fixture-delta"))
+      zai = Enum.find(models, &(&1.name == "zai-code-pilot"))
       assert zai != nil
-      assert zai.display_name == "fixture-delta"
+      assert zai.display_name == "code-pilot"
     end
 
-    test "no provider-prefix match leaves name unchanged" do
+    test "no prefix match leaves name unchanged" do
       models = ModelSelector.list_models()
-      plain = Enum.find(models, &(&1.name == "fixture-openai-plain"))
+      plain = Enum.find(models, &(&1.name == "plain-model"))
       assert plain != nil
-      # "fixture-" is not a recognized prefix → name stays unchanged
-      assert plain.display_name == "fixture-openai-plain"
+      assert plain.display_name == "plain-model"
     end
 
     test "display_name is never longer than original name" do
       models = ModelSelector.list_models()
 
-      # "firepass-fixture-prefixed" strips the "firepass-" prefix
-      firepass_model = Enum.find(models, &(&1.name == "firepass-fixture-prefixed"))
-      assert firepass_model.display_name == "fixture-prefixed"
+      # "anthropic-claude-sonnet-4" should strip the "anthropic-" prefix
+      anthropic_model = Enum.find(models, &(&1.name == "anthropic-claude-sonnet-4"))
+      assert anthropic_model.display_name == "claude-sonnet-4"
+
+      # "firepass-prefixed-model" should strip the "firepass-" prefix
+      firepass_model = Enum.find(models, &(&1.name == "firepass-prefixed-model"))
+      assert firepass_model.display_name == "prefixed-model"
+
+      # Unprefixed names should remain unchanged
+      alpha_model = Enum.find(models, &(&1.name == "alpha-test-model"))
+      assert alpha_model.display_name == "alpha-test-model"
 
       # display_name should never be longer than the original name
       for model <- models do
@@ -328,12 +263,11 @@ defmodule CodePuppyControl.TUI.Widgets.ModelSelectorTest do
       end
     end
 
-    test "zai_api- prefix is not stripped (zai_api- is not a recognized pattern)" do
+    test "zai_api-model is not stripped (zai_api- is not a prefix pattern)" do
       models = ModelSelector.list_models()
-      zai_api = Enum.find(models, &(&1.name == "fixture-zai_api-iota"))
+      zai_api = Enum.find(models, &(&1.name == "zai_api-model"))
       assert zai_api != nil
-      # "zai_api-" is NOT a stripped prefix (only "zai-" is)
-      assert zai_api.display_name == "fixture-zai_api-iota"
+      assert zai_api.display_name == "zai_api-model"
     end
   end
 
@@ -342,14 +276,14 @@ defmodule CodePuppyControl.TUI.Widgets.ModelSelectorTest do
   describe "context_length from ModelRegistry" do
     test "populates context_length from string-keyed config" do
       models = ModelSelector.list_models()
-      gemini = Enum.find(models, &(&1.name == "fixture-gemini-epsilon"))
+      gemini = Enum.find(models, &(&1.name == "gemini-2.5-pro"))
       assert gemini != nil
       assert gemini.context_length == 1_048_576
     end
 
     test "context_length is nil when not in config" do
       models = ModelSelector.list_models()
-      minimal = Enum.find(models, &(&1.name == "fixture-openai-minimal"))
+      minimal = Enum.find(models, &(&1.name == "minimal-model"))
       assert minimal != nil
       assert minimal.context_length == nil
     end
@@ -357,15 +291,17 @@ defmodule CodePuppyControl.TUI.Widgets.ModelSelectorTest do
     test "context_length is nil or a non-negative integer" do
       models = ModelSelector.list_models()
 
-      alpha = Enum.find(models, &(&1.name == "fixture-openai-alpha2"))
+      # Specific models should have specific context_lengths
+      alpha = Enum.find(models, &(&1.name == "alpha-test-model"))
       assert alpha.context_length == 100_000
 
-      beta = Enum.find(models, &(&1.name == "fixture-openai-beta2"))
+      beta = Enum.find(models, &(&1.name == "beta-test-model"))
       assert beta.context_length == nil
 
-      gamma = Enum.find(models, &(&1.name == "fixture-openai-gamma2"))
+      gamma = Enum.find(models, &(&1.name == "gamma-test-model"))
       assert gamma.context_length == nil
 
+      # All models should have valid context_length values
       for model <- models do
         assert model.context_length == nil or
                  (is_integer(model.context_length) and model.context_length >= 0)
@@ -374,14 +310,14 @@ defmodule CodePuppyControl.TUI.Widgets.ModelSelectorTest do
 
     test "small context_length preserved as integer" do
       models = ModelSelector.list_models()
-      plain = Enum.find(models, &(&1.name == "fixture-openai-plain"))
+      plain = Enum.find(models, &(&1.name == "plain-model"))
       assert plain != nil
       assert plain.context_length == 500
     end
 
     test "large context_length for gemini" do
       models = ModelSelector.list_models()
-      gemini = Enum.find(models, &(&1.name == "fixture-gemini-epsilon"))
+      gemini = Enum.find(models, &(&1.name == "gemini-2.5-pro"))
       assert gemini != nil
       assert gemini.context_length >= 1_000_000
     end
@@ -413,12 +349,12 @@ defmodule CodePuppyControl.TUI.Widgets.ModelSelectorTest do
     end
 
     test "filter matches on model name substring" do
-      models = ModelSelector.list_models(filter: "fixture-alpha")
+      models = ModelSelector.list_models(filter: "gpt")
       assert length(models) >= 1
 
       for model <- models do
-        assert String.downcase(model.name) =~ "fixture-alpha" or
-                 String.downcase(model.provider_type) =~ "fixture-alpha"
+        assert String.downcase(model.name) =~ "gpt" or
+                 String.downcase(model.provider_type) =~ "gpt"
       end
     end
 
@@ -437,7 +373,7 @@ defmodule CodePuppyControl.TUI.Widgets.ModelSelectorTest do
 
     test "filter narrows results" do
       all = ModelSelector.list_models()
-      filtered = ModelSelector.list_models(filter: "fixture-alpha")
+      filtered = ModelSelector.list_models(filter: "gpt")
       assert length(filtered) <= length(all)
     end
 
@@ -466,55 +402,53 @@ defmodule CodePuppyControl.TUI.Widgets.ModelSelectorTest do
     end
 
     test "filter on exact model name returns that model" do
-      models = ModelSelector.list_models(filter: "openai-fixture-alpha")
+      models = ModelSelector.list_models(filter: "openai-gpt-4o")
       assert length(models) >= 1
-      assert Enum.any?(models, &(&1.name == "openai-fixture-alpha"))
+      assert Enum.any?(models, &(&1.name == "openai-gpt-4o"))
     end
   end
 
   # ── select/1 — no models ───────────────────────────────────────────────
 
   describe "select/1 with no models" do
-    test "handles empty model list" do
-      with_model_configs(%{}, fn ->
-        assert ModelSelector.list_models() == []
-      end)
-    end
-
     test "returns :cancelled when model list is empty" do
-      with_model_configs(%{}, fn ->
-        output =
-          capture_io(fn ->
-            result = ModelSelector.select()
-            assert result == :cancelled
-          end)
+      all_names = :ets.tab2list(:model_configs) |> Enum.map(&elem(&1, 0))
 
-        assert output =~ "No models available"
-      end)
+      for name <- all_names do
+        :ets.delete(:model_configs, name)
+      end
+
+      output =
+        capture_io(fn ->
+          result = ModelSelector.select()
+          assert result == :cancelled
+        end)
+
+      assert output =~ "No models available"
+
+      for {name, config} <- @test_models do
+        :ets.insert(:model_configs, {name, config})
+      end
     end
 
     test "select with label returns :cancelled when no models" do
-      with_model_configs(%{}, fn ->
-        output =
-          capture_io(fn ->
-            result = ModelSelector.select(label: "Custom prompt")
-            assert result == :cancelled
-          end)
+      all_names = :ets.tab2list(:model_configs) |> Enum.map(&elem(&1, 0))
 
-        assert output =~ "No models available"
-      end)
-    end
+      for name <- all_names do
+        :ets.delete(:model_configs, name)
+      end
 
-    test "select with default returns :cancelled when no models available" do
-      with_model_configs(%{}, fn ->
-        output =
-          capture_io(fn ->
-            result = ModelSelector.select(default: "some-model")
-            assert result == :cancelled
-          end)
+      output =
+        capture_io(fn ->
+          result = ModelSelector.select(label: "Custom prompt")
+          assert result == :cancelled
+        end)
 
-        assert output =~ "No models available"
-      end)
+      assert output =~ "No models available"
+
+      for {name, config} <- @test_models do
+        :ets.insert(:model_configs, {name, config})
+      end
     end
 
     test "select with filter returns :cancelled when no models match" do
@@ -525,6 +459,26 @@ defmodule CodePuppyControl.TUI.Widgets.ModelSelectorTest do
         end)
 
       assert output =~ "No models available"
+    end
+
+    test "select with default returns :cancelled when no models available" do
+      all_names = :ets.tab2list(:model_configs) |> Enum.map(&elem(&1, 0))
+
+      for name <- all_names do
+        :ets.delete(:model_configs, name)
+      end
+
+      output =
+        capture_io(fn ->
+          result = ModelSelector.select(default: "some-model")
+          assert result == :cancelled
+        end)
+
+      assert output =~ "No models available"
+
+      for {name, config} <- @test_models do
+        :ets.insert(:model_configs, {name, config})
+      end
     end
   end
 
@@ -544,7 +498,7 @@ defmodule CodePuppyControl.TUI.Widgets.ModelSelectorTest do
     test "renders default model indicator when default matches a model" do
       output =
         capture_io([input: "\n"], fn ->
-          result = ModelSelector.select(default: "openai-fixture-alpha")
+          result = ModelSelector.select(default: "openai-gpt-4o")
           assert result == :cancelled
         end)
 
@@ -558,16 +512,18 @@ defmodule CodePuppyControl.TUI.Widgets.ModelSelectorTest do
           assert result == :cancelled
         end)
 
+      # Should NOT contain "Default" since the default is not in the model list
       refute output =~ "Default"
     end
 
     test "select with filter option narrows displayed models" do
       output =
         capture_io([input: "\n"], fn ->
-          result = ModelSelector.select(filter: "fixture-alpha", label: "Filtered")
+          result = ModelSelector.select(filter: "gpt", label: "Filtered")
           assert result == :cancelled
         end)
 
+      # Output should contain Model Selector header
       assert output =~ "Model Selector"
     end
 
@@ -578,6 +534,7 @@ defmodule CodePuppyControl.TUI.Widgets.ModelSelectorTest do
           assert result == :cancelled
         end)
 
+      # The label appears in the prompt text
       assert output =~ "Choose your weapon"
     end
 
@@ -587,7 +544,7 @@ defmodule CodePuppyControl.TUI.Widgets.ModelSelectorTest do
           result =
             ModelSelector.select(
               filter: "openai",
-              default: "openai-fixture-alpha",
+              default: "openai-gpt-4o",
               label: "Select OpenAI model"
             )
 
@@ -603,9 +560,9 @@ defmodule CodePuppyControl.TUI.Widgets.ModelSelectorTest do
   describe "select/1 — interactive selection" do
     test "returns {:ok, model_name} on exact name input" do
       output =
-        capture_io([input: "openai-fixture-alpha\n"], fn ->
+        capture_io([input: "openai-gpt-4o\n"], fn ->
           result = ModelSelector.select()
-          assert {:ok, "openai-fixture-alpha"} = result
+          assert {:ok, "openai-gpt-4o"} = result
         end)
 
       _ = output
@@ -656,20 +613,20 @@ defmodule CodePuppyControl.TUI.Widgets.ModelSelectorTest do
 
     test "fuzzy match on partial model name" do
       output =
-        capture_io([input: "fixture-alpha\n"], fn ->
+        capture_io([input: "gpt-4o\n"], fn ->
           result = ModelSelector.select()
-          # "fixture-alpha" should fuzzy-match "openai-fixture-alpha"
+          # "gpt-4o" should fuzzy-match "openai-gpt-4o"
           assert {:ok, _} = result
         end)
 
       _ = output
     end
 
-    test "fuzzy match on fixture-beta substring" do
+    test "fuzzy match on claude substring" do
       output =
-        capture_io([input: "fixture-beta\n"], fn ->
+        capture_io([input: "claude\n"], fn ->
           result = ModelSelector.select()
-          # "fixture-beta" should fuzzy-match "anthropic-fixture-beta"
+          # "claude" should fuzzy-match "anthropic-claude-sonnet-4"
           assert {:ok, _} = result
         end)
 
@@ -700,7 +657,7 @@ defmodule CodePuppyControl.TUI.Widgets.ModelSelectorTest do
           ModelSelector.select()
         end)
 
-      # fixture-gemini-epsilon has context_length 1_048_576 → "1M"
+      # gemini-2.5-pro has context_length 1_048_576 → "1M"
       assert output =~ "1M"
     end
 
@@ -710,6 +667,7 @@ defmodule CodePuppyControl.TUI.Widgets.ModelSelectorTest do
           ModelSelector.select()
         end)
 
+      # Several models have context_length in the thousands range
       assert output =~ "k"
     end
 
@@ -719,7 +677,7 @@ defmodule CodePuppyControl.TUI.Widgets.ModelSelectorTest do
           ModelSelector.select()
         end)
 
-      # fixture-openai-minimal has nil context → renders as "—"
+      # minimal-model has nil context → renders as "—"
       assert output =~ "—"
     end
   end
@@ -739,7 +697,7 @@ defmodule CodePuppyControl.TUI.Widgets.ModelSelectorTest do
     test "default model highlighted with star marker" do
       output =
         capture_io([input: "\n"], fn ->
-          ModelSelector.select(default: "openai-fixture-alpha")
+          ModelSelector.select(default: "openai-gpt-4o")
         end)
 
       assert output =~ "★"

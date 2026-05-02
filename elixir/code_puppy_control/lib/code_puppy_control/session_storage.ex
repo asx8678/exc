@@ -51,7 +51,10 @@ defmodule CodePuppyControl.SessionStorage do
         }
 
   @typedoc """
-  Full session data with string keys (matching JSON decode / Store return shape).
+  Full session data with string keys (matching JSON decode shape).
+
+  Note: The internal Store returns atom-keyed `session_entry()` maps;
+  this facade converts them to the string-keyed shape below.
 
   Shape:
 

@@ -1,426 +1,341 @@
 defmodule CodePuppyControl.RuntimeSelectorTest do
+  @moduledoc """
+  Tests for the RuntimeSelector module. (code_puppy-bwt)
+
+  Covers:
+  - mode/0 reads PUP_RUNTIME env correctly (python, elixir, auto, unset → auto)
+  - mode/0 handles case-insensitive values
+  - select/1 in :elixir mode always returns :elixir
+  - select/1 in :python mode always returns :python
+  - select/1 in :auto mode returns based on FeatureFlags
+  - select_with_reason/1 returns correct reason atoms
+  - elixir_handles?/1 convenience wrapper works
+  - Unknown capability in auto mode → :python (conservative default)
+  - Integration: set flag → select changes result
+
+  async: false because tests mutate the PUP_RUNTIME env var globally.
+  """
+
   use ExUnit.Case, async: false
 
   alias CodePuppyControl.RuntimeSelector
   alias CodePuppyControl.FeatureFlags
-  alias CodePuppyControl.FeatureFlags.Flags
 
-  # async: false because we manipulate shared env vars and the global
-  # FeatureFlags GenServer.
-
-  @tmp_dir Path.join(
-             System.tmp_dir!(),
-             "runtime_selector_test_#{:erlang.unique_integer([:positive])}"
-           )
+  @env_var "PUP_RUNTIME"
 
   setup do
-    # Use a temp config dir so FeatureFlags never touches the real one.
-    # This MUST happen before any FeatureFlags call so the global server
-    # (started by the app supervisor) reads from the temp dir.
-    File.mkdir_p!(@tmp_dir)
-    System.put_env("PUP_EX_HOME", @tmp_dir)
+    # Capture the original env value so we can restore it
+    original = System.get_env(@env_var)
 
-    # Remove any leftover flags.json from prior test
-    flags_path = Path.join(@tmp_dir, "flags.json")
-    File.rm(flags_path)
-
-    # Ensure the global FeatureFlags knows about the temp dir by reloading.
-    # The global server may already be started by the app supervisor in test
-    # env, so we reload to pick up the (empty) temp-dir flags.
-    if Process.whereis(FeatureFlags) do
-      FeatureFlags.reload()
-    end
+    # Ensure FeatureFlags GenServer is running for auto-mode tests
+    CodePuppyControl.TestSupport.Reset.ensure_gen_server_started(FeatureFlags)
+    FeatureFlags.reset_all()
 
     on_exit(fn ->
-      System.delete_env("PUP_EX_HOME")
-      System.delete_env("PUP_RUNTIME")
-      File.rm_rf!(@tmp_dir)
+      # Restore original env (or delete if it was nil)
+      if original do
+        System.put_env(@env_var, original)
+      else
+        System.delete_env(@env_var)
+      end
+
+      FeatureFlags.reset_all()
     end)
 
-    %{flags_path: flags_path}
+    :ok
   end
 
-  # ── Env var parsing ────────────────────────────────────────────────────
+  # ===========================================================================
+  # mode/0
+  # ===========================================================================
 
-  describe "env var parsing" do
-    test "defaults to :auto when PUP_RUNTIME is unset" do
-      System.delete_env("PUP_RUNTIME")
-      server = start_fresh_selector()
-      assert mode_of(server) == :auto
+  describe "mode/0" do
+    test "returns :python when PUP_RUNTIME=python" do
+      System.put_env(@env_var, "python")
+      assert RuntimeSelector.mode() == :python
     end
 
-    test "parses 'python' to :python" do
-      System.put_env("PUP_RUNTIME", "python")
-      server = start_fresh_selector()
-      assert mode_of(server) == :python
+    test "returns :elixir when PUP_RUNTIME=elixir" do
+      System.put_env(@env_var, "elixir")
+      assert RuntimeSelector.mode() == :elixir
     end
 
-    test "parses 'elixir' to :elixir" do
-      System.put_env("PUP_RUNTIME", "elixir")
-      server = start_fresh_selector()
-      assert mode_of(server) == :elixir
+    test "returns :auto when PUP_RUNTIME=auto" do
+      System.put_env(@env_var, "auto")
+      assert RuntimeSelector.mode() == :auto
     end
 
-    test "parses 'auto' to :auto" do
-      System.put_env("PUP_RUNTIME", "auto")
-      server = start_fresh_selector()
-      assert mode_of(server) == :auto
+    test "returns :auto when PUP_RUNTIME is unset" do
+      System.delete_env(@env_var)
+      assert RuntimeSelector.mode() == :auto
     end
 
-    test "uppercase ELIXIR parses to :elixir" do
-      System.put_env("PUP_RUNTIME", "ELIXIR")
-      server = start_fresh_selector()
-      assert mode_of(server) == :elixir
+    test "returns :auto for unrecognised values" do
+      System.put_env(@env_var, "kubernetes")
+      assert RuntimeSelector.mode() == :auto
     end
 
-    test "mixed-case Python parses to :python" do
-      System.put_env("PUP_RUNTIME", "Python")
-      server = start_fresh_selector()
-      assert mode_of(server) == :python
+    test "handles case-insensitive value 'Python'" do
+      System.put_env(@env_var, "Python")
+      assert RuntimeSelector.mode() == :python
     end
 
-    test "unknown values default to :auto" do
-      System.put_env("PUP_RUNTIME", "production")
-      server = start_fresh_selector()
-      assert mode_of(server) == :auto
+    test "handles case-insensitive value 'ELIXIR'" do
+      System.put_env(@env_var, "ELIXIR")
+      assert RuntimeSelector.mode() == :elixir
     end
 
-    test "empty string defaults to :auto" do
-      System.put_env("PUP_RUNTIME", "")
-      server = start_fresh_selector()
-      assert mode_of(server) == :auto
-    end
-  end
-
-  # ── :python mode ───────────────────────────────────────────────────────
-
-  describe ":python mode" do
-    test "always returns :python regardless of capability" do
-      server = start_fresh_selector(mode: :python)
-
-      for cap <- Flags.names() do
-        assert select_for(server, cap) == :python
-      end
+    test "handles case-insensitive value 'Auto'" do
+      System.put_env(@env_var, "Auto")
+      assert RuntimeSelector.mode() == :auto
     end
 
-    test "returns :python for unknown capabilities" do
-      server = start_fresh_selector(mode: :python)
-      assert select_for(server, :nonexistent) == :python
+    test "handles mixed case 'pYtHoN'" do
+      System.put_env(@env_var, "pYtHoN")
+      assert RuntimeSelector.mode() == :python
     end
   end
 
-  # ── :elixir mode ───────────────────────────────────────────────────────
+  # ===========================================================================
+  # select/1 in :elixir mode
+  # ===========================================================================
 
-  describe ":elixir mode" do
-    test "always returns :elixir regardless of capability" do
-      server = start_fresh_selector(mode: :elixir)
-
-      for cap <- Flags.names() do
-        assert select_for(server, cap) == :elixir
-      end
+  describe "select/1 in :elixir mode" do
+    setup do
+      System.put_env(@env_var, "elixir")
+      :ok
     end
 
-    test "returns :elixir for unknown capabilities" do
-      server = start_fresh_selector(mode: :elixir)
-      assert select_for(server, :nonexistent) == :elixir
-    end
-  end
-
-  # ── :auto mode ─────────────────────────────────────────────────────────
-
-  describe ":auto mode" do
-    test "returns :elixir when feature flag is enabled" do
-      FeatureFlags.set(:llm_client, true)
-
-      server = start_fresh_selector(mode: :auto)
-      assert select_for(server, :llm_client) == :elixir
+    test "always returns :elixir for known capability" do
+      assert RuntimeSelector.select("elixir.llm_client") == :elixir
     end
 
-    test "returns :python when feature flag is disabled" do
-      FeatureFlags.set(:llm_client, false)
-
-      server = start_fresh_selector(mode: :auto)
-      assert select_for(server, :llm_client) == :python
+    test "returns :elixir even for unknown capability" do
+      assert RuntimeSelector.select("elixir.unknown") == :elixir
     end
 
-    test "returns :python for capabilities that default to false" do
-      # All flags default to false in an empty temp dir — the reload in
-      # setup already picked up the empty state.
-      server = start_fresh_selector(mode: :auto)
-
-      for cap <- Flags.names() do
-        assert select_for(server, cap) == :python
-      end
-    end
-
-    test "handles each capability independently" do
-      FeatureFlags.set(:llm_client, true)
-      FeatureFlags.set(:tools, true)
-      FeatureFlags.set(:base_agent, false)
-      FeatureFlags.set(:plugins, false)
-      FeatureFlags.set(:cli, false)
-
-      server = start_fresh_selector(mode: :auto)
-
-      assert select_for(server, :llm_client) == :elixir
-      assert select_for(server, :tools) == :elixir
-      assert select_for(server, :base_agent) == :python
-      assert select_for(server, :plugins) == :python
-      assert select_for(server, :cli) == :python
-    end
-
-    test "falls back to :python when FeatureFlags raises on unknown capability" do
-      server = start_fresh_selector(mode: :auto)
-
-      # FeatureFlags raises ArgumentError for unknown capabilities;
-      # RuntimeSelector catches it and returns :python
-      assert select_for(server, :nonexistent) == :python
-    end
-
-    test "falls back to :python when FeatureFlags GenServer is down" do
-      FeatureFlags.set(:cli, true)
-
-      server = start_fresh_selector(mode: :auto)
-
-      # Verify it works with a live flags server
-      assert select_for(server, :cli) == :elixir
-
-      # Stop the global FeatureFlags GenServer. The supervisor may restart
-      # it immediately, making this a race — we accept either result since
-      # both are valid behaviors (matching the FeatureFlags test pattern).
-      pid = Process.whereis(FeatureFlags)
-      assert pid != nil
-      Process.exit(pid, :kill)
-      Process.sleep(10)
-
-      result = select_for(server, :cli)
-
-      assert result in [:python, :elixir],
-             "Expected :python or :elixir, got: #{inspect(result)}"
+    test "returns :elixir for any string" do
+      assert RuntimeSelector.select("anything") == :elixir
+      assert RuntimeSelector.select("") == :elixir
     end
   end
 
-  # ── Dynamic mode switching ─────────────────────────────────────────────
+  # ===========================================================================
+  # select/1 in :python mode
+  # ===========================================================================
 
-  describe "set_mode" do
-    test "switches from :auto to :python" do
-      server = start_fresh_selector(mode: :auto)
-      assert mode_of(server) == :auto
-
-      set_mode_of(server, :python)
-      assert mode_of(server) == :python
-
-      # Now all capabilities route to Python
-      assert select_for(server, :llm_client) == :python
+  describe "select/1 in :python mode" do
+    setup do
+      System.put_env(@env_var, "python")
+      :ok
     end
 
-    test "switches from :python to :elixir" do
-      server = start_fresh_selector(mode: :python)
-      assert mode_of(server) == :python
-
-      set_mode_of(server, :elixir)
-      assert mode_of(server) == :elixir
-      assert select_for(server, :tools) == :elixir
+    test "always returns :python for known capability" do
+      assert RuntimeSelector.select("elixir.llm_client") == :python
     end
 
-    test "switches from :elixir to :auto and respects feature flags" do
-      FeatureFlags.set(:plugins, true)
-
-      server = start_fresh_selector(mode: :elixir)
-      assert select_for(server, :plugins) == :elixir
-      assert select_for(server, :cli) == :elixir
-
-      set_mode_of(server, :auto)
-      assert mode_of(server) == :auto
-
-      assert select_for(server, :plugins) == :elixir
-      assert select_for(server, :cli) == :python
+    test "returns :python even for unknown capability" do
+      assert RuntimeSelector.select("elixir.unknown") == :python
     end
 
-    test "raises ArgumentError for invalid mode" do
-      assert_raise ArgumentError, ~r/Invalid RuntimeSelector mode/, fn ->
-        RuntimeSelector.set_mode(:hybrid)
-      end
+    test "returns :python for any string" do
+      assert RuntimeSelector.select("anything") == :python
+      assert RuntimeSelector.select("") == :python
     end
   end
 
-  # ── Telemetry ──────────────────────────────────────────────────────────
+  # ===========================================================================
+  # select/1 in :auto mode
+  # ===========================================================================
 
-  describe "telemetry" do
-    test "emits select event with correct metadata" do
-      FeatureFlags.set(:tools, true)
-
-      server = start_fresh_selector(mode: :auto)
-      test_pid = self()
-
-      :telemetry.attach_many(
-        "rs-test-select",
-        [[:code_puppy, :runtime, :select]],
-        fn _event_name, measurements, metadata, _config ->
-          send(test_pid, {:telemetry_select, measurements, metadata})
-        end,
-        nil
-      )
-
-      on_exit(fn ->
-        :telemetry.detach("rs-test-select")
-      end)
-
-      assert select_for(server, :tools) == :elixir
-
-      assert_receive {:telemetry_select, %{},
-                      %{capability: :tools, selected: :elixir, mode: :auto}}
+  describe "select/1 in :auto mode" do
+    setup do
+      System.put_env(@env_var, "auto")
+      FeatureFlags.reset_all()
+      :ok
     end
 
-    test "includes percentage metadata in telemetry for :auto mode" do
-      FeatureFlags.set(:base_agent, 75, source: :test)
-
-      server = start_fresh_selector(mode: :auto)
-      test_pid = self()
-
-      :telemetry.attach_many(
-        "rs-test-pct-meta",
-        [[:code_puppy, :runtime, :select]],
-        fn _event_name, _measurements, metadata, _config ->
-          send(test_pid, {:telemetry_pct, metadata})
-        end,
-        nil
-      )
-
-      on_exit(fn ->
-        :telemetry.detach("rs-test-pct-meta")
-      end)
-
-      select_for(server, :base_agent)
-
-      assert_receive {:telemetry_pct, %{capability: :base_agent, percentage: 75, mode: :auto}}
+    test "returns :python when flag is disabled" do
+      assert FeatureFlags.enabled?("elixir.llm_client") == false
+      assert RuntimeSelector.select("elixir.llm_client") == :python
     end
 
-    test "percentage metadata is absent in :python mode" do
-      server = start_fresh_selector(mode: :python)
-      test_pid = self()
-
-      :telemetry.attach_many(
-        "rs-test-pct-python",
-        [[:code_puppy, :runtime, :select]],
-        fn _event_name, _measurements, metadata, _config ->
-          send(test_pid, {:telemetry_pct_py, metadata})
-        end,
-        nil
-      )
-
-      on_exit(fn ->
-        :telemetry.detach("rs-test-pct-python")
-      end)
-
-      select_for(server, :llm_client)
-
-      # :python and :elixir modes don't include percentage (only :auto does)
-      assert_receive {:telemetry_pct_py, metadata}
-      refute Map.has_key?(metadata, :percentage)
+    test "returns :elixir when flag is enabled" do
+      :ok = FeatureFlags.set_flag("elixir.llm_client", true)
+      assert RuntimeSelector.select("elixir.llm_client") == :elixir
     end
 
-    test "emits select event with :python in python mode" do
-      server = start_fresh_selector(mode: :python)
-      test_pid = self()
-
-      :telemetry.attach_many(
-        "rs-test-python",
-        [[:code_puppy, :runtime, :select]],
-        fn _event_name, measurements, metadata, _config ->
-          send(test_pid, {:telemetry_python, measurements, metadata})
-        end,
-        nil
-      )
-
-      on_exit(fn ->
-        :telemetry.detach("rs-test-python")
-      end)
-
-      assert select_for(server, :cli) == :python
-
-      assert_receive {:telemetry_python, %{},
-                      %{capability: :cli, selected: :python, mode: :python}}
+    test "returns :python for unknown capability (conservative default)" do
+      assert RuntimeSelector.select("elixir.nonexistent") == :python
     end
 
-    test "emits set_mode telemetry" do
-      server = start_fresh_selector(mode: :auto)
-      test_pid = self()
+    test "returns :python for empty string" do
+      assert RuntimeSelector.select("") == :python
+    end
 
-      :telemetry.attach_many(
-        "rs-test-set-mode",
-        [[:code_puppy, :runtime, :set_mode]],
-        fn _event_name, measurements, metadata, _config ->
-          send(test_pid, {:telemetry_set_mode, measurements, metadata})
-        end,
-        nil
-      )
-
-      on_exit(fn ->
-        :telemetry.detach("rs-test-set-mode")
-      end)
-
-      set_mode_of(server, :elixir)
-
-      assert_receive {:telemetry_set_mode, %{}, %{mode: :elixir, previous_mode: :auto}}
+    test "routes each capability independently" do
+      :ok = FeatureFlags.set_flag("elixir.tools", true)
+      :ok = FeatureFlags.set_flag("elixir.llm_client", true)
+      # tools and llm_client are on
+      assert RuntimeSelector.select("elixir.tools") == :elixir
+      assert RuntimeSelector.select("elixir.llm_client") == :elixir
+      # base_agent still off
+      assert RuntimeSelector.select("elixir.base_agent") == :python
     end
   end
 
-  # ── Named-server-down fallback ─────────────────────────────────────────
+  # ===========================================================================
+  # select/1 in :auto mode (unset env)
+  # ===========================================================================
 
-  describe "named-server-down fallback" do
-    test "select_runtime returns :python when named server stopped" do
-      # This tests the GenServer fallback on the public API selector
-      # when the global server is unreachable. The named-server version
-      # is tested by the :auto/:python/:elixir mode tests above.
-      # GenServer.call on a stopped named process raises an exit;
-      # the public API catches this and returns :python.
+  describe "select/1 when PUP_RUNTIME is unset (defaults to :auto)" do
+    setup do
+      System.delete_env(@env_var)
+      FeatureFlags.reset_all()
+      :ok
+    end
 
-      # Ensure the global RuntimeSelector is not running
-      case Process.whereis(RuntimeSelector) do
-        nil -> :ok
-        pid -> Process.exit(pid, :kill)
-      end
+    test "behaves like auto mode — returns :python by default" do
+      assert RuntimeSelector.select("elixir.llm_client") == :python
+    end
 
-      Process.sleep(5)
-      assert RuntimeSelector.select_runtime(:llm_client) == :python
-
-      # Ensure the global RuntimeSelector is running and in :auto mode
-      # for subsequent tests. It may have been auto-restarted already.
-      case Process.whereis(RuntimeSelector) do
-        nil -> start_supervised!({RuntimeSelector, name: RuntimeSelector})
-        pid -> GenServer.call(pid, {:set_mode, :auto})
-      end
+    test "behaves like auto mode — returns :elixir when flag enabled" do
+      :ok = FeatureFlags.set_flag("elixir.cli", true)
+      assert RuntimeSelector.select("elixir.cli") == :elixir
     end
   end
 
-  # ── Test helpers ───────────────────────────────────────────────────────
+  # ===========================================================================
+  # select_with_reason/1
+  # ===========================================================================
 
-  # Start a RuntimeSelector GenServer, optionally with a pre-set mode.
-  # If no mode is given, it reads PUP_RUNTIME env var (or defaults to :auto).
-  # Returns the registered name.
-  defp start_fresh_selector(opts \\ []) do
-    name = :"runtime_selector_test_#{:erlang.unique_integer([:positive])}"
-
-    # If a mode was explicitly given, set the env var so init picks it up
-    if mode = Keyword.get(opts, :mode) do
-      System.put_env("PUP_RUNTIME", Atom.to_string(mode))
+  describe "select_with_reason/1" do
+    test "returns {:elixir, :env_override} in elixir mode" do
+      System.put_env(@env_var, "elixir")
+      assert RuntimeSelector.select_with_reason("elixir.llm_client") == {:elixir, :env_override}
     end
 
-    start_supervised!({RuntimeSelector, name: name}, id: name)
-    name
+    test "returns {:python, :env_override} in python mode" do
+      System.put_env(@env_var, "python")
+      assert RuntimeSelector.select_with_reason("elixir.llm_client") == {:python, :env_override}
+    end
+
+    test "returns {:elixir, :feature_flag} in auto mode with flag enabled" do
+      System.put_env(@env_var, "auto")
+      :ok = FeatureFlags.set_flag("elixir.tools", true)
+      assert RuntimeSelector.select_with_reason("elixir.tools") == {:elixir, :feature_flag}
+    end
+
+    test "returns {:python, :default} in auto mode with flag disabled" do
+      System.put_env(@env_var, "auto")
+      FeatureFlags.reset_all()
+      assert RuntimeSelector.select_with_reason("elixir.base_agent") == {:python, :default}
+    end
+
+    test "returns {:python, :default} for unknown capability in auto mode" do
+      System.put_env(@env_var, "auto")
+      assert RuntimeSelector.select_with_reason("elixir.unknown") == {:python, :default}
+    end
   end
 
-  # Get the current mode from a named RuntimeSelector server.
-  defp mode_of(server), do: GenServer.call(server, :current_mode)
+  # ===========================================================================
+  # elixir_handles?/1
+  # ===========================================================================
 
-  # Select a runtime for a capability from a named RuntimeSelector server.
-  defp select_for(server, capability) do
-    GenServer.call(server, {:select_runtime, capability})
+  describe "elixir_handles?/1" do
+    test "returns true in elixir mode" do
+      System.put_env(@env_var, "elixir")
+      assert RuntimeSelector.elixir_handles?("elixir.llm_client") == true
+    end
+
+    test "returns false in python mode" do
+      System.put_env(@env_var, "python")
+      assert RuntimeSelector.elixir_handles?("elixir.llm_client") == false
+    end
+
+    test "returns true in auto mode when flag enabled" do
+      System.put_env(@env_var, "auto")
+      :ok = FeatureFlags.set_flag("elixir.plugins", true)
+      assert RuntimeSelector.elixir_handles?("elixir.plugins") == true
+    end
+
+    test "returns false in auto mode when flag disabled" do
+      System.put_env(@env_var, "auto")
+      FeatureFlags.reset_all()
+      assert RuntimeSelector.elixir_handles?("elixir.plugins") == false
+    end
+
+    test "returns false for unknown capability in auto mode" do
+      System.put_env(@env_var, "auto")
+      assert RuntimeSelector.elixir_handles?("unknown.capability") == false
+    end
   end
 
-  # Set mode on a named RuntimeSelector server.
-  defp set_mode_of(server, mode) do
-    GenServer.call(server, {:set_mode, mode})
+  # ===========================================================================
+  # Integration: set flag → select changes result
+  # ===========================================================================
+
+  describe "integration: flag change affects select" do
+    setup do
+      System.put_env(@env_var, "auto")
+      FeatureFlags.reset_all()
+      :ok
+    end
+
+    test "enabling a flag switches select from :python to :elixir" do
+      cap = "elixir.cli"
+
+      # Initially disabled
+      assert RuntimeSelector.select(cap) == :python
+      assert RuntimeSelector.elixir_handles?(cap) == false
+
+      # Enable it
+      :ok = FeatureFlags.set_flag(cap, true)
+
+      # Now Elixir handles it
+      assert RuntimeSelector.select(cap) == :elixir
+      assert RuntimeSelector.elixir_handles?(cap) == true
+    end
+
+    test "disabling a flag switches select from :elixir to :python" do
+      cap = "elixir.base_agent"
+
+      :ok = FeatureFlags.set_flag(cap, true)
+      assert RuntimeSelector.select(cap) == :elixir
+
+      :ok = FeatureFlags.set_flag(cap, false)
+      assert RuntimeSelector.select(cap) == :python
+    end
+
+    test "changing mode overrides flag state" do
+      cap = "elixir.tools"
+      :ok = FeatureFlags.set_flag(cap, true)
+
+      # Auto mode: flag says Elixir
+      System.put_env(@env_var, "auto")
+      assert RuntimeSelector.select(cap) == :elixir
+
+      # Force Python: flag is ignored
+      System.put_env(@env_var, "python")
+      assert RuntimeSelector.select(cap) == :python
+
+      # Back to auto: flag still says Elixir
+      System.put_env(@env_var, "auto")
+      assert RuntimeSelector.select(cap) == :elixir
+    end
+
+    test "reason changes when mode changes" do
+      cap = "elixir.llm_client"
+      :ok = FeatureFlags.set_flag(cap, true)
+
+      System.put_env(@env_var, "auto")
+      assert RuntimeSelector.select_with_reason(cap) == {:elixir, :feature_flag}
+
+      System.put_env(@env_var, "elixir")
+      assert RuntimeSelector.select_with_reason(cap) == {:elixir, :env_override}
+
+      System.put_env(@env_var, "python")
+      assert RuntimeSelector.select_with_reason(cap) == {:python, :env_override}
+    end
   end
 end

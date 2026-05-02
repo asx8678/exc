@@ -208,21 +208,23 @@ defmodule CodePuppyControl.TUI.Widgets.ModelSelector do
   defp provider_bg(_), do: :black_background
 
   defp build_table(rows) do
-    # Owl.Table.new/2 expects a list of maps (%{col => value}), but our rows
-    # are lists of Owl.Data-tagged elements for custom layout.  Use the
-    # plain-text fallback which correctly handles Owl.Tag elements.
-    rows
-    |> Enum.map(fn row ->
-      plain =
-        row
-        |> Enum.map(fn
-          %Owl.Tag{data: data} -> data
-          other -> to_string(other)
-        end)
-        |> Enum.join("")
+    if function_exported?(Owl.Table, :new, 1) do
+      Owl.Table.new(rows)
+    else
+      # Fallback: extract plain text from Owl.Data tags
+      rows
+      |> Enum.map(fn row ->
+        plain =
+          row
+          |> Enum.map(fn
+            %Owl.Tag{data: data} -> data
+            other -> to_string(other)
+          end)
+          |> Enum.join("")
 
-      ["  ", plain, "\n"]
-    end)
+        ["  ", plain, "\n"]
+      end)
+    end
   end
 
   # ── Private: Interactive Selection ────────────────────────────────────────

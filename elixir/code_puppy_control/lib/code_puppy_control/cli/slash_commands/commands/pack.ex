@@ -1,14 +1,12 @@
 defmodule CodePuppyControl.CLI.SlashCommands.Commands.Pack do
   @moduledoc """
-  Pack slash command: /pack [pack_name | cluster [subcommand]].
+  Pack slash command: /pack [pack_name].
 
   Shows current model pack and available packs, or switches to a named pack.
-  Also provides `/pack cluster` for distributed cluster status.
+  Ports the Python /pack command from code_puppy/command_line/pack_commands.py.
   """
 
-  alias CodePuppyControl.Config.Distributed, as: DistributedConfig
   alias CodePuppyControl.ModelPacks
-  alias CodePuppyControl.Pack.NamingService
 
   @doc """
   Handles `/pack` — shows current pack and available packs.
@@ -20,12 +18,6 @@ defmodule CodePuppyControl.CLI.SlashCommands.Commands.Pack do
     case extract_args(line) |> String.trim() do
       "" ->
         show_current_pack()
-
-      "cluster" ->
-        show_cluster_status()
-
-      "cluster " <> rest ->
-        handle_cluster_subcommand(String.trim(rest))
 
       args ->
         pack_name = String.downcase(args)
@@ -126,219 +118,13 @@ defmodule CodePuppyControl.CLI.SlashCommands.Commands.Pack do
   defp print_usage do
     IO.puts(
       IO.ANSI.yellow() <>
-        "    Usage: /pack [pack_name | cluster]" <> IO.ANSI.reset()
+        "    Usage: /pack [pack_name]" <> IO.ANSI.reset()
     )
 
     IO.puts(
       "    #{IO.ANSI.faint()}Use /pack without arguments to see current pack#{IO.ANSI.reset()}"
     )
-
-    IO.puts("    #{IO.ANSI.faint()}Use /pack cluster for distributed status#{IO.ANSI.reset()}")
   end
-
-  # ── Cluster Subcommand ──────────────────────────────────────────────────
-
-  defp handle_cluster_subcommand("workers"), do: show_cluster_workers()
-  defp handle_cluster_subcommand("config"), do: show_cluster_config()
-
-  defp handle_cluster_subcommand(unknown) do
-    IO.puts("")
-
-    IO.puts(
-      IO.ANSI.yellow() <>
-        "    Unknown cluster subcommand: '#{unknown}'" <>
-        IO.ANSI.reset()
-    )
-
-    IO.puts("    #{IO.ANSI.faint()}Available: /pack cluster [workers | config]#{IO.ANSI.reset()}")
-    IO.puts("")
-  end
-
-  defp show_cluster_status do
-    IO.puts("")
-    IO.puts(IO.ANSI.bright() <> "    \u{1F43A} Pack Cluster Status" <> IO.ANSI.reset())
-    IO.puts("")
-
-    dist_status = if Node.alive?(), do: "enabled", else: "disabled (not started)"
-    IO.puts("    Distribution: #{IO.ANSI.cyan()}#{dist_status}#{IO.ANSI.reset()}")
-
-    if Node.alive?() do
-      IO.puts("    Node: #{IO.ANSI.cyan()}#{Node.self()}#{IO.ANSI.reset()}")
-      IO.puts("    Cookie: #{IO.ANSI.faint()}●●●●●● (hidden)#{IO.ANSI.reset()}")
-    end
-
-    IO.puts("")
-    render_worker_table()
-    IO.puts("")
-  end
-
-  defp show_cluster_workers do
-    IO.puts("")
-    IO.puts(IO.ANSI.bright() <> "    \u{1F43A} Pack Workers" <> IO.ANSI.reset())
-    IO.puts("")
-
-    case safe_list_nodes() do
-      {:ok, []} ->
-        IO.puts("    #{IO.ANSI.faint()}No workers connected.#{IO.ANSI.reset()}")
-
-      {:ok, nodes} ->
-        Enum.each(nodes, fn node ->
-          caps = safe_node_capabilities(node)
-          render_worker_detail(node, caps)
-        end)
-
-      {:error, reason} ->
-        IO.puts("    #{IO.ANSI.yellow()}NamingService unavailable: #{reason}#{IO.ANSI.reset()}")
-    end
-
-    IO.puts("")
-  end
-
-  defp show_cluster_config do
-    IO.puts("")
-    IO.puts(IO.ANSI.bright() <> "    \u{1F43A} Distributed Config" <> IO.ANSI.reset())
-    IO.puts("")
-
-    enabled = DistributedConfig.enabled?()
-    workers = DistributedConfig.workers()
-    heartbeat = DistributedConfig.heartbeat_interval()
-    disconnect = DistributedConfig.disconnect_timeout()
-    connect = DistributedConfig.connect_timeout()
-
-    IO.puts("    enabled:             #{IO.ANSI.cyan()}#{enabled}#{IO.ANSI.reset()}")
-
-    IO.puts(
-      "    workers:             #{IO.ANSI.cyan()}#{format_workers_config(workers)}#{IO.ANSI.reset()}"
-    )
-
-    IO.puts("    heartbeat_interval:  #{IO.ANSI.cyan()}#{heartbeat}ms#{IO.ANSI.reset()}")
-    IO.puts("    disconnect_timeout:  #{IO.ANSI.cyan()}#{disconnect}ms#{IO.ANSI.reset()}")
-    IO.puts("    connect_timeout:     #{IO.ANSI.cyan()}#{connect}ms#{IO.ANSI.reset()}")
-    IO.puts("")
-
-    IO.puts(
-      "    #{IO.ANSI.faint()}Source: puppy.cfg [packs.distributed] or PUP_DISTRIBUTED_* env#{IO.ANSI.reset()}"
-    )
-
-    IO.puts("")
-  end
-
-  defp render_worker_table do
-    case safe_list_nodes() do
-      {:ok, []} ->
-        IO.puts("    #{IO.ANSI.faint()}No workers connected.#{IO.ANSI.reset()}")
-
-      {:ok, nodes} ->
-        rows = Enum.map(nodes, &build_worker_row/1)
-        render_table(rows)
-
-      {:error, reason} ->
-        IO.puts("    #{IO.ANSI.yellow()}NamingService unavailable: #{reason}#{IO.ANSI.reset()}")
-    end
-  end
-
-  defp build_worker_row(node) do
-    caps = safe_node_capabilities(node)
-    os = Map.get(caps, :host_os, "unknown")
-
-    max_runs = Map.get(caps, :max_concurrent_runs, "?")
-    # We don't have live slot usage, so just show max
-    slots = "0/#{max_runs}"
-
-    models =
-      caps
-      |> Map.get(:available_models, [])
-      |> Enum.join(", ")
-      |> case do
-        "" -> "-"
-        m -> m
-      end
-
-    %{node: Atom.to_string(node), os: to_string(os), slots: slots, models: models}
-  end
-
-  defp render_table(rows) do
-    # Calculate column widths
-    headers = %{node: "Node", os: "OS", slots: "Slots", models: "Models"}
-
-    widths = %{
-      node: max_width(rows, :node, headers.node),
-      os: max_width(rows, :os, headers.os),
-      slots: max_width(rows, :slots, headers.slots),
-      models: max_width(rows, :models, headers.models)
-    }
-
-    # Top border
-    IO.puts(
-      "    \u250C#{bar(widths.node)}\u252C#{bar(widths.os)}\u252C#{bar(widths.slots)}\u252C#{bar(widths.models)}\u2510"
-    )
-
-    # Header row
-    IO.puts(
-      "    \u2502#{cell(headers.node, widths.node)}\u2502#{cell(headers.os, widths.os)}\u2502#{cell(headers.slots, widths.slots)}\u2502#{cell(headers.models, widths.models)}\u2502"
-    )
-
-    # Separator
-    IO.puts(
-      "    \u251C#{bar(widths.node)}\u253C#{bar(widths.os)}\u253C#{bar(widths.slots)}\u253C#{bar(widths.models)}\u2524"
-    )
-
-    # Data rows
-    Enum.each(rows, fn row ->
-      IO.puts(
-        "    \u2502#{cell(row.node, widths.node)}\u2502#{cell(row.os, widths.os)}\u2502#{cell(row.slots, widths.slots)}\u2502#{cell(row.models, widths.models)}\u2502"
-      )
-    end)
-
-    # Bottom border
-    IO.puts(
-      "    \u2514#{bar(widths.node)}\u2534#{bar(widths.os)}\u2534#{bar(widths.slots)}\u2534#{bar(widths.models)}\u2518"
-    )
-  end
-
-  defp render_worker_detail(node, caps) do
-    node_str = Atom.to_string(node)
-    os = Map.get(caps, :host_os, "unknown")
-    agents = Map.get(caps, :sub_agents, []) |> Enum.map(&to_string/1) |> Enum.join(", ")
-    models = Map.get(caps, :available_models, []) |> Enum.join(", ")
-    max_runs = Map.get(caps, :max_concurrent_runs, "?")
-
-    IO.puts("    #{IO.ANSI.cyan()}#{node_str}#{IO.ANSI.reset()}")
-    IO.puts("      OS:         #{os}")
-    IO.puts("      Agents:     #{if agents == "", do: "-", else: agents}")
-    IO.puts("      Models:     #{if models == "", do: "-", else: models}")
-    IO.puts("      Max slots:  #{max_runs}")
-    IO.puts("")
-  end
-
-  # ── Cluster Helpers ─────────────────────────────────────────────────────
-
-  defp safe_list_nodes do
-    {:ok, NamingService.list_nodes()}
-  rescue
-    _ -> {:error, "not started"}
-  catch
-    :exit, _ -> {:error, "not started"}
-  end
-
-  defp safe_node_capabilities(node) do
-    NamingService.node_capabilities(node) || %{}
-  rescue
-    _ -> %{}
-  catch
-    :exit, _ -> %{}
-  end
-
-  defp format_workers_config([]), do: "(none)"
-  defp format_workers_config(workers), do: Enum.join(workers, ", ")
-
-  defp max_width(rows, key, header) do
-    row_max = rows |> Enum.map(&String.length(Map.get(&1, key, ""))) |> Enum.max(fn -> 0 end)
-    max(row_max, String.length(header)) + 2
-  end
-
-  defp bar(width), do: String.duplicate("\u2500", width)
-  defp cell(text, width), do: " " <> String.pad_trailing(text, width - 1)
 
   defp format_chain(role_config) do
     primary = role_config.primary

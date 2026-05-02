@@ -35,13 +35,4 @@ config :code_puppy_control, Oban,
     {Oban.Plugins.Lifeline, rescue_after: :timer.minutes(30)}
   ]
 
-# Distributed packs — all disabled by default.
-# Enabled per-environment or via runtime config.
-config :code_puppy_control, :distributed_packs,
-  enabled: false,
-  workers: [],
-  heartbeat_interval: 15_000,
-  disconnect_timeout: 30_000,
-  connect_timeout: 5_000
-
 import_config "#{config_env()}.exs"

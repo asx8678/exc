@@ -20,7 +20,9 @@ defmodule CodePuppyControl.CLI do
     * `-c`, `--continue` - Resume the most recent persisted session
     * `-p`, `--prompt PROMPT` - Execute a single prompt and exit
     * `-i`, `--interactive` - Run in interactive mode
-    * `--bridge-mode` - Parsed flag; reserved for bridge-mode delegation (no runtime effect in current Elixir CLI)
+    * `--bridge-mode` - Force Python runtime (sets `PUP_RUNTIME=python` for the session)
+    This delegates all capabilities to the Python bridge, effectively
+    running the Elixir CLI as a thin frontend. See `RuntimeSelector` (code_puppy-bwt).
   """
 
   alias CodePuppyControl.CLI.Parser
@@ -93,6 +95,12 @@ defmodule CodePuppyControl.CLI do
   """
   @spec run(map()) :: no_return()
   def run(opts) do
+    # --bridge-mode forces PUP_RUNTIME=python for this session,
+    # so RuntimeSelector delegates all capabilities to the Python bridge.
+    if opts[:bridge_mode] do
+      System.put_env("PUP_RUNTIME", "python")
+    end
+
     # Ensure the OTP app is started for full invocations
     Application.ensure_all_started(:code_puppy_control)
 
@@ -176,7 +184,7 @@ defmodule CodePuppyControl.CLI do
       -c, --continue Resume the most recent persisted session
       -p, --prompt PROMPT Execute a single prompt and exit
       -i, --interactive Run in interactive mode
-      --bridge-mode Parsed; reserved (no runtime effect in current Elixir CLI)
+      --bridge-mode Force Python runtime (sets PUP_RUNTIME=python for this session)
 
     Examples:
       pup Start interactive mode

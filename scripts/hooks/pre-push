@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+# ─────────────────────────────────────────────────────────────
+# Code Puppy — pre-push hook (code_puppy-df1.1)
+#
+# Replaces lefthook.yml pre-push section.
+# Real gates that block push on failure.
+# Installed by: scripts/install-hooks.sh
+# ─────────────────────────────────────────────────────────────
+
+set -euo pipefail
+
+# Get pushed files
+PUSH_FILES=$(git diff --name-only --diff-filter=ACM "$1" "$2" 2>/dev/null || true)
+
+# ── Advisory: Test review ─────────────────────────────────────
+PUSH_TESTS=$(echo "$PUSH_FILES" | grep -E 'test/.*_test\.exs$' || true)
+if [ -n "$PUSH_TESTS" ]; then
+    echo "📋 Advisory: Test file review"
+    echo "─────────────────────────────────────"
+    if [ -x scripts/review-tests.sh ]; then
+        scripts/review-tests.sh $PUSH_TESTS 2>&1 || echo "⚠ Review found issues (advisory, not blocking push)"
+    else
+        echo "review-tests.sh not found — skipping automated review"
+    fi
+    echo "─────────────────────────────────────"
+fi
+
+# ── Real gate: Elixir compile ─────────────────────────────────
+PUSH_EX=$(echo "$PUSH_FILES" | grep -E '\.(ex|exs)$' || true)
+if [ -n "$PUSH_EX" ]; then
+    echo "🐕 Pre-push: Elixir compile check..."
+    (cd elixir/code_puppy_control && mix compile --warnings-as-errors) || {
+        echo "❌ Elixir compile failed. Fix warnings or run 'mix compile' to debug."
+        exit 1
+    }
+
+    echo "🐕 Pre-push: Elixir fast tests..."
+    (cd elixir/code_puppy_control && mix test --exclude slow --exclude integration --max-failures 5) || {
+        echo "❌ Elixir fast tests failed. Run 'mix test' for full output."
+        exit 1
+    }
+fi
+
+# ── Real gate: Python ruff ────────────────────────────────────
+PUSH_PY=$(echo "$PUSH_FILES" | grep -E '\.py$' || true)
+if [ -n "$PUSH_PY" ]; then
+    echo "🐕 Pre-push: Python ruff check..."
+    if command -v uv >/dev/null 2>&1; then
+        uv run ruff check $PUSH_PY || {
+            echo "❌ Ruff check failed on pushed Python files."
+            exit 1
+        }
+    elif command -v ruff >/dev/null 2>&1; then
+        ruff check $PUSH_PY || {
+            echo "❌ Ruff check failed on pushed Python files."
+            exit 1
+        }
+    fi
+fi
+
+# ── Real gate: Python smoke import ────────────────────────────
+PUSH_CP=$(echo "$PUSH_FILES" | grep -E '^code_puppy/.*\.py$' || true)
+if [ -n "$PUSH_CP" ]; then
+    echo "🐕 Pre-push: Python smoke import check..."
+    if command -v uv >/dev/null 2>&1; then
+        uv run python -c "import code_puppy; import code_puppy.agents.agent_pack_leader" || {
+            echo "❌ Python smoke import failed — top-level package is broken."
+            exit 1
+        }
+    else
+        python -c "import code_puppy; import code_puppy.agents.agent_pack_leader" || {
+            echo "❌ Python smoke import failed — top-level package is broken."
+            exit 1
+        }
+    fi
+fi
+
+echo "✅ All pre-push checks passed"
+exit 0

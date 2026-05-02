@@ -130,18 +130,6 @@ defmodule CodePuppyControl.Config.Paths do
   @spec mcp_servers_file() :: String.t()
   def mcp_servers_file, do: Path.join(config_dir(), "mcp_servers.json")
 
-  @doc """
-  Path to the ADR-004 feature flags JSON file.
-
-  Each flag controls whether an Elixir capability is enabled.
-  Known keys: `elixir.llm_client`, `elixir.base_agent`, `elixir.tools`,
-  `elixir.plugins`, `elixir.cli`.
-
-  Defaults to `~/.code_puppy_ex/flags.json`.
-  """
-  @spec flags_file() :: String.t()
-  def flags_file, do: Path.join(home_dir(), "flags.json")
-
   # ── Data files ──────────────────────────────────────────────────────────
 
   @doc "Path to the model registry JSON file."

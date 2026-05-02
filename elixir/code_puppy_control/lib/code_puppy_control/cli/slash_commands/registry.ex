@@ -221,9 +221,9 @@ defmodule CodePuppyControl.CLI.SlashCommands.Registry do
       ),
       CommandInfo.new(
         name: "pack",
-        description: "Show/switch model pack or inspect cluster status",
+        description: "Show or switch model pack",
         handler: &Commands.Pack.handle_pack/2,
-        usage: "/pack [pack_name | cluster [workers|config]]",
+        usage: "/pack [pack_name]",
         category: "context"
       ),
       CommandInfo.new(
@@ -249,28 +249,6 @@ defmodule CodePuppyControl.CLI.SlashCommands.Registry do
         handler: &Commands.Flags.handle_flags/2,
         usage: "/flags [reset|set <flag>|clear <flag>]",
         category: "config"
-      ),
-      CommandInfo.new(
-        name: "feature-flags",
-        description: "List, set, and reload Elixir feature flags",
-        handler: &Commands.FeatureFlags.handle_feature_flags/2,
-        usage: "/feature-flags [list|set <capability> <bool>|reload]",
-        aliases: ["feature_flags"],
-        category: "config",
-        detailed_help:
-          "View ADR-004 v1 feature flags, set a known capability to true/false, or reload flags from disk."
-      ),
-      CommandInfo.new(
-        name: "rollout",
-        description: "Manage gradual rollout percentages",
-        handler: &Commands.Rollout.handle_rollout/2,
-        usage: "/rollout [status|set <capability> <pct>|step-up <cap>|step-down <cap>]",
-        aliases: [],
-        category: "config",
-        detailed_help:
-          "View and manage percentage-based rollout for ADR-004 feature flags. " <>
-            "Set precise percentages (0..100), or use step-up/step-down to " <>
-            "move through predefined rollout steps: 0 → 5 → 25 → 50 → 100."
       ),
       CommandInfo.new(
         name: "diff",

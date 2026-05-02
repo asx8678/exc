@@ -30,6 +30,8 @@ defmodule CodePuppyControl.TestSupport.Reset.ServerStart do
     ensure_gen_server_started(CodePuppyControl.Repo)
     ensure_gen_server_started(CodePuppyControl.EventStore)
     ensure_gen_server_started(CodePuppyControl.RuntimeState)
+    ensure_gen_server_started(CodePuppyControl.FeatureFlags)
+    ensure_gen_server_started(CodePuppyControl.Rollout)
     ensure_gen_server_started(CodePuppyControl.PolicyEngine)
     ensure_gen_server_started(CodePuppyControl.AgentModelPinning)
     ensure_gen_server_started(CodePuppyControl.ModelRegistry)

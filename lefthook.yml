@@ -1,10 +1,67 @@
-# Python hooks removed as part of Phase H cutover (djs.2)
-# - isort, ruff-format, ruff-lint (pre-commit) removed
-# - python-ruff, python-smoke-import (pre-push) removed
-# - Python code tree deleted — Elixir only
+# Rust hooks removed as part of Phase 6 migration
+# - rustfmt and clippy blocks removed (project moving away from Rust)
+# - Verified clean of all Rust references: 2026-04-17
+
+pre-commit:
+  parallel: true
+  commands:
+    isort:
+      glob: "*.py"
+      run: |
+        if command -v uv >/dev/null 2>&1 && uv run isort --version >/dev/null 2>&1; then
+          uv run isort --profile black {staged_files}
+        elif command -v isort >/dev/null 2>&1; then
+          isort --profile black {staged_files}
+        else
+          echo "isort not found; using ruff import sorter";
+          if command -v uv >/dev/null 2>&1; then
+            uv run ruff check --select I --fix {staged_files}
+          else
+            ruff check --select I --fix {staged_files}
+          fi
+        fi
+      stage_fixed: true
+    ruff-format:
+      glob: "*.py"
+      run: |
+        if command -v uv >/dev/null 2>&1; then
+          uv run ruff format {staged_files}
+        else
+          ruff format {staged_files}
+        fi
+      stage_fixed: true
+    ruff-lint:
+      glob: "*.py"
+      run: |
+        if command -v uv >/dev/null 2>&1; then
+          uv run ruff check --fix {staged_files}
+        else
+          ruff check --fix {staged_files}
+        fi
+      stage_fixed: true
+
+# Local-only test gates — no GitHub Actions, trust-the-developer
+# Added post-bd-removal (commit b94b6222 follow-up)
 
 pre-push:
   commands:
+    test-review:
+      glob: "**/test/**_test.exs"
+      run: |
+        echo "📋 Advisory: Test file review"
+        echo "─────────────────────────────────────"
+        if [[ -x scripts/review-tests.sh ]]; then
+          scripts/review-tests.sh {push_files} 2>&1 || echo "⚠ Review found issues (advisory, not blocking push)"
+        else
+          echo "review-tests.sh not found — skipping automated review"
+          echo "Run manually: ./scripts/review-tests.sh <test_files>"
+        fi
+        echo "─────────────────────────────────────"
+        exit 0
+      fail_text: "Test review completed with findings (advisory — push continues)"
+
+    # --- Real gates below (these block push on failure) ---
+
     elixir-compile:
       glob: "elixir/**/*.{ex,exs}"
       run: |
@@ -16,3 +73,23 @@ pre-push:
       run: |
         cd elixir/code_puppy_control && mix test --exclude slow --exclude integration --max-failures 5
       fail_text: "❌ Elixir fast tests failed. Run `mix test` for full output."
+
+    python-ruff:
+      glob: "*.py"
+      run: |
+        if command -v uv >/dev/null 2>&1; then
+          uv run ruff check {push_files}
+        else
+          ruff check {push_files}
+        fi
+      fail_text: "❌ Ruff check failed on pushed Python files."
+
+    python-smoke-import:
+      glob: "code_puppy/**/*.py"
+      run: |
+        if command -v uv >/dev/null 2>&1; then
+          uv run python -c "import code_puppy; import code_puppy.agents.agent_pack_leader"
+        else
+          python -c "import code_puppy; import code_puppy.agents.agent_pack_leader"
+        fi
+      fail_text: "❌ Python smoke import failed — top-level package is broken."

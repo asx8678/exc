@@ -124,7 +124,18 @@ defmodule CodePuppyControl.SessionStorage.Store.Operations do
       to_delete_count = length(all_entries) - max_sessions
       to_delete = Enum.take(all_entries, to_delete_count)
       deleted = Enum.map(to_delete, & &1.name)
-      Enum.each(deleted, &Sessions.delete_session/1)
+
+      # Best-effort SQLite deletes — failures are logged, not propagated
+      Enum.each(deleted, fn name ->
+        try do
+          Sessions.delete_session(name)
+        rescue
+          e ->
+            Logger.warning(
+              "Store: cleanup delete_session SQLite write failed for #{name}: #{inspect(e)}"
+            )
+        end
+      end)
 
       Enum.each(deleted, fn n ->
         :ets.delete(@session_table, n)
@@ -291,17 +302,22 @@ defmodule CodePuppyControl.SessionStorage.Store.Operations do
 
   @spec do_recover_from_disk() :: non_neg_integer()
   def do_recover_from_disk do
-    {:ok, sessions} = Sessions.list_sessions_with_metadata()
+    case safe_list_sessions_with_metadata() do
+      {:ok, sessions} ->
+        count =
+          Enum.reduce(sessions, 0, fn session, acc ->
+            entry = StoreHelpers.chat_session_to_entry(session)
+            :ets.insert(@session_table, {session.name, entry})
+            acc + 1
+          end)
 
-    count =
-      Enum.reduce(sessions, 0, fn session, acc ->
-        entry = StoreHelpers.chat_session_to_entry(session)
-        :ets.insert(@session_table, {session.name, entry})
-        acc + 1
-      end)
+        Logger.info("SessionStorage.Store: recovered #{count} sessions from SQLite")
+        count
 
-    Logger.info("SessionStorage.Store: recovered #{count} sessions from SQLite")
-    count
+      {:error, reason} ->
+        Logger.error("SessionStorage.Store: disk recovery failed: #{inspect(reason)}")
+        0
+    end
   end
 
   # ---------------------------------------------------------------------------
@@ -320,4 +336,16 @@ defmodule CodePuppyControl.SessionStorage.Store.Operations do
 
   defp maybe_put_entry(entry, _key, nil), do: entry
   defp maybe_put_entry(entry, key, value), do: Map.put(entry, key, value)
+
+  # Wraps Sessions.list_sessions_with_metadata/0 so Repo errors
+  # return {:error, reason} instead of crashing the GenServer.
+  # TODO(code_puppy-3m9.4): Remove if Sessions ever returns {:error,_} natively.
+  defp safe_list_sessions_with_metadata do
+    try do
+      {:ok, sessions} = Sessions.list_sessions_with_metadata()
+      {:ok, sessions}
+    rescue
+      e -> {:error, e}
+    end
+  end
 end

@@ -38,5 +38,16 @@
 ## Max mmap carriers — keeps RSS more predictable.
 +MMmcs 30
 
+## ─────────────────────────────────────────────────────────────
+## TLS for Erlang distribution (code_puppy-jqr.1)
+##
+## Uncomment the following lines and set PUP_DIST_TLS=1 to
+## enable encrypted inter-node communication via inet_tls.
+## Requires ssl_dist.conf + certificates in place.
+## See docs/distributed-packs.md §9 for setup instructions.
+##
+## -proto_dist inet_tls
+## -ssl_dist_optfile {{release_dir}}/ssl_dist.conf
+
 ## Crash dump quiet mode — don't dump 100 MB on every crash in dev.
 -env ERL_CRASH_DUMP_SECONDS 0
