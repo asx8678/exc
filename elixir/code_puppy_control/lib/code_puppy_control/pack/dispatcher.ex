@@ -249,17 +249,16 @@ defmodule CodePuppyControl.Pack.Dispatcher do
   end
 
   defp build_naming_filters(opts) do
+    # Pass filter values raw to NamingService — it normalizes internally via
+    # NamingService.normalize_os/1 (handles both atom and binary OS values,
+    # including mapping "darwin" -> :macos). No need to pre-process here.
     opts
     |> Enum.reduce(%{}, fn
-      {:host_os, os}, acc -> Map.put(acc, :host_os, normalize_os_filter(os))
+      {:host_os, os}, acc -> Map.put(acc, :host_os, os)
       {:model, model}, acc -> Map.put(acc, :model, model)
       _, acc -> acc
     end)
   end
-
-  defp normalize_os_filter(os) when is_atom(os), do: Atom.to_string(os)
-  defp normalize_os_filter(os) when is_binary(os), do: String.downcase(String.trim(os))
-  defp normalize_os_filter(_), do: "unknown"
 
   defp safe_naming(fun, fallback \\ []) do
     fun.()
