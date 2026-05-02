@@ -8,7 +8,7 @@ defmodule CodePuppyControl.TokenLedger.Cost do
 
   ## Pricing Sources
 
-  Prices are based on published provider rates as of 2025-Q1. Update the
+  Prices are based on published provider rates as of 2026-Q1. Update the
   `cost_for_model/1` function when providers change pricing.
 
   ## Unknown Models
@@ -32,6 +32,9 @@ defmodule CodePuppyControl.TokenLedger.Cost do
 
       iex> Cost.compute_cost("claude-sonnet-4-20250514", 1_000_000, 500_000, 0)
       450
+
+      iex> Cost.compute_cost("gpt-4.1", 1_000_000, 1_000_000, 0)
+      1000
 
       iex> Cost.compute_cost("unknown-model", 1_000_000, 1_000_000, 0)
       0
@@ -86,6 +89,7 @@ defmodule CodePuppyControl.TokenLedger.Cost do
   # ---------------------------------------------------------------------------
 
   # ── Anthropic: exact matches ──
+  defp do_cost_lookup("claude-opus-4"), do: {1500, 7500, 150}
   defp do_cost_lookup("claude-sonnet-4-20250514"), do: {300, 1500, 30}
   defp do_cost_lookup("claude-3-5-sonnet-20241022"), do: {300, 1500, 30}
   defp do_cost_lookup("claude-3-5-sonnet-20240620"), do: {300, 1500, 30}
@@ -95,7 +99,12 @@ defmodule CodePuppyControl.TokenLedger.Cost do
   defp do_cost_lookup("claude-3-sonnet-20240229"), do: {300, 1500, 30}
 
   # ── Anthropic: prefix matches (versioned) ──
-  defp do_cost_lookup("claude-sonnet-4-20250514" <> _), do: {300, 1500, 30}
+  defp do_cost_lookup("claude-sonnet-4-" <> _), do: {300, 1500, 30}
+  defp do_cost_lookup("claude-opus-4-" <> _), do: {1500, 7500, 150}
+  defp do_cost_lookup("claude-haiku-4-" <> _), do: {80, 400, 8}
+  defp do_cost_lookup("claude-sonnet-4" <> _), do: {300, 1500, 30}
+  defp do_cost_lookup("claude-opus-4" <> _), do: {1500, 7500, 150}
+  defp do_cost_lookup("claude-haiku-4" <> _), do: {80, 400, 8}
   defp do_cost_lookup("claude-3-5-sonnet" <> _), do: {300, 1500, 30}
   defp do_cost_lookup("claude-3-5-haiku" <> _), do: {100, 500, 10}
   defp do_cost_lookup("claude-3-opus" <> _), do: {1500, 7500, 150}
@@ -104,8 +113,13 @@ defmodule CodePuppyControl.TokenLedger.Cost do
 
   # ── Anthropic: generic prefix (newer/future models) ──
   defp do_cost_lookup("claude-sonnet" <> _), do: {300, 1500, 30}
-  defp do_cost_lookup("claude-haiku" <> _), do: {100, 500, 10}
+  defp do_cost_lookup("claude-haiku" <> _), do: {80, 400, 8}
   defp do_cost_lookup("claude-opus" <> _), do: {1500, 7500, 150}
+
+  # ── OpenAI GPT-4.1 family (newest) ──
+  defp do_cost_lookup("gpt-4.1-nano" <> _), do: {10, 40, 2}
+  defp do_cost_lookup("gpt-4.1-mini" <> _), do: {40, 160, 8}
+  defp do_cost_lookup("gpt-4.1" <> _), do: {200, 800, 40}
 
   # ── OpenAI: exact matches ──
   defp do_cost_lookup("gpt-4o-2024-11-20"), do: {250, 1000, 125}
@@ -119,7 +133,11 @@ defmodule CodePuppyControl.TokenLedger.Cost do
   defp do_cost_lookup("o3-mini-2025-01-31"), do: {110, 440, 55}
 
   # ── OpenAI: MORE SPECIFIC prefix matches first ──
-  # "gpt-4o-mini" before "gpt-4o" before "gpt-4-turbo" before "gpt-4"
+  # "gpt-4.1-nano" before "gpt-4.1-mini" before "gpt-4.1" before "gpt-4o-mini"
+  # before "gpt-4o" before "gpt-4-turbo" before "gpt-4"
+  defp do_cost_lookup("gpt-4.1-nano" <> _), do: {10, 40, 2}
+  defp do_cost_lookup("gpt-4.1-mini" <> _), do: {40, 160, 8}
+  defp do_cost_lookup("gpt-4.1" <> _), do: {200, 800, 40}
   defp do_cost_lookup("gpt-4o-mini" <> _), do: {15, 60, 8}
   defp do_cost_lookup("gpt-4o" <> _), do: {250, 1000, 125}
   defp do_cost_lookup("gpt-4-turbo" <> _), do: {1000, 3000, 500}
@@ -131,11 +149,19 @@ defmodule CodePuppyControl.TokenLedger.Cost do
   defp do_cost_lookup("o3" <> _), do: {110, 440, 55}
   defp do_cost_lookup("o1" <> _), do: {1500, 6000, 750}
 
-  # ── Google: exact + prefix ──
+  # ── Google Gemini ──
+  defp do_cost_lookup("gemini-2.5-pro" <> _), do: {125, 1000, 31}
+  defp do_cost_lookup("gemini-2.5-flash" <> _), do: {15, 60, 3}
   defp do_cost_lookup("gemini-2.0-flash" <> _), do: {10, 40, 3}
   defp do_cost_lookup("gemini-1.5-pro" <> _), do: {125, 500, 31}
   defp do_cost_lookup("gemini-1.5-flash" <> _), do: {8, 30, 0}
   defp do_cost_lookup("gemini-exp" <> _), do: {125, 500, 31}
+
+  # ── DeepSeek ──
+  defp do_cost_lookup("deepseek-r1" <> _), do: {55, 219, 14}
+  defp do_cost_lookup("deepseek-v3" <> _), do: {27, 110, 7}
+  defp do_cost_lookup("deepseek-coder" <> _), do: {14, 28, 1}
+  defp do_cost_lookup("deepseek-chat" <> _), do: {14, 28, 1}
 
   # ── Catch-all ──
   defp do_cost_lookup(_model), do: nil
@@ -147,13 +173,21 @@ defmodule CodePuppyControl.TokenLedger.Cost do
   @spec known_models() :: [String.t()]
   def known_models do
     [
+      # Anthropic
+      "claude-opus-4",
       "claude-sonnet-4-20250514",
+      "claude-haiku-4",
       "claude-3-5-sonnet-20241022",
       "claude-3-5-sonnet-20240620",
       "claude-3-5-haiku-20241022",
       "claude-3-opus-20240229",
       "claude-3-haiku-20240307",
       "claude-3-sonnet-20240229",
+      # OpenAI GPT-4.1
+      "gpt-4.1",
+      "gpt-4.1-mini",
+      "gpt-4.1-nano",
+      # OpenAI legacy
       "gpt-4o-2024-11-20",
       "gpt-4o-2024-08-06",
       "gpt-4o-2024-05-13",
@@ -161,11 +195,20 @@ defmodule CodePuppyControl.TokenLedger.Cost do
       "gpt-4-turbo-2024-04-09",
       "gpt-4-0613",
       "gpt-3.5-turbo-0125",
+      # OpenAI reasoning
       "o1-2024-12-17",
       "o3-mini-2025-01-31",
+      # Google Gemini
+      "gemini-2.5-pro",
+      "gemini-2.5-flash",
+      "gemini-2.0-flash",
       "gemini-1.5-pro",
       "gemini-1.5-flash",
-      "gemini-2.0-flash"
+      # DeepSeek
+      "deepseek-r1",
+      "deepseek-v3",
+      "deepseek-coder",
+      "deepseek-chat"
     ]
   end
 end

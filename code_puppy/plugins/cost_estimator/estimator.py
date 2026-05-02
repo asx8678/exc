@@ -22,27 +22,69 @@ _session_totals: dict[str, int] = {}  # model → total tokens
 
 
 # ---------------------------------------------------------------------------
-# Pricing table (approximate, USD per 1M tokens as of 2025-Q4)
+# Pricing table (approximate, USD per 1M tokens as of 2026-Q1)
 # ---------------------------------------------------------------------------
-
-# TODO(cost-estimator): Keep pricing updated; consider loading from config
+#
+# Pricing can be overridden via config:
+#   [cost_estimator]
+#   custom_pricing = {"gpt-4o": [2.50, 10.00], "claude-opus-4": [15.0, 75.0]}
+#
 _PRICING: dict[str, tuple[float, float]] = {
     # (input_per_1M, output_per_1M)
+    # --- OpenAI ---
+    "gpt-4.1-nano": (0.10, 0.40),
+    "gpt-4.1-mini": (0.40, 1.60),
+    "gpt-4.1": (2.00, 8.00),
     "gpt-4o": (2.50, 10.00),
     "gpt-4o-mini": (0.15, 0.60),
     "gpt-4-turbo": (10.00, 30.00),
     "gpt-4": (30.00, 60.00),
     "gpt-3.5-turbo": (0.50, 1.50),
+    # --- Anthropic ---
+    "claude-opus-4": (15.00, 75.00),
+    "claude-sonnet-4": (3.00, 15.00),
+    "claude-haiku-4": (0.80, 4.00),
     "claude-3-5-sonnet": (3.00, 15.00),
     "claude-3-5-haiku": (0.80, 4.00),
     "claude-3-opus": (15.00, 75.00),
-    "claude-sonnet-4": (3.00, 15.00),
-    "claude-haiku-4": (0.80, 4.00),
+    "claude-3-sonnet": (3.00, 15.00),
+    "claude-3-haiku": (0.25, 1.25),
+    # --- Google ---
+    "gemini-2.5-pro": (1.25, 10.00),
+    "gemini-2.5-flash": (0.15, 0.60),
+    "gemini-2.0-flash": (0.10, 0.40),
+    "gemini-1.5-pro": (1.25, 5.00),
+    "gemini-1.5-flash": (0.075, 0.30),
+    # --- DeepSeek ---
+    "deepseek-v3": (0.27, 1.10),
+    "deepseek-r1": (0.55, 2.19),
     "deepseek-coder": (0.14, 0.28),
     "deepseek-chat": (0.14, 0.28),
 }
 
 _DEFAULT_PRICING = (5.00, 15.00)  # conservative default
+
+
+def _load_custom_pricing() -> None:
+    """Load custom pricing overrides from config if available."""
+    try:
+        from code_puppy.config import get_config
+
+        config = get_config()
+        section = getattr(config, "cost_estimator", None)
+        custom = getattr(section, "custom_pricing", None) if section else None
+        if custom and isinstance(custom, dict):
+            for model_key, prices in custom.items():
+                if isinstance(prices, (list, tuple)) and len(prices) == 2:
+                    _PRICING[model_key.lower()] = (float(prices[0]), float(prices[1]))
+            logger.debug("Loaded %d custom pricing overrides from config", len(custom))
+    except Exception:
+        # Config not available or parsing failed — use hardcoded defaults
+        pass
+
+
+# Try loading custom pricing on import
+_load_custom_pricing()
 
 
 @dataclass(slots=True)
