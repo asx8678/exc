@@ -43,7 +43,8 @@ defmodule CodePuppyControl.Pack.Dispatcher do
           constraints: keyword() | nil,
           timeout: pos_integer() | nil,
           session_id: String.t() | nil,
-          model: String.t() | nil
+          model: String.t() | nil,
+          progress_callback: (String.t(), map() -> :ok) | nil
         ]
 
   @type dispatch_result ::
@@ -124,6 +125,7 @@ defmodule CodePuppyControl.Pack.Dispatcher do
     target = resolve_target(agent_name, opts)
     session_id = Keyword.get(opts, :session_id)
     timeout = Keyword.get(opts, :timeout, @default_timeout)
+    progress_cb = Keyword.get(opts, :progress_callback)
 
     case target do
       :local ->
@@ -132,7 +134,7 @@ defmodule CodePuppyControl.Pack.Dispatcher do
         local_to_dispatch_result(local_result)
 
       {:remote, target_node} ->
-        dispatch_remote(agent_name, prompt, target_node, session_id, timeout)
+        dispatch_remote(agent_name, prompt, target_node, session_id, timeout, progress_cb)
     end
   end
 
@@ -278,9 +280,86 @@ defmodule CodePuppyControl.Pack.Dispatcher do
     end
   end
 
+  # ── Private: Progress-aware Await Loop (Phase I.5) ────────────────────
+
+  defp await_with_progress(run_id, target_node, agent_name, session_id, start_mono, timeout, progress_cb) do
+    deadline = System.monotonic_time(:millisecond) + timeout
+    do_await_loop(run_id, target_node, agent_name, session_id, start_mono, deadline, progress_cb)
+  end
+
+  defp do_await_loop(run_id, target_node, agent_name, session_id, start_mono, deadline, progress_cb) do
+    remaining = max(deadline - System.monotonic_time(:millisecond), 0)
+
+    if remaining <= 0 do
+      handle_dispatch_timeout(run_id, target_node, agent_name, session_id)
+    else
+      receive do
+        {:"$gen_cast", {:result, ^run_id, result}} ->
+          handle_dispatch_result(run_id, result, target_node, agent_name, session_id, start_mono)
+
+        {:result, ^run_id, result} ->
+          handle_dispatch_result(run_id, result, target_node, agent_name, session_id, start_mono)
+
+        {:"$gen_cast", {:progress, ^run_id, payload}} ->
+          handle_progress(run_id, payload, progress_cb)
+          do_await_loop(run_id, target_node, agent_name, session_id, start_mono, deadline, progress_cb)
+
+        {:progress, ^run_id, payload} ->
+          handle_progress(run_id, payload, progress_cb)
+          do_await_loop(run_id, target_node, agent_name, session_id, start_mono, deadline, progress_cb)
+      after
+        remaining ->
+          handle_dispatch_timeout(run_id, target_node, agent_name, session_id)
+      end
+    end
+  end
+
+  defp handle_progress(run_id, payload, progress_cb) do
+    Logger.debug(
+      "Dispatcher: progress for #{run_id}: #{inspect(payload.phase)} " <>
+        "(#{Float.round(payload.progress * 100, 1)}%)"
+    )
+
+    # Emit telemetry
+    :telemetry.execute(
+      [:code_puppy, :distributed_pack, :progress],
+      %{progress: payload.progress, system_time: System.system_time(:millisecond)},
+      %{run_id: run_id, phase: payload.phase}
+    )
+
+    # Invoke callback if provided
+    if is_function(progress_cb, 2) do
+      try do
+        progress_cb.(run_id, payload)
+      rescue
+        e -> Logger.warning("Dispatcher: progress callback error: #{inspect(e)}")
+      end
+    end
+  end
+
+  defp handle_dispatch_result(run_id, result, target_node, agent_name, session_id, start_mono) do
+    duration = System.monotonic_time(:millisecond) - start_mono
+    status = result_status(result)
+    PackTelemetry.dispatch_stop(run_id, status, duration)
+    safe_lb_record(:completion, target_node, run_id, status)
+    safe_unregister_run(target_node, run_id)
+    format_remote_result(result, agent_name, session_id)
+  end
+
+  defp handle_dispatch_timeout(run_id, target_node, agent_name, session_id) do
+    Logger.warning(
+      "Dispatcher: remote dispatch to #{inspect(target_node)} timed out — falling back to local"
+    )
+
+    PackTelemetry.dispatch_exception(run_id, "timeout")
+    safe_lb_record(:completion, target_node, run_id, :failure)
+    safe_unregister_run(target_node, run_id)
+    local_fallback(agent_name, to_string(session_id), session_id)
+  end
+
   # ── Private: Remote Dispatch ─────────────────────────────────────────────
 
-  defp dispatch_remote(agent_name, prompt, target_node, session_id, timeout) do
+  defp dispatch_remote(agent_name, prompt, target_node, session_id, timeout, progress_cb) do
     run_id = generate_run_id()
     sub_agent = agent_name_to_sub_agent(agent_name)
     start_mono = System.monotonic_time(:millisecond)
@@ -308,40 +387,8 @@ defmodule CodePuppyControl.Pack.Dispatcher do
       safe_lb_record(:dispatch, target_node, run_id)
       safe_register_run(target_node, run_id)
 
-      # Await result from the worker.
-      # Worker.send_result_back/2 uses GenServer.cast which wraps messages
-      # in {:'$gen_cast', msg}. We match both the GenServer cast format
-      # and plain send format for robustness.
-      receive do
-        {:"$gen_cast", {:result, ^run_id, result}} ->
-          duration = System.monotonic_time(:millisecond) - start_mono
-          status = result_status(result)
-          PackTelemetry.dispatch_stop(run_id, status, duration)
-          safe_lb_record(:completion, target_node, run_id, status)
-          safe_unregister_run(target_node, run_id)
-          format_remote_result(result, agent_name, session_id)
-
-        {:result, ^run_id, result} ->
-          duration = System.monotonic_time(:millisecond) - start_mono
-          status = result_status(result)
-          PackTelemetry.dispatch_stop(run_id, status, duration)
-          safe_lb_record(:completion, target_node, run_id, status)
-          safe_unregister_run(target_node, run_id)
-          format_remote_result(result, agent_name, session_id)
-      after
-        timeout ->
-          Logger.warning(
-            "Dispatcher: remote dispatch to #{inspect(target_node)} timed out " <>
-              "(#{timeout}ms) — falling back to local"
-          )
-
-          PackTelemetry.dispatch_exception(run_id, "timeout")
-          safe_lb_record(:completion, target_node, run_id, :failure)
-          safe_unregister_run(target_node, run_id)
-
-          # Fall back to local execution
-          local_fallback(agent_name, prompt, session_id)
-      end
+      # Await result, handling progress updates during the wait (Phase I.5)
+      await_with_progress(run_id, target_node, agent_name, session_id, start_mono, timeout, progress_cb)
     catch
       :exit, reason ->
         Logger.warning(

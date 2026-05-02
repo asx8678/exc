@@ -213,10 +213,10 @@ design doc.
 
 ### Phase I.5: Production hardening
 
-- [ ] TLS for Erlang distribution (`-proto_dist inet_tls`)
-- [ ] Ephemeral vs. persistent worker modes
-- [ ] Sub-agent result streaming (progress updates during execution)
-- [ ] Telemetry dashboard for cluster status
+- [x] TLS for Erlang distribution (`-proto_dist inet_tls`) — implemented: `Pack.TLS` config helper generates `ssl_dist.conf`, VM args, and validates cert files; `Config` extended with `:tls` section
+- [x] Ephemeral vs. persistent worker modes — implemented: Worker drain mode (`:drain` cast, reject-while-draining, auto-stop on last run); shutdown announcement to leader via NodeMonitor; ephemeral idle shutdown already in I.2
+- [x] Sub-agent result streaming (progress updates during execution) — implemented: `Dispatcher.await_with_progress/7` receive loop handles `{:progress, run_id, payload}` interleaved with result; optional `progress_callback` in dispatch opts; telemetry emission
+- [x] Telemetry dashboard for cluster status — implemented: `Pack.ClusterStatus` aggregates all subsystem state into `snapshot/0`; `format/1` rich terminal display; `/pack-cluster` Python slash command via bridge
 
 > **Rollback:** At any phase, set `packs.distributed.enabled = false` and
 > the cluster code is a no-op. The existing local pack parallelism behavior

@@ -72,7 +72,8 @@ defmodule CodePuppyControl.Pack.Worker do
           leader: pid() | nil,
           capabilities: map(),
           active_runs: %{String.t() => %{sub_agent: atom(), started_at: integer()}},
-          idle_since: integer() | nil
+          idle_since: integer() | nil,
+          draining: boolean()
         }
 
   # ── Public API ────────────────────────────────────────────────────────────
@@ -112,7 +113,8 @@ defmodule CodePuppyControl.Pack.Worker do
       capabilities: capabilities,
       active_runs: %{},
       idle_since: nil,
-      idle_timeout_ms: idle_timeout_ms
+      idle_timeout_ms: idle_timeout_ms,
+      draining: false
     }
 
     Logger.info(
@@ -138,31 +140,61 @@ defmodule CodePuppyControl.Pack.Worker do
     {:reply, state.capabilities, state}
   end
 
+  @doc """
+  Puts the worker in drain mode — rejects new dispatches but lets
+  active runs complete. Used for graceful shutdown of persistent workers.
+  """
+  @spec drain(node()) :: :ok
+  def drain(node_name \\ Node.self()) do
+    GenServer.cast(global_name(node_name), :drain)
+  end
+
+  @impl true
+  def handle_cast(:drain, state) do
+    Logger.info("PackWorker: entering drain mode — no new dispatches accepted")
+    state = %{state | draining: true}
+
+    # If no active runs, shut down immediately
+    if map_size(state.active_runs) == 0 do
+      announce_shutdown(state)
+      {:stop, :normal, state}
+    else
+      {:noreply, state}
+    end
+  end
+
   @impl true
   def handle_cast({:dispatch, dispatch_msg}, state) do
-    with :ok <- validate_dispatch_shape(dispatch_msg),
-         :ok <- check_duplicate_run_id(dispatch_msg.run_id, state) do
-      execute_dispatch(dispatch_msg, state)
+    # Reject dispatches when draining (Phase I.5)
+    if state.draining do
+      Logger.info("PackWorker: rejecting dispatch #{dispatch_msg.run_id} — draining")
+      reject_dispatch(dispatch_msg, :draining)
+      {:noreply, state}
     else
-      {:error, :malformed_dispatch} ->
-        Logger.warning(
-          "PackWorker: rejected malformed dispatch (missing " <>
-            "required keys #{inspect(@required_dispatch_keys)}): " <>
-            inspect(dispatch_msg)
-        )
+      with :ok <- validate_dispatch_shape(dispatch_msg),
+           :ok <- check_duplicate_run_id(dispatch_msg.run_id, state) do
+        execute_dispatch(dispatch_msg, state)
+      else
+        {:error, :malformed_dispatch} ->
+          Logger.warning(
+            "PackWorker: rejected malformed dispatch (missing " <>
+              "required keys #{inspect(@required_dispatch_keys)}): " <>
+              inspect(dispatch_msg)
+          )
 
-        reject_dispatch(dispatch_msg, :malformed)
+          reject_dispatch(dispatch_msg, :malformed)
 
-        {:noreply, state}
+          {:noreply, state}
 
-      {:error, {:duplicate_run_id, run_id}} ->
-        Logger.warning(
-          "PackWorker: rejected duplicate dispatch for run_id=#{run_id}"
-        )
+        {:error, {:duplicate_run_id, run_id}} ->
+          Logger.warning(
+            "PackWorker: rejected duplicate dispatch for run_id=#{run_id}"
+          )
 
-        reject_dispatch(dispatch_msg, :duplicate)
+          reject_dispatch(dispatch_msg, :duplicate)
 
-        {:noreply, state}
+          {:noreply, state}
+      end
     end
   end
 
@@ -196,7 +228,14 @@ defmodule CodePuppyControl.Pack.Worker do
         nil
       end
 
-    {:noreply, %{state | active_runs: active_runs, idle_since: idle_since}}
+    # Check if we should shut down after draining (Phase I.5)
+    if state.draining and map_size(active_runs) == 0 do
+      Logger.info("PackWorker: drain complete — all runs finished, shutting down")
+      announce_shutdown(state)
+      {:stop, :normal, %{state | active_runs: active_runs, idle_since: idle_since}}
+    else
+      {:noreply, %{state | active_runs: active_runs, idle_since: idle_since}}
+    end
   end
 
   @impl true
@@ -209,6 +248,9 @@ defmodule CodePuppyControl.Pack.Worker do
         "PackWorker: ephemeral worker idle for #{idle_ms}ms " <>
           "(threshold: #{state.idle_timeout_ms}ms) — shutting down"
       )
+
+      # Announce shutdown to leader before stopping (Phase I.5)
+      announce_shutdown(state)
 
       # Graceful self-shutdown: the supervisor will not restart a transient child
       {:stop, :normal, state}
@@ -294,6 +336,35 @@ defmodule CodePuppyControl.Pack.Worker do
     interval = div(state.idle_timeout_ms, 4)
     Process.send_after(self(), :idle_check, max(interval, 1000))
   end
+
+  # Announce shutdown to the leader's NodeMonitor before stopping.
+  # This lets the leader clean up NamingService/LoadBalancer immediately
+  # instead of waiting for nodedown detection. (Phase I.5)
+  defp announce_shutdown(%{leader: nil}), do: :ok
+
+  defp announce_shutdown(%{leader: leader_node} = state) when is_atom(leader_node) do
+    try do
+      GenServer.cast(
+        {CodePuppyControl.Pack.NodeMonitor, leader_node},
+        {:worker_shutting_down, state.node_name, :idle_timeout}
+      )
+    catch
+      :exit, _ -> :ok
+    end
+  end
+
+  defp announce_shutdown(%{leader: leader_pid}) when is_pid(leader_pid) do
+    try do
+      GenServer.cast(
+        {CodePuppyControl.Pack.NodeMonitor, node(leader_pid)},
+        {:worker_shutting_down, Node.self(), :idle_timeout}
+      )
+    catch
+      :exit, _ -> :ok
+    end
+  end
+
+  defp announce_shutdown(_state), do: :ok
 
   defp execute_dispatch(dispatch_msg, state) do
     run_id = dispatch_msg.run_id

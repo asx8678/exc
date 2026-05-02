@@ -16,7 +16,16 @@ defmodule CodePuppyControl.Pack.Config do
     heartbeat_interval: 15_000,
     disconnect_timeout: 30_000,
     dispatch_style: :async,
-    sync_timeout: 30_000
+    sync_timeout: 30_000,
+    tls: %{
+      enabled: false,
+      certfile: nil,
+      keyfile: nil,
+      cacertfile: nil,
+      verify: :verify_peer,
+      depth: 2,
+      secure_renegotiate: true
+    }
   }
 
   # ── Public API ────────────────────────────────────────────────────────────
@@ -73,4 +82,18 @@ defmodule CodePuppyControl.Pack.Config do
   """
   @spec defaults() :: map()
   def defaults, do: @defaults
+
+  @doc """
+  Returns TLS configuration, or nil if not configured.
+
+  Checks if TLS is enabled in the distributed pack config.
+  Returns the full TLS config map if enabled, nil otherwise.
+  """
+  @spec tls_config() :: map() | nil
+  def tls_config do
+    config = load()
+    tls = Map.get(config, :tls, %{})
+
+    if tls[:enabled], do: tls, else: nil
+  end
 end

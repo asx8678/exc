@@ -254,6 +254,29 @@ defmodule CodePuppyControl.Pack.NodeMonitor do
   # ── Cast: Worker Capabilities ──────────────────────────────────────────
 
   @impl true
+  def handle_cast({:worker_shutting_down, node_name, reason}, %{enabled: true} = state) do
+    Logger.info("NodeMonitor: worker #{inspect(node_name)} shutting down (#{inspect(reason)})")
+
+    # Remove from NamingService immediately (don't wait for nodedown)
+    CodePuppyControl.Pack.NamingService.unregister_node(node_name)
+
+    # Remove from LoadBalancer
+    safe_remove_lb(node_name)
+
+    # Update node status
+    state = update_in(state.nodes[node_name], fn
+      nil -> nil
+      info -> %{info | status: :shutting_down, active_runs: []}
+    end)
+
+    {:noreply, state}
+  end
+
+  def handle_cast({:worker_shutting_down, _node_name, _reason}, state) do
+    {:noreply, state}
+  end
+
+  @impl true
   def handle_cast({:worker_capabilities, worker_node, capabilities}, state) do
     if Map.has_key?(state.nodes, worker_node) do
       Logger.info("NodeMonitor: received capabilities from #{inspect(worker_node)}")
