@@ -555,10 +555,7 @@ defmodule CodePuppyControl.Agent.Loop do
     # Dispatch tool calls and collect results
     messages = ToolDispatch.dispatch_tool_calls(state, turn, messages)
 
-    # Record token usage in the ledger.
-    # TODO: When real LLM usage data is available, replace these
-    # zeros with actual prompt_tokens, completion_tokens, cached_tokens from
-    # the provider response.
+    # Extract token usage from the turn's LLM response (if available)
     model = resolve_model(state)
 
     status =
@@ -567,11 +564,16 @@ defmodule CodePuppyControl.Agent.Loop do
         _ -> :ok
       end
 
+    usage = turn.usage || %{}
+    prompt_tokens = usage[:prompt_tokens] || usage["prompt_tokens"] || 0
+    completion_tokens = usage[:completion_tokens] || usage["completion_tokens"] || 0
+    cached_tokens = usage[:cached_tokens] || usage["cached_tokens"] || usage[:cache_read_input_tokens] || usage["cache_read_input_tokens"] || 0
+
     TokenLedger.record_attempt(state.run_id, model,
       session_id: state.session_id,
-      prompt_tokens: 0,
-      completion_tokens: 0,
-      cached_tokens: 0,
+      prompt_tokens: prompt_tokens,
+      completion_tokens: completion_tokens,
+      cached_tokens: cached_tokens,
       status: status
     )
 

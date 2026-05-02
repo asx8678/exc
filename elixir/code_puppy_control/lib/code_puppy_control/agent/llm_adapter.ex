@@ -89,7 +89,8 @@ defmodule CodePuppyControl.Agent.LLMAdapter do
   defp adapter_response(response) when is_map(response) do
     %{
       text: response[:content] || response["content"] || "",
-      tool_calls: normalize_tool_calls(response[:tool_calls] || response["tool_calls"] || [])
+      tool_calls: normalize_tool_calls(response[:tool_calls] || response["tool_calls"] || []),
+      usage: response[:usage] || response["usage"]
     }
   end
 

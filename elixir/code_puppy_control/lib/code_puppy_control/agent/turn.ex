@@ -49,6 +49,7 @@ defmodule CodePuppyControl.Agent.Turn do
           pending_tool_calls: [tool_call()],
           completed_tool_calls: [tool_call()],
           tool_results: [map()],
+          usage: map() | nil,
           error: term() | nil,
           started_at: DateTime.t() | nil,
           finished_at: DateTime.t() | nil
@@ -62,6 +63,7 @@ defmodule CodePuppyControl.Agent.Turn do
     :pending_tool_calls,
     :completed_tool_calls,
     :tool_results,
+    :usage,
     :error,
     :started_at,
     :finished_at
@@ -80,6 +82,7 @@ defmodule CodePuppyControl.Agent.Turn do
       pending_tool_calls: [],
       completed_tool_calls: [],
       tool_results: [],
+      usage: nil,
       error: nil,
       started_at: nil,
       finished_at: nil
