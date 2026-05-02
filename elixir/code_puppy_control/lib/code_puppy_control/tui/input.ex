@@ -177,8 +177,9 @@ defmodule CodePuppyControl.TUI.Input do
     App.send_input(line, state.app_server)
 
     # Add to history (deduplicate consecutive duplicates)
+    # History is stored newest-first (prepended), so List.first gets the most recent entry
     new_history =
-      case List.last(state.history) do
+      case List.first(state.history) do
         ^line -> state.history
         _ -> append_history(state.history, line)
       end

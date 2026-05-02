@@ -81,9 +81,28 @@ defmodule CodePuppyControl.TUI.Widgets.ModelSelectorTest do
       "context_length" => 16_000
     },
     "weird-provider-model" => %{
-      "type" => "unknown_provider",
+      "type" => "custom_openai",
       "name" => "mystery",
       "context_length" => 999
+    },
+    "alpha-test-model" => %{
+      "type" => "openai",
+      "name" => "alpha-test",
+      "context_length" => 100_000
+    },
+    "beta-test-model" => %{
+      "type" => "openai",
+      "name" => "beta-test"
+    },
+    "gamma-test-model" => %{
+      "type" => "openai",
+      "name" => "gamma-test"
+    },
+    "firepass-prefixed-model" => %{
+      "type" => "custom_openai",
+      "provider" => "firepass",
+      "name" => "prefixed-model",
+      "context_length" => 50_000
     }
   }
 

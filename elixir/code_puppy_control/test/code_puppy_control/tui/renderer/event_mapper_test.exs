@@ -38,10 +38,10 @@ defmodule CodePuppyControl.TUI.Renderer.EventMapperTest do
                EventMapper.event_to_canonical(%{"type" => "done"})
     end
 
-    test "wire-format unknown type falls back to legacy (string keys) and returns :skip" do
+    test "wire-format agent_llm_stream with string keys falls back to legacy handler" do
       # Event.from_wire returns {:error, :unknown_type}, then legacy_event_to_canonical
-      # can't match string keys, so the catch-all returns :skip
-      assert :skip =
+      # matches the string-keyed agent_llm_stream and converts to TextDelta
+      assert {:ok, %Event.TextDelta{index: 0, text: "data"}} =
                EventMapper.event_to_canonical(%{"type" => "agent_llm_stream", "chunk" => "data"})
     end
 
