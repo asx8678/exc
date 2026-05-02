@@ -153,7 +153,19 @@ defmodule CodePuppyControl.Pack.Dispatch.RemoteDispatch do
       when is_atom(sub_agent) and is_map(params) and is_list(opts) do
     supervisor_name = Keyword.get(opts, :supervisor_name, @default_supervisor)
     run_id = resolve_run_id(opts, sub_agent)
-    fallback_mode = Keyword.get(opts, :fallback, :local)
+
+    fallback_mode =
+      case Keyword.get(opts, :fallback, :local) do
+        mode when mode in [:local, :none] ->
+          mode
+
+        other ->
+          Logger.warning(
+            "[RemoteDispatch] Invalid fallback mode: #{inspect(other)}, defaulting to :local"
+          )
+
+          :local
+      end
 
     # Primary: use Dispatcher for round-robin selection (capability-aware)
     case select_best_node_round_robin(sub_agent, opts) do
@@ -238,6 +250,18 @@ defmodule CodePuppyControl.Pack.Dispatch.RemoteDispatch do
         })
 
         {:error, {:dispatch_crashed, Exception.message(e)}}
+    catch
+      :exit, reason ->
+        # GenServer.call failures (timeout, noproc, nodedown, etc.) are exits,
+        # not exceptions — rescue won't catch them.
+        Logger.warning("[RemoteDispatch] dispatch_to_node exited: #{inspect(reason)}")
+
+        emit_telemetry(:exception, %{run_id: run_id, error: inspect(reason)}, %{
+          node: node_name,
+          sub_agent: sub_agent
+        })
+
+        {:error, reason}
     end
   end
 
