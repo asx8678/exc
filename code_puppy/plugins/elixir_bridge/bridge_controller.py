@@ -94,10 +94,11 @@ class BridgeController:
     async def shutdown(self) -> None:
         """Shutdown the controller and cleanup resources."""
         self.request_stop()
-        # Cancel any active runs
+        # Cancel any active tasks
         for _run_id, run_info in list(self._active_runs.items()):
-            if hasattr(run_info, "cancel"):
-                await run_info.cancel()
+            task = run_info.get("task")
+            if task and not task.done():
+                task.cancel()
         self._active_runs.clear()
 
     def _emit_notification(self, method: str, params: dict[str, Any]) -> None:
@@ -271,17 +272,16 @@ class BridgeController:
             )
 
         try:
-            # Store run info for cancellation support
+            # Start the agent (non-blocking - runs in background)
+            # Store task reference for cancellation support
+            task = asyncio.create_task(
+                self._execute_agent_run(run_id, agent_name, prompt, session_id)
+            )
             self._active_runs[run_id] = {
                 "agent_name": agent_name,
                 "status": "starting",
+                "task": task,
             }
-
-            # Start the agent (non-blocking - runs in background)
-            # In full implementation, this would spawn a task and return immediately
-            asyncio.create_task(
-                self._execute_agent_run(run_id, agent_name, prompt, session_id)
-            )
 
             return {
                 "status": "started",
@@ -355,8 +355,17 @@ class BridgeController:
             self._active_runs.pop(run_id, None)
 
         except asyncio.CancelledError:
+            _log.info(f"Run {run_id} cancelled")
             self._active_runs.pop(run_id, None)
-            raise
+            # Emit cancellation notification
+            self._emit_notification(
+                "run.cancelled",
+                {
+                    "run_id": run_id,
+                    "reason": "cancelled",
+                },
+            )
+            raise  # Re-raise to propagate cancellation
         except Exception as exc:
             _log.warning("run %s failed: %s", run_id, exc)
 
@@ -384,13 +393,25 @@ class BridgeController:
         run_id = params["run_id"]
         reason = params.get("reason", "user_requested")
 
-        if run_id not in self._active_runs:
+        run_info = self._active_runs.get(run_id)
+        if run_info is None:
             raise WireMethodError(f"Run not found: {run_id}", code=-32001)
 
         try:
-            # Remove from active runs (actual cancellation TODO)
-            # TODO(code-puppy-XXX): Implement actual cancellation of the running task
-            # This requires storing the task reference in _active_runs
+            task = run_info.get("task")
+            if task and not task.done():
+                task.cancel()
+                try:
+                    # Wait for the task to process cancellation.
+                    # Use asyncio.wait instead of wait_for to avoid
+                    # CancelledError swallowing issues with task wrapping.
+                    done, _pending = await asyncio.wait({task}, timeout=5.0)
+                    if not done:
+                        # Task didn't finish within timeout; force-cancel
+                        task.cancel()
+                except asyncio.CancelledError:
+                    pass  # Expected on cancellation
+
             self._active_runs.pop(run_id, None)
 
             return {
@@ -399,6 +420,7 @@ class BridgeController:
                 "reason": reason,
             }
         except Exception as e:
+            self._active_runs.pop(run_id, None)
             raise WireMethodError(f"Failed to cancel run: {e}", code=-32003)
 
     async def _handle_initialize(self, params: dict[str, Any]) -> dict[str, Any]:
