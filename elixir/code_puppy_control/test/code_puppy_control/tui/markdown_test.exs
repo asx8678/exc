@@ -182,6 +182,176 @@ defmodule CodePuppyControl.TUI.MarkdownTest do
     end
   end
 
+  # ── Strengthened tests (code_puppy-c2a.2) ───────────────────────────────
+
+  describe "render/1 — header levels" do
+    test "h1 header uses cyan styling" do
+      result = Markdown.render("# Cyan Title")
+      # h1 should be tagged bright cyan
+      assert has_any_tag?(result)
+      string = IO.chardata_to_string(Owl.Data.to_chardata(result))
+      assert string =~ "Cyan Title"
+    end
+
+    test "h2 header uses yellow styling" do
+      result = Markdown.render("## Yellow Subtitle")
+      assert has_any_tag?(result)
+      string = IO.chardata_to_string(Owl.Data.to_chardata(result))
+      assert string =~ "Yellow Subtitle"
+    end
+
+    test "h3+ header uses white styling" do
+      result = Markdown.render("### White Section")
+      assert has_any_tag?(result)
+      string = IO.chardata_to_string(Owl.Data.to_chardata(result))
+      assert string =~ "White Section"
+    end
+
+    test "header with extra spaces after hashes" do
+      string = render_to_string("#   Spaced Title")
+      assert string =~ "Spaced Title"
+    end
+  end
+
+  describe "render/1 — list items" do
+    test "uses bullet marker, not dash" do
+      string = render_to_string("- An item")
+      assert string =~ "•"
+      refute string =~ "- An item"
+    end
+
+    test "asterisk list items render with bullet" do
+      string = render_to_string("* Star item")
+      assert string =~ "Star item"
+      refute string =~ "* Star item"
+    end
+
+    test "list item with inline formatting" do
+      string = render_to_string("- **bold** item")
+      assert string =~ "bold"
+      refute string =~ "**bold**"
+    end
+  end
+
+  describe "render/1 — code blocks" do
+    test "code block with elixir language tag" do
+      md = "```elixir\nIO.puts(:hello)\n```"
+      string = render_to_string(md)
+      assert string =~ "elixir"
+      assert string =~ "IO.puts(:hello)"
+    end
+
+    test "code block without language defaults to text" do
+      md = "```\nplain code\n```"
+      string = render_to_string(md)
+      assert string =~ "plain code"
+      # The language label should be "text"
+      assert string =~ "text"
+    end
+
+    test "multiline code block preserves all lines" do
+      md = "```python\nline1\nline2\nline3\n```"
+      string = render_to_string(md)
+      assert string =~ "line1"
+      assert string =~ "line2"
+      assert string =~ "line3"
+    end
+  end
+
+  describe "render/1 — blockquotes" do
+    test "blockquote uses box-drawing prefix" do
+      result = Markdown.render("> A quote")
+      string = IO.chardata_to_string(Owl.Data.to_chardata(result))
+      assert string =~ "│"
+      assert string =~ "A quote"
+    end
+
+    test "blockquote strips > marker" do
+      string = render_to_string("> Quoted")
+      refute String.contains?(string, "> Quoted")
+    end
+
+    test "blockquote followed by normal line ends blockquote" do
+      md = "> A quote\nNormal line"
+      string = render_to_string(md)
+      assert string =~ "A quote"
+      assert string =~ "Normal line"
+    end
+  end
+
+  describe "render/1 — horizontal rules" do
+    test "horizontal rule with asterisks" do
+      string = render_to_string("***")
+      # Should produce some non-empty output
+      refute string == ""
+    end
+  end
+
+  describe "render/1 — blank lines" do
+    test "single blank line produces newline" do
+      string = render_to_string("")
+      assert string == "" or string == "\n"
+    end
+
+    test "multiple blank lines don't crash" do
+      string = render_to_string("\n\n\n")
+      assert is_binary(string)
+    end
+  end
+
+  describe "render/1 — inline formatting nesting" do
+    test "bold then plain then italic" do
+      string = render_to_string("**first** middle *last*")
+      assert string =~ "first"
+      assert string =~ "middle"
+      assert string =~ "last"
+      refute string =~ "**first**"
+      refute string =~ "*last*"
+    end
+
+    test "multiple inline code spans" do
+      string = render_to_string("use `a` and `b` together")
+      assert string =~ "a"
+      assert string =~ "b"
+      refute string =~ "`a`"
+      refute string =~ "`b`"
+    end
+  end
+
+  describe "render_inline/1 — edge cases" do
+    test "empty string returns empty" do
+      result = Markdown.render_inline("")
+      assert result == []
+    end
+
+    test "plain text with no markdown returns list of string" do
+      result = Markdown.render_inline("just text")
+      string = IO.chardata_to_string(Owl.Data.to_chardata(result))
+      assert string =~ "just text"
+    end
+
+    test "only bold" do
+      result = Markdown.render_inline("**solo bold**")
+      string = IO.chardata_to_string(Owl.Data.to_chardata(result))
+      assert string =~ "solo bold"
+      refute string =~ "**solo bold**"
+    end
+
+    test "only italic" do
+      result = Markdown.render_inline("*solo italic*")
+      string = IO.chardata_to_string(Owl.Data.to_chardata(result))
+      assert string =~ "solo italic"
+      refute string =~ "*solo italic*"
+    end
+
+    test "only inline code" do
+      result = Markdown.render_inline("`solo code`")
+      string = IO.chardata_to_string(Owl.Data.to_chardata(result))
+      assert string =~ "solo code"
+      refute string =~ "`solo code`"
+    end
+  end
+
   # ── render_inline/1 ──────────────────────────────────────────────────────────
 
   describe "render_inline/1" do

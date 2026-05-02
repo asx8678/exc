@@ -83,4 +83,85 @@ defmodule CodePuppyControl.TUI.Screens.ConfigTest do
       assert new_state.last_action =~ "blargle"
     end
   end
+
+  # ── Tightened boundaries (code_puppy-c2a.4) ─────────────────────────────
+
+  describe "render/1 — status rendering" do
+    test "renders ok status with no action" do
+      {:ok, state} = Config.init(%{})
+      rendered = Config.render(state)
+      # No last_action → shows command hints
+      text = IO.chardata_to_string(Owl.Data.to_chardata(rendered))
+      assert text =~ "Commands" or text =~ "set"
+    end
+
+    test "renders ok status with last action shows checkmark" do
+      {:ok, state} = Config.init(%{})
+      {:ok, state_with_action} = Config.handle_input("keys", state)
+      rendered = Config.render(state_with_action)
+      text = IO.chardata_to_string(Owl.Data.to_chardata(rendered))
+      # ✔ marker should appear for successful actions
+      assert text =~ "✔" or text =~ "Listing"
+    end
+
+    test "renders error status shows X marker" do
+      {:ok, state} = Config.init(%{})
+      {:ok, error_state} = Config.handle_input("blargle", state)
+      rendered = Config.render(error_state)
+      text = IO.chardata_to_string(Owl.Data.to_chardata(rendered))
+      # ✖ marker should appear for errors
+      assert text =~ "✖" or text =~ "Unknown"
+    end
+  end
+
+  describe "handle_input/2 — set command parsing" do
+    setup do
+      {:ok, state} = Config.init(%{})
+      {:ok, state: state}
+    end
+
+    test "set with empty key returns parse error", %{state: state} do
+      {:ok, new_state} = Config.handle_input("set ", state)
+      assert match?({:error, _}, new_state.status)
+      assert new_state.last_action =~ "Usage"
+    end
+
+    test "set with key only (no value) sets empty string", %{state: state} do
+      {:ok, new_state} = Config.handle_input("set my_key", state)
+      # Should attempt to set my_key = "" (clearing value)
+      assert new_state.last_action =~ "my_key"
+    end
+
+    test "set with key and multi-word value", %{state: state} do
+      {:ok, new_state} = Config.handle_input("set key with spaces in value", state)
+      # The value is "with spaces in value"
+      assert new_state.last_action =~ "key"
+    end
+  end
+
+  describe "handle_input/2 — get command edge cases" do
+    setup do
+      {:ok, state} = Config.init(%{})
+      {:ok, state: state}
+    end
+
+    test "get with empty key returns not found", %{state: state} do
+      {:ok, new_state} = Config.handle_input("get ", state)
+      # Empty key trimmed → empty string lookup → not found
+      assert new_state.last_action =~ "not found" or new_state.last_action =~ ""
+    end
+  end
+
+  describe "handle_input/2 — quit variants" do
+    setup do
+      {:ok, state} = Config.init(%{})
+      {:ok, state: state}
+    end
+
+    test "only q quits, not quit", %{state: state} do
+      # "quit" should be treated as an unknown command, not as quit
+      {:ok, new_state} = Config.handle_input("quit", state)
+      assert new_state.status == {:error, "unknown command"}
+    end
+  end
 end

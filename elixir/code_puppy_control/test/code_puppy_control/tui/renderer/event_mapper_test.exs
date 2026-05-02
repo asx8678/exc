@@ -38,10 +38,10 @@ defmodule CodePuppyControl.TUI.Renderer.EventMapperTest do
                EventMapper.event_to_canonical(%{"type" => "done"})
     end
 
-    test "wire-format unknown type falls back to legacy (string keys) and returns :skip" do
-      # Event.from_wire returns {:error, :unknown_type}, then legacy_event_to_canonical
-      # can't match string keys, so the catch-all returns :skip
-      assert :skip =
+    test "wire-format unknown type with string keys falls back to legacy" do
+      # agent_llm_stream is a known legacy type — string-keyed version
+      # is handled by the legacy converter, not rejected as unknown
+      assert {:ok, %Event.TextDelta{}} =
                EventMapper.event_to_canonical(%{"type" => "agent_llm_stream", "chunk" => "data"})
     end
 
@@ -88,8 +88,93 @@ defmodule CodePuppyControl.TUI.Renderer.EventMapperTest do
                EventMapper.event_to_canonical(%{type: "agent_run_completed"})
     end
 
+    test "atom-keyed agent_run_failed with error field" do
+      assert {:ok, %Event.Done{}} =
+               EventMapper.event_to_canonical(%{type: "agent_run_failed", error: "timeout"})
+    end
+
+    test "atom-keyed agent_run_failed bare" do
+      assert {:ok, %Event.Done{}} =
+               EventMapper.event_to_canonical(%{type: "agent_run_failed"})
+    end
+
+    test "atom-keyed agent_llm_stream with data chunk" do
+      assert {:ok, %Event.TextDelta{index: 0, text: "data"}} =
+               EventMapper.event_to_canonical(%{type: "agent_llm_stream", chunk: "data"})
+    end
+
+    test "atom-keyed agent_tool_call_start with bash" do
+      assert {:ok, %Event.ToolCallStart{index: 0, id: "id-1", name: "bash"}} =
+               EventMapper.event_to_canonical(%{type: "agent_tool_call_start", tool_name: "bash", tool_call_id: "id-1"})
+    end
+
+    test "atom-keyed agent_tool_call_end with grep" do
+      assert {:ok, %Event.ToolCallEnd{index: 0, id: "id-2", name: "grep", arguments: ""}} =
+               EventMapper.event_to_canonical(%{type: "agent_tool_call_end", tool_name: "grep", tool_call_id: "id-2"})
+    end
+
+    test "atom-keyed agent_tool_call_end with nil id for ls" do
+      assert {:ok, %Event.ToolCallEnd{index: 0, id: "", name: "ls", arguments: ""}} =
+               EventMapper.event_to_canonical(%{type: "agent_tool_call_end", tool_name: "ls", tool_call_id: nil})
+    end
+
+    test "atom-keyed agent_run_completed confirms Done" do
+      assert {:ok, %Event.Done{}} =
+               EventMapper.event_to_canonical(%{type: "agent_run_completed"})
+    end
+
     test "atom-keyed unknown event returns :skip" do
       assert :skip = EventMapper.event_to_canonical(%{type: "unknown_event_type"})
+    end
+
+    # ── String-keyed legacy events ────────────────────────────────────────
+
+    test "string-keyed agent_llm_stream" do
+      # Falls back from Event.from_wire (unknown type) to legacy
+      assert {:ok, %Event.TextDelta{index: 0, text: "chunk"}} =
+               EventMapper.event_to_canonical(%{"type" => "agent_llm_stream", "chunk" => "chunk"})
+    end
+
+    test "string-keyed agent_tool_call_start" do
+      assert {:ok, %Event.ToolCallStart{index: 0, id: "tc-x", name: "cat"}} =
+               EventMapper.event_to_canonical(%{
+                 "type" => "agent_tool_call_start",
+                 "tool_name" => "cat",
+                 "tool_call_id" => "tc-x"
+               })
+    end
+
+    test "string-keyed agent_tool_call_end" do
+      assert {:ok, %Event.ToolCallEnd{index: 0, id: "tc-y", name: "ls", arguments: ""}} =
+               EventMapper.event_to_canonical(%{
+                 "type" => "agent_tool_call_end",
+                 "tool_name" => "ls",
+                 "tool_call_id" => "tc-y"
+               })
+    end
+
+    test "string-keyed agent_tool_call_end with nil id" do
+      assert {:ok, %Event.ToolCallEnd{index: 0, id: "", name: "pwd", arguments: ""}} =
+               EventMapper.event_to_canonical(%{
+                 "type" => "agent_tool_call_end",
+                 "tool_name" => "pwd",
+                 "tool_call_id" => nil
+               })
+    end
+
+    test "string-keyed agent_run_completed" do
+      assert {:ok, %Event.Done{}} =
+               EventMapper.event_to_canonical(%{"type" => "agent_run_completed"})
+    end
+
+    test "string-keyed agent_run_failed with error" do
+      assert {:ok, %Event.Done{}} =
+               EventMapper.event_to_canonical(%{"type" => "agent_run_failed", "error" => "oom"})
+    end
+
+    test "string-keyed agent_run_failed without error" do
+      assert {:ok, %Event.Done{}} =
+               EventMapper.event_to_canonical(%{"type" => "agent_run_failed"})
     end
 
     # ── Edge cases ────────────────────────────────────────────────────

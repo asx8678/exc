@@ -179,6 +179,34 @@ defmodule CodePuppyControl.SessionStorageFacadeTest do
 
       assert {:error, :not_found} = SessionStorage.export_session(name)
     end
+
+    # ── Additional coverage (code_puppy-3m9.2) ─────────────────────────────
+
+    test "export_session with special characters in name", ctx do
+      name = session_name(ctx.prefix, "special-chars-ño")
+      messages = [%{"role" => "user", "content" => "unicode test"}]
+
+      assert {:ok, _meta} = SessionStorage.save_session(name, messages)
+      _ctx = track!(ctx, name)
+
+      assert {:ok, json} = SessionStorage.export_session(name)
+      decoded = Jason.decode!(json)
+      assert decoded["payload"]["messages"] == messages
+    end
+
+    test "export_session with large message content", ctx do
+      large_content = String.duplicate("x", 10_000)
+      messages = [%{"role" => "user", "content" => large_content}]
+      name = session_name(ctx.prefix, "large-export")
+
+      assert {:ok, _meta} = SessionStorage.save_session(name, messages)
+      _ctx = track!(ctx, name)
+
+      assert {:ok, json} = SessionStorage.export_session(name)
+      decoded = Jason.decode!(json)
+      [first_msg | _] = decoded["payload"]["messages"]
+      assert first_msg["content"] == large_content
+    end
   end
 
   # ---------------------------------------------------------------------------

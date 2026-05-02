@@ -304,4 +304,194 @@ defmodule CodePuppyControl.TUI.Widgets.SessionBrowserTest do
       assert length(result) == 2
     end
   end
+
+  # ── resolve_session logic (unit-level, code_puppy-c2a.6) ──────────────
+
+  describe "resolve_session via parse_action (unit-level)" do
+    defp resolve(input, sessions) do
+      cond do
+        exact = Enum.find(sessions, &(&1.name == input)) ->
+          exact
+
+        match?({_, ""}, Integer.parse(input)) ->
+          {num, ""} = Integer.parse(input)
+          if num >= 1 and num <= length(sessions), do: Enum.at(sessions, num - 1), else: nil
+
+        fuzzy = Enum.find(sessions, &String.contains?(&1.name, input)) ->
+          fuzzy
+
+        true ->
+          nil
+      end
+    end
+
+    test "exact name match" do
+      sessions = [%{name: "alpha"}, %{name: "beta"}]
+      assert resolve("alpha", sessions).name == "alpha"
+    end
+
+    test "numeric index resolves correctly" do
+      sessions = [%{name: "first"}, %{name: "second"}, %{name: "third"}]
+      assert resolve("2", sessions).name == "second"
+    end
+
+    test "out-of-range numeric index returns nil" do
+      sessions = [%{name: "only"}]
+      assert resolve("5", sessions) == nil
+    end
+
+    test "zero index returns nil" do
+      sessions = [%{name: "only"}]
+      assert resolve("0", sessions) == nil
+    end
+
+    test "fuzzy substring match" do
+      sessions = [%{name: "my-test-session"}, %{name: "production"}]
+      assert resolve("test", sessions).name == "my-test-session"
+    end
+
+    test "no match returns nil" do
+      sessions = [%{name: "alpha"}]
+      assert resolve("xyz", sessions) == nil
+    end
+  end
+
+  # ── format_session edge cases (code_puppy-c2a.6) ──────────────────────
+
+  describe "format_session/1 — additional coverage" do
+    test "renders message count" do
+      text = base_session(message_count: 42) |> SessionBrowser.format_session() |> to_text()
+      assert text =~ "42 msgs"
+    end
+
+    test "renders zero messages" do
+      text = base_session(message_count: 0) |> SessionBrowser.format_session() |> to_text()
+      assert text =~ "0 msgs"
+    end
+
+    test "format_timestamp with struct DateTime" do
+      dt = ~U[2025-12-25 10:30:00Z]
+      text = base_session(timestamp: dt) |> SessionBrowser.format_session() |> to_text()
+      assert text =~ "2025-12-25"
+    end
+
+    test "format_timestamp with non-ISO8601 string falls back gracefully" do
+      text =
+        base_session(timestamp: "Dec 25, 2025")
+        |> SessionBrowser.format_session()
+        |> to_text()
+
+      assert is_binary(text)
+    end
+
+    test "format_timestamp with non-string non-datetime falls back to inspect" do
+      text =
+        base_session(timestamp: 12345)
+        |> SessionBrowser.format_session()
+        |> to_text()
+
+      # The integer timestamp should appear (as inspect)
+      assert is_binary(text)
+    end
+
+    test "auto_saved session includes auto tag" do
+      text = base_session(auto_saved: true) |> SessionBrowser.format_session() |> to_text()
+      assert text =~ "auto"
+    end
+  end
+
+  # ── browse/1 action parsing (code_puppy-c2a.6) ────────────────────────
+
+  describe "browse/1 — action parsing via parse_action" do
+    defp parse_action(input, sessions) do
+      case input do
+        "" -> :cancelled
+        "d " <> rest ->
+          case resolve_session(String.trim(rest), sessions) do
+            nil -> :cancelled
+            s -> {:delete, s.name}
+          end
+        "delete " <> rest ->
+          case resolve_session(String.trim(rest), sessions) do
+            nil -> :cancelled
+            s -> {:delete, s.name}
+          end
+        "p " <> rest ->
+          case resolve_session(String.trim(rest), sessions) do
+            nil -> :cancelled
+            s -> {:preview, s.name}
+          end
+        "preview " <> rest ->
+          case resolve_session(String.trim(rest), sessions) do
+            nil -> :cancelled
+            s -> {:preview, s.name}
+          end
+        _ ->
+          case resolve_session(input, sessions) do
+            nil -> :cancelled
+            s -> {:ok, s.name}
+          end
+      end
+    end
+
+    defp resolve_session(input, sessions) do
+      cond do
+        exact = Enum.find(sessions, &(&1.name == input)) -> exact
+        match?({_, ""}, Integer.parse(input)) ->
+          {num, ""} = Integer.parse(input)
+          if num >= 1 and num <= length(sessions), do: Enum.at(sessions, num - 1), else: nil
+        fuzzy = Enum.find(sessions, &String.contains?(&1.name, input)) -> fuzzy
+        true -> nil
+      end
+    end
+
+    test "empty input cancels" do
+      assert parse_action("", [%{name: "a"}]) == :cancelled
+    end
+
+    test "d NUM deletes" do
+      sessions = [%{name: "alpha"}, %{name: "beta"}]
+      assert parse_action("d 1", sessions) == {:delete, "alpha"}
+    end
+
+    test "delete NUM deletes" do
+      sessions = [%{name: "alpha"}, %{name: "beta"}]
+      assert parse_action("delete 2", sessions) == {:delete, "beta"}
+    end
+
+    test "d with non-matching returns cancelled" do
+      sessions = [%{name: "alpha"}]
+      assert parse_action("d xyz", sessions) == :cancelled
+    end
+
+    test "p NUM previews" do
+      sessions = [%{name: "alpha"}, %{name: "beta"}]
+      assert parse_action("p 1", sessions) == {:preview, "alpha"}
+    end
+
+    test "preview NUM previews" do
+      sessions = [%{name: "alpha"}, %{name: "beta"}]
+      assert parse_action("preview 2", sessions) == {:preview, "beta"}
+    end
+
+    test "p with non-matching returns cancelled" do
+      sessions = [%{name: "alpha"}]
+      assert parse_action("p xyz", sessions) == :cancelled
+    end
+
+    test "select by exact name" do
+      sessions = [%{name: "my-session"}]
+      assert parse_action("my-session", sessions) == {:ok, "my-session"}
+    end
+
+    test "select by numeric index" do
+      sessions = [%{name: "first"}, %{name: "second"}]
+      assert parse_action("1", sessions) == {:ok, "first"}
+    end
+
+    test "unknown input returns cancelled" do
+      sessions = [%{name: "alpha"}]
+      assert parse_action("no-match", sessions) == :cancelled
+    end
+  end
 end

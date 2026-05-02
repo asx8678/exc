@@ -372,4 +372,133 @@ defmodule CodePuppyControl.TUI.Widgets.AgentSelectorTest do
       end
     end
   end
+
+  # ── Coverage boost (code_puppy-c2a.7) ────────────────────────────────────
+
+  describe "list_agents/1 — filter edge cases" do
+    test "nil filter returns all agents" do
+      all = AgentSelector.list_agents(filter: nil)
+      unfiltered = AgentSelector.list_agents()
+      assert length(all) == length(unfiltered)
+    end
+
+    test "empty string filter returns all agents" do
+      all = AgentSelector.list_agents(filter: "")
+      unfiltered = AgentSelector.list_agents()
+      assert length(all) == length(unfiltered)
+    end
+
+    test "filter matches display name" do
+      agents = AgentSelector.list_agents()
+      if length(agents) >= 1 do
+        agent = hd(agents)
+        # Use first 3 chars of display name
+        prefix = String.slice(agent.display_name, 0, 3)
+        filtered = AgentSelector.list_agents(filter: prefix)
+        assert length(filtered) >= 1
+      end
+    end
+
+    test "filter matches slug" do
+      agents = AgentSelector.list_agents()
+      if length(agents) >= 1 do
+        agent = hd(agents)
+        # Use part of the slug as filter
+        slug_part = String.slice(agent.slug, 0, 4)
+        filtered = AgentSelector.list_agents(filter: slug_part)
+        assert length(filtered) >= 1
+      end
+    end
+
+    test "filter is case-insensitive" do
+      agents = AgentSelector.list_agents()
+      if length(agents) >= 1 do
+        name = hd(agents).name
+        upper = AgentSelector.list_agents(filter: String.upcase(name))
+        lower = AgentSelector.list_agents(filter: String.downcase(name))
+        assert length(upper) == length(lower)
+      end
+    end
+  end
+
+  describe "enrich_agent — structure" do
+    test "agent entries have correct types" do
+      agents = AgentSelector.list_agents()
+
+      for agent <- agents do
+        assert is_binary(agent.name)
+        assert is_binary(agent.slug)
+        assert is_binary(agent.display_name)
+        assert is_binary(agent.description)
+        assert agent.module == nil or is_atom(agent.module)
+      end
+    end
+  end
+
+  describe "select/1 — additional interactive paths" do
+    test "select with non-matching filter returns :cancelled" do
+      output =
+        capture_io(fn ->
+          result = AgentSelector.select(filter: "zzz_nonexistent_agent_xyz_999")
+          assert result == :cancelled
+        end)
+
+      assert output =~ "No agents available"
+    end
+
+    test "EOF returns :cancelled" do
+      # Force fallback to avoid Owl.IO.select interactive hang
+      orig = Application.get_env(:code_puppy_control, :force_fallback_select, false)
+      Application.put_env(:code_puppy_control, :force_fallback_select, true)
+      on_exit(fn -> Application.put_env(:code_puppy_control, :force_fallback_select, orig) end)
+
+      output =
+        capture_io("\n", fn ->
+          result = AgentSelector.select()
+          assert result == :cancelled or match?({:ok, _}, result)
+        end)
+    end
+  end
+
+  describe "parse_selection — fuzzy matching via fallback" do
+    setup do
+      orig_fallback = Application.get_env(:code_puppy_control, :force_fallback_select, false)
+      orig_build = Application.get_env(:code_puppy_control, :force_build_table_fallback, false)
+      Application.put_env(:code_puppy_control, :force_fallback_select, true)
+      Application.put_env(:code_puppy_control, :force_build_table_fallback, true)
+
+      on_exit(fn ->
+        Application.put_env(:code_puppy_control, :force_fallback_select, orig_fallback)
+        Application.put_env(:code_puppy_control, :force_build_table_fallback, orig_build)
+      end)
+
+      :ok
+    end
+
+    test "fuzzy match on catalogue name" do
+      agents = AgentSelector.list_agents()
+      if length(agents) >= 1 do
+        # Use part of the catalogue name (snake_case)
+        name = hd(agents).name
+        fragment = String.slice(name, 0, 4)
+
+        capture_io(fragment <> "\n", fn ->
+          result = AgentSelector.select()
+          assert result == :cancelled or match?({:ok, _}, result)
+        end)
+      end
+    end
+
+    test "out of range number returns :cancelled" do
+      agents = AgentSelector.list_agents()
+      if length(agents) >= 1 do
+        output =
+          capture_io("9999\n", fn ->
+            assert AgentSelector.select() == :cancelled
+          end)
+
+        assert output =~ ">"
+      end
+    end
+  end
 end
