@@ -51,7 +51,7 @@ defmodule CodePuppyControl.Pack.RemoteNodeProxy do
 
   require Logger
 
-  alias CodePuppyControl.Pack.NamingService
+  alias CodePuppyControl.Pack.{Dispatcher, NamingService}
 
   # ── Types ────────────────────────────────────────────────────────────────────────
 
@@ -300,10 +300,12 @@ defmodule CodePuppyControl.Pack.RemoteNodeProxy do
       active_runs: Map.keys(state.active_runs)
     })
 
-    # Cancel any outstanding dispatch timers for in-flight runs
+    # Cancel any outstanding dispatch timers and release Dispatcher slots
+    # for each in-flight run being abandoned due to node down.
     state.active_runs
     |> Enum.each(fn {_run_id, run_info} ->
       if run_info.timer_ref, do: Process.cancel_timer(run_info.timer_ref)
+      safe_release_dispatcher_slot(state.node_name)
     end)
 
     {:noreply,
@@ -332,6 +334,8 @@ defmodule CodePuppyControl.Pack.RemoteNodeProxy do
           %{run_id: run_id, error: "dispatch_timeout"},
           %{node: state.node_name}
         )
+
+        safe_release_dispatcher_slot(state.node_name)
 
         {:noreply, %{state | active_runs: Map.delete(state.active_runs, run_id)}}
     end
@@ -373,6 +377,8 @@ defmodule CodePuppyControl.Pack.RemoteNodeProxy do
 
         # Send result to caller if reply_to was requested
         if run_info.reply_to, do: send(run_info.reply_to, {:dispatch_result, run_id, result})
+
+        safe_release_dispatcher_slot(state.node_name)
 
         {:noreply, %{state | active_runs: Map.delete(state.active_runs, run_id)}}
     end
@@ -514,6 +520,12 @@ defmodule CodePuppyControl.Pack.RemoteNodeProxy do
     NamingService.unregister_node(node_name)
   rescue
     _ -> :ok
+  catch
+    :exit, _ -> :ok
+  end
+
+  defp safe_release_dispatcher_slot(node_name) do
+    Dispatcher.release_slot(node_name)
   catch
     :exit, _ -> :ok
   end

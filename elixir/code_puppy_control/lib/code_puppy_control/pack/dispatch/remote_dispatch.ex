@@ -141,9 +141,9 @@ defmodule CodePuppyControl.Pack.Dispatch.RemoteDispatch do
     run_id = resolve_run_id(opts, sub_agent)
 
     # Primary: use Dispatcher for round-robin selection (capability-aware).
-    # Dispatcher.dispatch/2 now atomically acquires a slot on selection,
-    # so callers MUST release via Dispatcher.release_slot/1 when the run
-    # completes (success or failure).
+    # Dispatcher.dispatch/2 atomically acquires a slot on selection,
+    # so we pass slot_acquired?: true to ensure proper cleanup on failure.
+    # On success, RemoteNodeProxy's terminal lifecycle handles release.
     case select_best_node_round_robin(sub_agent, opts) do
       {:ok, node_name} ->
         case do_auto_dispatch_to_node(
@@ -152,7 +152,8 @@ defmodule CodePuppyControl.Pack.Dispatch.RemoteDispatch do
                params,
                run_id,
                supervisor_name,
-               opts
+               opts,
+               _slot_acquired? = true
              ) do
           {:ok, _} = result -> result
           {:fallback, fb_run_id} -> fallback_to_local(sub_agent, fb_run_id)
@@ -190,7 +191,15 @@ defmodule CodePuppyControl.Pack.Dispatch.RemoteDispatch do
 
   # ── Private ──────────────────────────────────────────────────────────────
 
-  defp do_dispatch_to_node(node_name, sub_agent, params, run_id, supervisor_name, opts) do
+  defp do_dispatch_to_node(
+         node_name,
+         sub_agent,
+         params,
+         run_id,
+         supervisor_name,
+         opts,
+         slot_acquired? \\ false
+       ) do
     try do
       case DistributedSupervisor.dispatch(node_name, sub_agent, params, supervisor_name) do
         {:ok, _proxy_run_id} ->
@@ -198,8 +207,8 @@ defmodule CodePuppyControl.Pack.Dispatch.RemoteDispatch do
           # caller-provided run_id for correlation; the proxy's run_id is
           # used for wire-level tracking.
           #
-          # NOTE: Callers must call Dispatcher.release_slot(node_name)
-          # when the dispatched run completes (success or failure).
+          # Slot stays acquired here — RemoteNodeProxy's terminal lifecycle
+          # (result, dispatch_timeout, nodedown) handles release.
           timeout = Keyword.get(opts, :timeout, @default_timeout)
 
           emit_telemetry(:start, %{run_id: run_id, timeout: timeout}, %{
@@ -211,12 +220,14 @@ defmodule CodePuppyControl.Pack.Dispatch.RemoteDispatch do
           {:ok, run_id}
 
         {:error, reason} ->
-          Dispatcher.release_slot(node_name)
+          # Only release if WE acquired the slot (auto-dispatch via Dispatcher).
+          # Explicit dispatch and first-fit fallback never acquired a slot.
+          if slot_acquired?, do: safe_release_dispatcher_slot(node_name)
           {:error, reason}
       end
     rescue
       e ->
-        Dispatcher.release_slot(node_name)
+        if slot_acquired?, do: safe_release_dispatcher_slot(node_name)
         Logger.error("[RemoteDispatch] dispatch_to_node crashed: #{Exception.message(e)}")
 
         emit_telemetry(:exception, %{run_id: run_id, error: Exception.message(e)}, %{
@@ -228,8 +239,24 @@ defmodule CodePuppyControl.Pack.Dispatch.RemoteDispatch do
     end
   end
 
-  defp do_auto_dispatch_to_node(node_name, sub_agent, params, run_id, supervisor_name, opts) do
-    case do_dispatch_to_node(node_name, sub_agent, params, run_id, supervisor_name, opts) do
+  defp do_auto_dispatch_to_node(
+         node_name,
+         sub_agent,
+         params,
+         run_id,
+         supervisor_name,
+         opts,
+         slot_acquired? \\ false
+       ) do
+    case do_dispatch_to_node(
+           node_name,
+           sub_agent,
+           params,
+           run_id,
+           supervisor_name,
+           opts,
+           slot_acquired?
+         ) do
       {:ok, ^run_id} ->
         emit_telemetry(:start, %{run_id: run_id}, %{
           node: node_name,
@@ -327,6 +354,12 @@ defmodule CodePuppyControl.Pack.Dispatch.RemoteDispatch do
     })
 
     {:ok, :local}
+  end
+
+  defp safe_release_dispatcher_slot(node_name) do
+    Dispatcher.release_slot(node_name)
+  catch
+    :exit, _ -> :ok
   end
 
   defp emit_telemetry(event, measurements, metadata) do
