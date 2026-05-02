@@ -36,12 +36,10 @@ defmodule CodePuppyControl.Pack.Dispatch.CapabilityQuery do
 
   alias CodePuppyControl.Pack.{NamingService, DistributedSupervisor, RemoteNodeProxy}
 
-  @type query_opts :: [
-          sub_agent: atom(),
-          model: String.t(),
-          host_os: String.t(),
-          exclude_nodes: [node()]
-        ]
+  @type filters :: %{
+          optional(:host_os) => String.t(),
+          optional(:model) => String.t()
+        }
 
   @type worker_info :: %{
           :node => node(),
@@ -75,8 +73,7 @@ defmodule CodePuppyControl.Pack.Dispatch.CapabilityQuery do
 
   def find_eligible(sub_agent_type, filters) when is_atom(sub_agent_type) and is_map(filters) do
     candidate_nodes = safe_naming(fn -> NamingService.find_nodes(sub_agent_type, filters) end, [])
-    connected_nodes = safe_distributed(fn -> DistributedSupervisor.list_nodes() end, [])
-    connected_set = MapSet.new(connected_nodes)
+    connected_set = MapSet.new(get_connected_nodes())
 
     candidate_nodes
     |> Enum.filter(&MapSet.member?(connected_set, &1))
@@ -110,8 +107,7 @@ defmodule CodePuppyControl.Pack.Dispatch.CapabilityQuery do
 
   def any_eligible?(sub_agent_type, filters) when is_atom(sub_agent_type) and is_map(filters) do
     candidate_nodes = safe_naming(fn -> NamingService.find_nodes(sub_agent_type, filters) end, [])
-    connected_nodes = safe_distributed(fn -> DistributedSupervisor.list_nodes() end, [])
-    connected_set = MapSet.new(connected_nodes)
+    connected_set = MapSet.new(get_connected_nodes())
 
     Enum.any?(candidate_nodes, &MapSet.member?(connected_set, &1))
   end
@@ -176,7 +172,7 @@ defmodule CodePuppyControl.Pack.Dispatch.CapabilityQuery do
         }
   def cluster_summary() do
     all_nodes = safe_naming(fn -> NamingService.list_nodes() end, [])
-    connected_nodes = safe_distributed(fn -> DistributedSupervisor.list_nodes() end, [])
+    connected_nodes = get_connected_nodes()
 
     {total_capacity, available_agents, available_models} =
       all_nodes
@@ -193,7 +189,7 @@ defmodule CodePuppyControl.Pack.Dispatch.CapabilityQuery do
         new_models =
           model_acc ++
             (Map.get(caps, :available_models, [])
-             |> Enum.filter(&is_binary(&1) and &1 != ""))
+             |> Enum.filter(&(is_binary(&1) and &1 != "")))
 
         {new_cap, new_agents, new_models}
       end)
@@ -222,6 +218,27 @@ defmodule CodePuppyControl.Pack.Dispatch.CapabilityQuery do
     _ -> 0
   catch
     :exit, _reason -> 0
+  end
+
+  defp get_connected_nodes do
+    safe_distributed(fn -> DistributedSupervisor.list_nodes() end, [])
+    |> Enum.filter(&proxy_connected?/1)
+  end
+
+  defp proxy_connected?(node_name) do
+    case Registry.lookup(RemoteNodeProxy.Registry, node_name) do
+      [{pid, _}] ->
+        try do
+          match?(%{status: :connected}, RemoteNodeProxy.status(pid))
+        rescue
+          _ -> false
+        catch
+          :exit, _ -> false
+        end
+
+      [] ->
+        false
+    end
   end
 
   defp safe_naming(fun, fallback) do

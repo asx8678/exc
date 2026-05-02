@@ -19,8 +19,7 @@ defmodule CodePuppyControl.Pack.Dispatch.CapabilityQueryTest do
   defp mock_proxy_opts do
     [
       monitor_fn: fn _node, _flag -> true end,
-      handshake_fn: fn _node, _timeout -> {:error, :noproc} end,
-      name: nil
+      handshake_fn: fn _node, _timeout -> {:ok, %{}} end
     ]
   end
 
@@ -60,11 +59,15 @@ defmodule CodePuppyControl.Pack.Dispatch.CapabilityQueryTest do
   defp add_connected_worker(node_name, caps) do
     NamingService.register_node(node_name, caps)
 
-    {:ok, _pid} =
+    {:ok, _supervisor_pid} =
       DistributedSupervisor.add_node(node_name,
         supervisor_name: DistributedSupervisor,
         proxy_opts: mock_proxy_opts()
       )
+
+    # Wait for the proxy to finish handshake (handle_continue) and
+    # reach :connected state before the test proceeds
+    wait_for_proxy_connected(node_name)
 
     # Register cleanup — runs before next setup clears NamingService
     on_exit(fn ->
@@ -72,6 +75,35 @@ defmodule CodePuppyControl.Pack.Dispatch.CapabilityQueryTest do
     end)
 
     :ok
+  end
+
+  defp wait_for_proxy_connected(node_name, timeout_ms \\ 500) do
+    deadline =
+      System.monotonic_time() + System.convert_time_unit(timeout_ms, :millisecond, :native)
+
+    poll_proxy_connected(node_name, deadline)
+  end
+
+  defp poll_proxy_connected(node_name, deadline) do
+    if System.monotonic_time() >= deadline do
+      raise "Timed out waiting for proxy #{inspect(node_name)} to reach :connected state"
+    end
+
+    case Registry.lookup(CodePuppyControl.Pack.RemoteNodeProxy.Registry, node_name) do
+      [{pid, _}] ->
+        status = CodePuppyControl.Pack.RemoteNodeProxy.status(pid)
+
+        if status.status == :connected do
+          :ok
+        else
+          Process.sleep(5)
+          poll_proxy_connected(node_name, deadline)
+        end
+
+      [] ->
+        Process.sleep(5)
+        poll_proxy_connected(node_name, deadline)
+    end
   end
 
   # ── Setup ─────────────────────────────────────────────────────────────────
@@ -218,6 +250,7 @@ defmodule CodePuppyControl.Pack.Dispatch.CapabilityQueryTest do
       worker = hd(result)
       assert worker.capabilities[:host_os] == "linux"
       assert worker.capabilities[:max_concurrent_runs] == 2
+
       assert worker.capabilities[:available_models] == [
                "claude-sonnet-4-20250514",
                "claude-haiku-3-5"
@@ -388,6 +421,16 @@ defmodule CodePuppyControl.Pack.Dispatch.CapabilityQueryTest do
   # ── Graceful Fallback ────────────────────────────────────────────────────
 
   describe "graceful fallback when services are down" do
+    setup do
+      on_exit(fn ->
+        unless Process.whereis(NamingService) do
+          CodePuppyControl.Pack.NamingService.start_link([])
+        end
+      end)
+
+      :ok
+    end
+
     test "find_eligible returns empty when NamingService is not running" do
       :ok = GenServer.stop(NamingService)
       assert CapabilityQuery.find_eligible(:terrier) == []
