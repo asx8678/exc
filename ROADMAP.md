@@ -225,7 +225,7 @@ design doc.
 ## Deferred / ideas
 
 - [x] Replace lefthook with Git-native hooks — removed lefthook.yml, native hooks in scripts/git-hooks/, installer at scripts/install-hooks.sh
-- [ ] Phoenix LiveView admin UI for pack orchestration
+- [x] Phoenix LiveView admin UI for pack orchestration
 
 ## Closed
 
