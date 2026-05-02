@@ -20,7 +20,7 @@ defmodule CodePuppyControl.TUI.Renderer.Buffer do
     chunks = Map.get(text_buffer, idx, [])
 
     if chunks != [] do
-      text = IO.iodata_to_binary(chunks)
+      text = IO.iodata_to_binary(Enum.reverse(chunks))
       OwlOutput.owl_puts(Markdown.render(text))
     end
 
@@ -36,7 +36,7 @@ defmodule CodePuppyControl.TUI.Renderer.Buffer do
     text_buffer
     |> Enum.each(fn {_idx, chunks} ->
       if is_list(chunks) and chunks != [] do
-        text = IO.iodata_to_binary(chunks)
+        text = IO.iodata_to_binary(Enum.reverse(chunks))
         OwlOutput.owl_puts(Markdown.render(text))
       end
     end)
@@ -54,7 +54,7 @@ defmodule CodePuppyControl.TUI.Renderer.Buffer do
     thinking_buffer
     |> Enum.each(fn {_idx, chunks} ->
       if is_list(chunks) and chunks != [] do
-        text = IO.iodata_to_binary(chunks)
+        text = IO.iodata_to_binary(Enum.reverse(chunks))
         OwlOutput.owl_puts(Owl.Data.tag(Markdown.render(text), :faint))
       end
     end)

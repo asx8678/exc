@@ -25,11 +25,12 @@ defmodule CodePuppyControl.TUI.Input do
 
   ## Supported Input
 
-  The reader reads raw lines via `IO.gets/1`. Line editing (backspace,
-  Ctrl+W, history navigation via up/down arrows) is provided by the
-  underlying terminal driver (e.g., `erl_signal_server` or a library
-  like `Owl` when available). The Input module itself does not implement
-  line editing — it reads whatever the terminal delivers.
+  The reader reads raw lines via `IO.gets/1`. Line editing
+  (backspace, Ctrl+W) is provided by the underlying terminal
+  driver (e.g., `erl_signal_server`). The Input module itself
+  does **not** implement line editing, history navigation, or
+  tab-completion — these are handled at the App/Screen layer
+  or by the terminal driver.
 
   ## History
 
@@ -200,9 +201,19 @@ defmodule CodePuppyControl.TUI.Input do
 
   @impl true
   def terminate(_reason, state) do
-    if state.reader_task do
-      if Process.alive?(state.reader_task) do
-        Process.exit(state.reader_task, :kill)
+    if state.reader_task && Process.alive?(state.reader_task) do
+      # Monitor-aware graceful shutdown with bounded fallback (code_puppy-057.4)
+      ref = Process.monitor(state.reader_task)
+      Process.unlink(state.reader_task)
+      Process.exit(state.reader_task, :shutdown)
+
+      receive do
+        {:DOWN, ^ref, :process, _pid, _reason} -> :ok
+      after
+        # Bounded fallback: if reader doesn't exit in 3s, force kill
+        3000 ->
+          Process.demonitor(ref, [:flush])
+          Process.exit(state.reader_task, :kill)
       end
     end
 

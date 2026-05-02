@@ -1,298 +1,426 @@
 defmodule CodePuppyControl.Pack.Worker do
   @moduledoc """
-  GenServer running on worker nodes that handles dispatch requests from the
-  Pack Leader.
+  Worker-side GenServer for distributed pack execution.
 
-  Each worker node runs a single `PackWorker` GenServer that registers itself
-  globally as `{:pack_worker, node()}` via Erlang's `:global` module, making
-  it discoverable by the Pack Leader.
+  Runs on headless worker nodes and receives dispatch requests from the
+  leader. Each request spawns a sub-agent under the local `SubAgentPool`
+  DynamicSupervisor.
 
-  ## Capabilities
+  ## Registration
 
-  Workers advertise their capabilities to the leader on connect. The
-  capabilities map describes which sub-agents, models, and features the
-  worker supports. See `default_capabilities/0` for the shape.
+  The worker registers under `{:global, {:pack_worker, node()}}` so the leader
+  can `GenServer.call`/`cast` to it via Erlang distribution. Use
+  `global_name/1` to get the registration name for a given node.
+
+  ## Lifecycle
+
+  1. Worker starts with `--sname pup_worker_01`.
+  2. `start_link/1` initializes capabilities and waits.
+  3. Leader connects via `Node.connect/1`.
+  4. Leader probes capabilities via `{:request_capabilities, ...}`.
+  5. Leader dispatches sub-agents via `{:dispatch, ...}`.
+  6. Worker reports progress/results back to the leader via casts.
 
   ## Dispatch Guards
 
-  The worker validates incoming dispatch messages before processing:
+  Malformed dispatch messages (missing required keys) are rejected with a
+  warning. Duplicate `run_id` dispatches are rejected to prevent
+  double-execution.
 
-  1. **Shape validation** — dispatch messages missing required keys
-     (`run_id`, `sub_agent`, `params`, `leader_node`, `leader_pid`) are
-     rejected with a telemetry exception and a failure result sent to
-     the leader.
-  2. **Duplicate run_id** — dispatches for `run_id`s already in
-     `active_runs` are rejected to prevent double-execution.
-  3. **Semantic validation** — sub_agent, model preference, and concurrency
-     limits are checked via `validate_dispatch/4`.
+  ## References
 
-  ## Message Protocol
-
-  | Direction | Pattern | Purpose |
-  |-----------|---------|---------|
-  | Leader → Worker | `GenServer.call` `:request_capabilities` | Get worker capabilities |
-  | Leader → Worker | `GenServer.cast` `{:dispatch, %{run_id, sub_agent, params, leader_node, leader_pid}}` | Start a sub-agent run |
-  | Leader → Worker | `GenServer.cast` `{:cancel, run_id}` | Cancel a running sub-agent |
-  | Leader → Worker | `GenServer.call` `:ping` | Health check |
+  - Design doc §4.2: Worker Node
+  - Design doc §6.2: Message shapes
+  - Design doc §12.1: Worker-side supervision tree
   """
 
   use GenServer
 
-  alias CodePuppyControl.Pack.NamingService
-  alias CodePuppyControl.Pack.Worker.Capabilities
-  alias CodePuppyControl.Telemetry
-
   require Logger
 
-  # ── Public API ──────────────────────────────────────────────────────────
+  alias CodePuppyControl.Plugins.PackParallelism
+  alias CodePuppyControl.Pack.Progress
+  alias CodePuppyControl.Telemetry.DistributedPack, as: PackTelemetry
+
+  # ── Configuration ────────────────────────────────────────────────────────
+
+  @pack_worker_name :pack_worker
+
+  @doc false
+  # Returns the :global registration name for a given node.
+  # Used internally and by the leader to address this worker.
+  def global_name(node_name), do: {:global, {@pack_worker_name, node_name}}
+
+  # Required keys in every dispatch message
+  @required_dispatch_keys [:run_id, :sub_agent, :leader_node, :leader_pid]
+
+  # ── Types ────────────────────────────────────────────────────────────────
+
+  @type dispatch_msg :: %{
+          run_id: String.t(),
+          sub_agent: atom(),
+          leader_node: node(),
+          leader_pid: pid(),
+          params: map()
+        }
+
+  @type mode :: :ephemeral | :persistent
+
+  @type state :: %{
+          node_name: node(),
+          mode: mode(),
+          leader: pid() | nil,
+          capabilities: map(),
+          active_runs: %{String.t() => %{sub_agent: atom(), started_at: integer()}},
+          idle_since: integer() | nil
+        }
+
+  # ── Public API ────────────────────────────────────────────────────────────
 
   @doc """
-  Starts the PackWorker GenServer with the host OS detection.
+  Starts the PackWorker GenServer.
 
   ## Options
 
-    * `:host_os` — override host OS detection (`:linux`, `:macos`, `:windows`).
-      Defaults to auto-detection via `:os.type/0`.
-    * `:available_models` — list of model identifiers the worker supports.
-      Defaults to `[]`.
+    * `:node_name` — Explicit node name (defaults to `Node.self/0`).
+    * `:leader` — Expected leader node (optional, for verification).
+    * `:capabilities` — Explicit capabilities map (optional, auto-detected).
+    * `:mode` — `:ephemeral` (shut down after idle timeout) or
+      `:persistent` (run indefinitely). Default: `:persistent`.
+    * `:idle_timeout_ms` — For ephemeral workers, ms of inactivity
+      before auto-shutdown. Default: `30_000` (30 seconds).
 
-  ## Examples
-
-      {:ok, pid} = CodePuppyControl.Pack.Worker.start_link([])
-      {:ok, pid} = CodePuppyControl.Pack.Worker.start_link(host_os: :linux)
   """
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
-    name = opts[:name] || {:global, {:pack_worker, node()}}
-    GenServer.start_link(__MODULE__, opts, name: name)
+    node_name = Keyword.get(opts, :node_name, Node.self())
+    GenServer.start_link(__MODULE__, opts, name: global_name(node_name))
   end
 
-  @doc false
-  @spec child_spec(keyword()) :: Supervisor.child_spec()
-  def child_spec(opts) do
-    %{
-      id: __MODULE__,
-      start: {__MODULE__, :start_link, [opts]},
-      type: :worker,
-      restart: :permanent
-    }
-  end
-
-  # ── GenServer Callbacks ─────────────────────────────────────────────────
-
-  @doc """
-  Returns default capabilities (no overrides).
-
-  Delegates to `Capabilities.detect/0`. Useful as a programmatic fallback
-  when the full opts-based detection isn't needed.
-  """
-  @spec default_capabilities() :: map()
-  def default_capabilities, do: Capabilities.detect()
+  # ── GenServer Callbacks ──────────────────────────────────────────────────
 
   @impl true
   def init(opts) do
-    capabilities =
-      opts
-      |> Capabilities.detect()
-      |> Map.put(:features, %{
-        file_ops: true,
-        shell_access: true,
-        git_access: true
-      })
+    mode = Keyword.get(opts, :mode, :persistent)
+    idle_timeout_ms = Keyword.get(opts, :idle_timeout_ms, 30_000)
+    capabilities = Keyword.get(opts, :capabilities, detect_capabilities())
 
     state = %{
-      leader_node: nil,
+      node_name: Keyword.get(opts, :node_name, Node.self()),
+      mode: mode,
+      leader: nil,
       capabilities: capabilities,
       active_runs: %{},
-      max_concurrent_runs: capabilities.max_concurrent_runs
+      idle_since: nil,
+      idle_timeout_ms: idle_timeout_ms
     }
 
-    maybe_register_with_naming_service(capabilities)
-
     Logger.info(
-      "PackWorker started on #{Node.self()} with capabilities: #{inspect(capabilities)}"
+      "PackWorker: started on #{inspect(state.node_name)} (mode: #{mode}) with " <>
+        "#{length(Map.get(capabilities, :sub_agents, []))} sub-agents"
     )
+
+    # Start idle check timer for ephemeral workers
+    if mode == :ephemeral do
+      schedule_idle_check(state)
+    end
 
     {:ok, state}
   end
 
   @impl true
-  def handle_call(:request_capabilities, _from, state) do
+  def handle_call(:request_capabilities, {leader_pid, _ref}, state) do
+    state = %{state | leader: leader_pid}
+    Logger.info("PackWorker: capability request from #{inspect(node(leader_pid))}")
     {:reply, state.capabilities, state}
   end
 
   @impl true
-  def handle_call(:ping, _from, state) do
-    {:reply, :pong, state}
-  end
-
-  @impl true
-  def handle_cast({:dispatch, dispatch_msg}, state) when is_map(dispatch_msg) do
+  def handle_cast({:dispatch, dispatch_msg}, state) do
     with :ok <- validate_dispatch_shape(dispatch_msg),
-         :ok <- validate_duplicate_run_id(dispatch_msg.run_id, state),
-         :ok <-
-           validate_dispatch(
-             dispatch_msg.run_id,
-             dispatch_msg.sub_agent,
-             dispatch_msg.params,
-             state
-           ) do
-      Logger.info(
-        "Dispatch accepted: run_id=#{dispatch_msg.run_id}, " <>
-          "sub_agent=#{dispatch_msg.sub_agent}, " <>
-          "leader=#{inspect(dispatch_msg.leader_node)}"
-      )
-
-      Telemetry.distributed_dispatch_start(
-        dispatch_msg.run_id,
-        dispatch_msg.sub_agent,
-        Node.self()
-      )
-
-      active_runs =
-        Map.put(state.active_runs, dispatch_msg.run_id, %{
-          sub_agent: dispatch_msg.sub_agent,
-          params: dispatch_msg.params,
-          leader_node: dispatch_msg.leader_node,
-          leader_pid: dispatch_msg.leader_pid,
-          started_at: System.monotonic_time(:millisecond)
-        })
-
-      {:noreply, %{state | leader_node: dispatch_msg.leader_node, active_runs: active_runs}}
+         :ok <- check_duplicate_run_id(dispatch_msg.run_id, state) do
+      execute_dispatch(dispatch_msg, state)
     else
-      {:error, reason} ->
+      {:error, :malformed_dispatch} ->
         Logger.warning(
-          "Dispatch rejected: reason=#{reason}, " <>
-            "dispatch=#{inspect(dispatch_msg)}"
+          "PackWorker: rejected malformed dispatch (missing " <>
+            "required keys #{inspect(@required_dispatch_keys)}): " <>
+            inspect(dispatch_msg)
         )
 
-        Telemetry.distributed_dispatch_exception(dispatch_msg[:run_id] || "unknown", reason)
+        reject_dispatch(dispatch_msg, :malformed)
 
-        if dispatch_msg[:leader_pid] do
-          GenServer.cast(
-            dispatch_msg.leader_pid,
-            {:result, dispatch_msg[:run_id] || "unknown", %{status: :failure, error: reason}}
-          )
-        end
+        {:noreply, state}
+
+      {:error, {:duplicate_run_id, run_id}} ->
+        Logger.warning(
+          "PackWorker: rejected duplicate dispatch for run_id=#{run_id}"
+        )
+
+        reject_dispatch(dispatch_msg, :duplicate)
 
         {:noreply, state}
     end
-  end
-
-  @impl true
-  def handle_cast({:dispatch, dispatch_msg}, state) do
-    # Catch-all for non-map dispatch messages (malformed)
-    Logger.warning("PackWorker: rejected non-map dispatch: #{inspect(dispatch_msg)}")
-    {:noreply, state}
   end
 
   @impl true
   def handle_cast({:cancel, run_id}, state) do
-    case Map.fetch(state.active_runs, run_id) do
-      {:ok, run_info} ->
-        Logger.info("Cancelling run: run_id=#{run_id}")
-
-        duration_ms =
-          System.monotonic_time(:millisecond) - run_info.started_at
-
-        Telemetry.distributed_dispatch_stop(run_id, :cancelled, duration_ms)
-
-        active_runs = Map.delete(state.active_runs, run_id)
-        {:noreply, %{state | active_runs: active_runs}}
-
-      :error ->
-        Logger.warning("Cancel requested for unknown run: run_id=#{run_id}")
+    case Map.get(state.active_runs, run_id) do
+      nil ->
+        Logger.warning("PackWorker: cancel for unknown run #{run_id}")
         {:noreply, state}
+
+      _info ->
+        Logger.info("PackWorker: cancelling run #{run_id}")
+        PackParallelism.release()
+
+        {:noreply, %{state | active_runs: Map.delete(state.active_runs, run_id)}}
     end
   end
 
   @impl true
-  def handle_info({:run_completed, run_id, result}, state) do
-    case Map.fetch(state.active_runs, run_id) do
-      {:ok, run_info} ->
-        GenServer.cast(run_info.leader_pid, {:result, run_id, result})
+  def handle_info({:sub_agent_completed, run_id, status, _result}, state) do
+    Logger.info("PackWorker: sub-agent completed run #{run_id}: #{status}")
+    PackParallelism.release()
 
-        duration_ms =
-          System.monotonic_time(:millisecond) - run_info.started_at
+    active_runs = Map.delete(state.active_runs, run_id)
 
-        Telemetry.distributed_dispatch_stop(run_id, :ok, duration_ms)
+    # Track idle time for ephemeral workers (code_puppy-jqr.2)
+    idle_since =
+      if state.mode == :ephemeral and map_size(active_runs) == 0 do
+        System.monotonic_time(:millisecond)
+      else
+        nil
+      end
 
-        active_runs = Map.delete(state.active_runs, run_id)
-        {:noreply, %{state | active_runs: active_runs}}
+    {:noreply, %{state | active_runs: active_runs, idle_since: idle_since}}
+  end
 
-      :error ->
-        {:noreply, state}
+  @impl true
+  def handle_info(:idle_check, %{mode: :ephemeral} = state) do
+    now = System.monotonic_time(:millisecond)
+    idle_ms = if state.idle_since, do: now - state.idle_since, else: 0
+
+    if map_size(state.active_runs) == 0 and idle_ms >= state.idle_timeout_ms do
+      Logger.info(
+        "PackWorker: ephemeral worker idle for #{idle_ms}ms " <>
+          "(threshold: #{state.idle_timeout_ms}ms) — shutting down"
+      )
+
+      # Graceful self-shutdown: the supervisor will not restart a transient child
+      {:stop, :normal, state}
+    else
+      schedule_idle_check(state)
+      {:noreply, state}
     end
   end
 
   @impl true
-  def handle_info({:nodedown, node, _ref}, state) when node == state.leader_node do
-    Logger.warning("Leader node disconnected: #{inspect(node)}")
-
-    Telemetry.distributed_node_disconnected(node, Map.keys(state.active_runs), :nodedown)
-
-    {:noreply, %{state | leader_node: nil}}
-  end
+  def handle_info(:idle_check, state), do: {:noreply, state}
 
   @impl true
   def handle_info(_msg, state) do
     {:noreply, state}
   end
 
-  # ── Private Helpers ─────────────────────────────────────────────────────
+  # ── Dispatch Validation ─────────────────────────────────────────────────
 
-  defp maybe_register_with_naming_service(capabilities) do
-    case NamingService.register_node(Node.self(), capabilities) do
-      :ok ->
-        Logger.debug("PackWorker registered with NamingService")
+  @doc """
+  Validates that a dispatch message contains all required keys.
 
-      {:error, reason} ->
-        Logger.debug("NamingService registration skipped: #{inspect(reason)}")
-    end
-  catch
-    :exit, _ ->
-      Logger.debug("NamingService not available, skipping registration")
-  end
-
-  @doc false
-  defp validate_dispatch_shape(dispatch_msg) do
-    required_keys = [:run_id, :sub_agent, :params, :leader_node, :leader_pid]
-
-    if Enum.all?(required_keys, &Map.has_key?(dispatch_msg, &1)) do
+  Returns `:ok` if valid, `{:error, :malformed_dispatch}` otherwise.
+  """
+  @spec validate_dispatch_shape(map() | nil) :: :ok | {:error, :malformed_dispatch}
+  def validate_dispatch_shape(dispatch_msg) when is_map(dispatch_msg) do
+    if Enum.all?(@required_dispatch_keys, &Map.has_key?(dispatch_msg, &1)) do
       :ok
     else
-      {:error,
-       "malformed_dispatch: missing required keys " <>
-         "#{inspect(required_keys -- Map.keys(dispatch_msg))}"}
+      {:error, :malformed_dispatch}
     end
   end
 
-  @doc false
-  defp validate_duplicate_run_id(run_id, state) do
+  def validate_dispatch_shape(_), do: {:error, :malformed_dispatch}
+
+  @doc """
+  Checks whether a run_id is already active on this worker.
+
+  Returns `:ok` if the run_id is new, `{:error, {:duplicate_run_id, run_id}}`
+  if it already exists.
+  """
+  @spec check_duplicate_run_id(String.t(), state()) ::
+          :ok | {:error, {:duplicate_run_id, String.t()}}
+  def check_duplicate_run_id(run_id, state) do
     if Map.has_key?(state.active_runs, run_id) do
-      {:error, "duplicate_run_id: #{run_id}"}
+      {:error, {:duplicate_run_id, run_id}}
     else
       :ok
     end
   end
 
-  @doc false
-  defp validate_dispatch(_run_id, sub_agent, params, state) do
-    capabilities = state.capabilities
+  # ── Private ──────────────────────────────────────────────────────────────
 
-    cond do
-      sub_agent not in capabilities.sub_agents ->
-        {:error, "unsupported_sub_agent: #{sub_agent}"}
+  defp schedule_idle_check(state) do
+    # Check at 1/4 of the idle timeout for responsive shutdown
+    interval = div(state.idle_timeout_ms, 4)
+    Process.send_after(self(), :idle_check, max(interval, 1000))
+  end
 
-      not is_nil(params[:model_preference]) and
-          params[:model_preference] not in capabilities.available_models ->
-        {:error, "unavailable_model: #{params[:model_preference]}"}
+  defp execute_dispatch(dispatch_msg, state) do
+    run_id = dispatch_msg.run_id
 
-      map_size(state.active_runs) >= capabilities.max_concurrent_runs ->
-        {:error, "max_concurrent_runs_exceeded"}
+    case PackParallelism.try_acquire() do
+      :ok ->
+        PackTelemetry.dispatch_start(run_id, dispatch_msg.sub_agent, dispatch_msg.leader_node)
 
-      true ->
-        :ok
+        spawn_sub_agent(run_id, dispatch_msg, state)
+
+        {:noreply,
+         %{
+           state
+           | active_runs:
+               Map.put(state.active_runs, run_id, %{
+                 sub_agent: dispatch_msg.sub_agent,
+                 started_at: System.monotonic_time()
+               }),
+             idle_since: nil
+         }}
+
+      {:error, :unavailable} ->
+        Logger.warning(
+          "PackWorker: no slot available for run #{run_id} " <>
+            "(sub_agent: #{dispatch_msg.sub_agent})"
+        )
+
+        reject_dispatch(dispatch_msg, :no_capacity)
+
+        {:noreply, state}
+    end
+  end
+
+  defp reject_dispatch(dispatch_msg, reason) do
+    send_result_back(dispatch_msg, %{status: :rejected, reason: reason})
+  end
+
+  defp spawn_sub_agent(run_id, dispatch_msg, state) do
+    leader_pid = dispatch_msg.leader_pid
+    sub_agent_name = dispatch_msg.sub_agent
+
+    spawn_link(fn ->
+      try do
+        Logger.info(
+          "PackWorker: executing #{inspect(sub_agent_name)} " <>
+            "run_id=#{run_id} on behalf of #{inspect(node(leader_pid))}"
+        )
+
+        Progress.send_progress(leader_pid, run_id, :initializing, 0.0,
+          message: "Starting #{inspect(sub_agent_name)}"
+        )
+
+        # TODO(code_puppy-yge.2): Replace with actual sub-agent execution.
+        # See docs/distributed-packs.md §12.2 for the execution model.
+        start_mono = System.monotonic_time(:millisecond)
+
+        Progress.send_progress(leader_pid, run_id, :executing, 0.3,
+          message: "Running #{inspect(sub_agent_name)}"
+        )
+
+        result = %{
+          status: :success,
+          run_id: run_id,
+          output: "Simulated execution of #{sub_agent_name}",
+          duration_ms: 0
+        }
+
+        Progress.send_progress(leader_pid, run_id, :finalizing, 0.9,
+          message: "Completing #{inspect(sub_agent_name)}"
+        )
+
+        duration = System.monotonic_time(:millisecond) - start_mono
+        PackTelemetry.dispatch_stop(run_id, :success, duration)
+
+        Progress.send_progress(leader_pid, run_id, :streaming_output, 1.0,
+          message: "Sending results back"
+        )
+
+        send_result_back(dispatch_msg, result)
+
+        send(
+          Process.whereis({:global, {@pack_worker_name, state.node_name}}),
+          {:sub_agent_completed, run_id, :success, result}
+        )
+      rescue
+        e ->
+          PackTelemetry.dispatch_exception(run_id, Exception.message(e))
+
+          Logger.error(
+            "PackWorker: sub-agent #{inspect(sub_agent_name)} crashed: #{inspect(e)}"
+          )
+
+          send_result_back(dispatch_msg, %{
+            status: :failure,
+            run_id: run_id,
+            error: Exception.message(e)
+          })
+      end
+    end)
+  end
+
+  defp send_result_back(dispatch_msg, result) do
+    leader_pid = Map.get(dispatch_msg, :leader_pid)
+
+    if leader_pid && node(leader_pid) != :nonode@nohost do
+      GenServer.cast(
+        {leader_pid, node(leader_pid)},
+        {:result, Map.get(dispatch_msg, :run_id), result}
+      )
+    end
+  end
+
+  defp detect_capabilities do
+    %{
+      sub_agents: [
+        CodePuppyControl.Agents.Pack.Retriever,
+        CodePuppyControl.Agents.Pack.Shepherd,
+        CodePuppyControl.Agents.Pack.Terrier,
+        CodePuppyControl.Agents.Pack.Watchdog
+      ],
+      sub_agent_names: [:retriever, :shepherd, :terrier, :watchdog],
+      host_os: detect_os(),
+      available_models: detect_available_models(),
+      max_concurrent_runs: get_concurrent_limit(),
+      mode: :persistent,
+      features: %{
+        file_ops: CodePuppyControl.CodeContext != nil,
+        shell_access: CodePuppyControl.Tools.CommandRunner != nil,
+        git_access: CodePuppyControl.Tools.CommandRunner != nil
+      }
+    }
+  end
+
+  defp detect_os do
+    case :os.type() do
+      {:unix, :darwin} -> "macos"
+      {:unix, :linux} -> "linux"
+      {:win32, _} -> "windows"
+      {:unix, name} -> Atom.to_string(name)
+      _ -> "unknown"
+    end
+  end
+
+  defp detect_available_models do
+    try do
+      CodePuppyControl.ModelFactory.ProviderRegistry.all()
+      |> Enum.map(fn {type, _mod} -> type end)
+    rescue
+      _ -> []
+    end
+  end
+
+  defp get_concurrent_limit do
+    try do
+      PackParallelism.effective_limit()
+    rescue
+      _ -> 2
     end
   end
 end

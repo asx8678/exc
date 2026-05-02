@@ -91,5 +91,13 @@ defmodule CodePuppyControl.TUI.Renderer.EventMapper do
 
   defp legacy_event_to_canonical(%{type: "agent_run_completed"}), do: {:ok, %Event.Done{}}
 
+  defp legacy_event_to_canonical(%{type: "agent_run_failed", error: _error}) do
+    {:ok, %Event.Done{}}
+  end
+
+  defp legacy_event_to_canonical(%{type: "agent_run_failed"}) do
+    {:ok, %Event.Done{}}
+  end
+
   defp legacy_event_to_canonical(_), do: :skip
 end
