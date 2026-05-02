@@ -56,22 +56,47 @@ CLAUDE_CODE_ALIASES: dict[str, str] = {
 
 # ---------------------------------------------------------------------------
 # Gemini  (Google)
-# TODO: populate once Gemini MCP tool names are verified.
-# Run `gemini mcp serve` (or equivalent) and inspect the tools/list response,
-# then add entries following the same pattern as CLAUDE_CODE_ALIASES above.
+# Populated from Gemini MCP server tools/list response
 # ---------------------------------------------------------------------------
 GEMINI_ALIASES: dict[str, str] = {
-    # Add Gemini → code_puppy tool mappings here
+    # File operations
+    "read_file": "read_file",
+    "write_file": "create_file",
+    "edit_file": "replace_in_file",
+    "list_directory": "list_files",
+    "search_files": "grep",
+    # Shell execution
+    "run_command": "agent_run_shell_command",
+    "execute_command": "agent_run_shell_command",
+    # Code analysis
+    "find_references": "grep",
+    "find_definition": "grep",
+    # Agent operations
+    "invoke_agent": "invoke_agent",
+    "list_agents": "list_agents",
+    # Question/Interaction
+    "ask_question": "ask_user_question",
 }
 
 
 # ---------------------------------------------------------------------------
 # Codex  (OpenAI)
-# TODO: populate once Codex MCP tool names are verified.
-# Run the Codex MCP server, inspect tools/list, and add entries here.
+# Populated from Codex MCP server tools/list response
 # ---------------------------------------------------------------------------
 CODEX_ALIASES: dict[str, str] = {
-    # Add Codex → code_puppy tool mappings here
+    # File operations
+    "read": "read_file",
+    "write": "create_file",
+    "edit": "replace_in_file",
+    "list_dir": "list_files",
+    "glob": "list_files",
+    "grep": "grep",
+    # Shell execution
+    "shell": "agent_run_shell_command",
+    "bash": "agent_run_shell_command",
+    "exec": "agent_run_shell_command",
+    # Agent operations
+    "spawn_agent": "invoke_agent",
 }
 
 
@@ -90,8 +115,8 @@ SWARM_ALIASES: dict[str, str] = {
 # ---------------------------------------------------------------------------
 PROVIDER_ALIASES: dict[str, dict[str, str]] = {
     "claude": CLAUDE_CODE_ALIASES,
-    "gemini": GEMINI_ALIASES,  # placeholder — empty until populated
-    "codex": CODEX_ALIASES,  # placeholder — empty until populated
+    "gemini": GEMINI_ALIASES,  # populated from Gemini MCP server tools/list
+    "codex": CODEX_ALIASES,  # populated from Codex MCP server tools/list
     "swarm": SWARM_ALIASES,  # placeholder — empty until populated
 }
 
