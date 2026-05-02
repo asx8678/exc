@@ -1,15 +1,17 @@
 defmodule CodePuppyControl.Pack.DispatcherTest do
   @moduledoc """
-  Tests for Pack.Dispatcher — round-robin worker selection with capability matching.
+  Tests for Pack.Dispatcher — round-robin worker selection via NamingService.
 
-  These tests start their own Dispatcher GenServer (not relying on the
-  application supervision tree) and manage the ETS table lifecycle
-  via setup/teardown.
+  These tests start both NamingService and Dispatcher GenServers (not relying
+  on the application supervision tree) and manage lifecycle via setup/teardown.
+
+  Workers are registered via NamingService.register_node/2 — the Dispatcher
+  queries NamingService at dispatch-time for capability-matching.
   """
 
   use ExUnit.Case, async: false
 
-  alias CodePuppyControl.Pack.Dispatcher
+  alias CodePuppyControl.Pack.{Dispatcher, NamingService}
 
   # ── Test Workers ─────────────────────────────────────────────────────────
 
@@ -49,111 +51,31 @@ defmodule CodePuppyControl.Pack.DispatcherTest do
   # ── Setup ────────────────────────────────────────────────────────────────
 
   setup do
+    start_supervised!({NamingService, [name: NamingService]})
     start_supervised!({Dispatcher, [name: Dispatcher]})
 
     on_exit(fn ->
-      # Clear any leftover ETS data
-      if :ets.whereis(:pack_dispatcher) != :undefined do
-        :ets.delete_all_objects(:pack_dispatcher)
+      # Detach any telemetry handlers left by tests
+      :telemetry.list_handlers([:code_puppy, :distributed_pack, :dispatch])
+      |> Enum.each(fn %{id: id} ->
+        :telemetry.detach(id)
+      end)
+
+      # Clear NamingService ETS table
+      if Process.whereis(NamingService) != nil do
+        NamingService.clear()
       end
     end)
 
     :ok
   end
 
-  # ── Registration ─────────────────────────────────────────────────────────
-
-  describe "register_worker/2" do
-    test "registers a worker with capabilities" do
-      assert :ok = Dispatcher.register_worker(@linux_worker_a, @linux_caps_terrier)
-      assert Dispatcher.available_workers() == [@linux_worker_a]
-    end
-
-    test "registers multiple workers" do
-      assert :ok = Dispatcher.register_worker(@linux_worker_a, @linux_caps_terrier)
-      assert :ok = Dispatcher.register_worker(@macos_worker, @macos_caps_shepherd)
-
-      workers = Dispatcher.available_workers()
-      assert length(workers) == 2
-      assert @linux_worker_a in workers
-      assert @macos_worker in workers
-    end
-
-    test "replaces existing registration for same node" do
-      assert :ok = Dispatcher.register_worker(@linux_worker_a, @linux_caps_terrier)
-
-      # Verify terrier is supported
-      assert Dispatcher.available_workers(sub_agent_type: :terrier) == [@linux_worker_a]
-
-      # Re-register with different capabilities
-      replaced_caps = %{
-        sub_agents: [:watchdog],
-        host_os: "linux",
-        max_concurrent_runs: 2
-      }
-
-      assert :ok = Dispatcher.register_worker(@linux_worker_a, replaced_caps)
-
-      # Should no longer be available for terrier
-      assert Dispatcher.available_workers(sub_agent_type: :terrier) == []
-
-      # But should be available for watchdog
-      assert Dispatcher.available_workers(sub_agent_type: :watchdog) == [@linux_worker_a]
-    end
-
-    test "registers worker with empty sub_agents list" do
-      assert :ok =
-               Dispatcher.register_worker(@linux_worker_a, %{
-                 sub_agents: [],
-                 host_os: "linux"
-               })
-
-      assert Dispatcher.available_workers() == [@linux_worker_a]
-      assert Dispatcher.available_workers(sub_agent_type: :terrier) == []
-    end
-  end
-
-  # ── Unregistration ───────────────────────────────────────────────────────
-
-  describe "unregister_worker/1" do
-    test "unregisters a worker" do
-      assert :ok = Dispatcher.register_worker(@linux_worker_a, @linux_caps_terrier)
-      assert Dispatcher.available_workers() == [@linux_worker_a]
-
-      assert :ok = Dispatcher.unregister_worker(@linux_worker_a)
-      assert Dispatcher.available_workers() == []
-    end
-
-    test "unregistering a worker removes it from agent indices" do
-      assert :ok = Dispatcher.register_worker(@linux_worker_a, @linux_caps_terrier)
-      assert Dispatcher.available_workers(sub_agent_type: :terrier) == [@linux_worker_a]
-
-      assert :ok = Dispatcher.unregister_worker(@linux_worker_a)
-      assert Dispatcher.available_workers(sub_agent_type: :terrier) == []
-    end
-
-    test "unregistering unknown worker is a no-op" do
-      assert :ok = Dispatcher.unregister_worker(:nonexistent@test)
-    end
-
-    test "unregistering one worker does not affect others" do
-      assert :ok = Dispatcher.register_worker(@linux_worker_a, @linux_caps_terrier)
-      assert :ok = Dispatcher.register_worker(@linux_worker_b, @linux_caps_watchdog)
-
-      assert :ok = Dispatcher.unregister_worker(@linux_worker_a)
-
-      workers = Dispatcher.available_workers()
-      assert length(workers) == 1
-      assert hd(workers) == @linux_worker_b
-    end
-  end
-
   # ── Round-Robin Dispatch ─────────────────────────────────────────────────
 
   describe "dispatch/2 round-robin" do
     test "selects workers in order across sequential dispatches" do
-      assert :ok = Dispatcher.register_worker(@linux_worker_a, @linux_caps_terrier)
-      assert :ok = Dispatcher.register_worker(@linux_worker_b, @linux_caps_watchdog)
+      assert :ok = NamingService.register_node(@linux_worker_a, @linux_caps_terrier)
+      assert :ok = NamingService.register_node(@linux_worker_b, @linux_caps_watchdog)
 
       # Both workers support :terrier
       {:ok, first} = Dispatcher.dispatch(:terrier)
@@ -172,7 +94,7 @@ defmodule CodePuppyControl.Pack.DispatcherTest do
           node = :"disp_rr_#{i}@test"
 
           assert :ok =
-                   Dispatcher.register_worker(node, %{
+                   NamingService.register_node(node, %{
                      sub_agents: [:terrier],
                      host_os: "linux",
                      max_concurrent_runs: 4
@@ -188,15 +110,17 @@ defmodule CodePuppyControl.Pack.DispatcherTest do
           node
         end)
 
-      # The sequence should be: w0, w1, w2, w3, w4, w0, w1, w2, w3, w4
-      expected_cycle = workers ++ workers
+      # NamingService prepends workers to index lists (most recently registered first),
+      # so the round-robin order is reverse registration order: w4, w3, w2, w1, w0, ...
+      reversed_workers = Enum.reverse(workers)
+      expected_cycle = reversed_workers ++ reversed_workers
       assert results == expected_cycle
     end
 
     test "round-robin hits all workers before repeating" do
-      assert :ok = Dispatcher.register_worker(@linux_worker_a, @linux_caps_terrier)
-      assert :ok = Dispatcher.register_worker(@linux_worker_b, @linux_caps_watchdog)
-      assert :ok = Dispatcher.register_worker(@macos_worker, @macos_caps_shepherd)
+      assert :ok = NamingService.register_node(@linux_worker_a, @linux_caps_terrier)
+      assert :ok = NamingService.register_node(@linux_worker_b, @linux_caps_watchdog)
+      assert :ok = NamingService.register_node(@macos_worker, @macos_caps_shepherd)
 
       # Only @linux_worker_a and @linux_worker_b support :terrier
       {:ok, first} = Dispatcher.dispatch(:terrier)
@@ -209,8 +133,8 @@ defmodule CodePuppyControl.Pack.DispatcherTest do
     end
 
     test "dispatch order is deterministic for the same set of workers" do
-      assert :ok = Dispatcher.register_worker(@linux_worker_a, @linux_caps_terrier)
-      assert :ok = Dispatcher.register_worker(@linux_worker_b, @linux_caps_watchdog)
+      assert :ok = NamingService.register_node(@linux_worker_a, @linux_caps_terrier)
+      assert :ok = NamingService.register_node(@linux_worker_b, @linux_caps_watchdog)
 
       results1 = Enum.map(1..4, fn _ -> elem(Dispatcher.dispatch(:terrier), 1) end)
       results2 = Enum.map(1..4, fn _ -> elem(Dispatcher.dispatch(:terrier), 1) end)
@@ -225,9 +149,9 @@ defmodule CodePuppyControl.Pack.DispatcherTest do
 
   describe "independent round-robin counters per sub-agent type" do
     test "terrier and watchdog rotate independently" do
-      assert :ok = Dispatcher.register_worker(@linux_worker_a, @linux_caps_terrier)
-      assert :ok = Dispatcher.register_worker(@linux_worker_b, @linux_caps_watchdog)
-      assert :ok = Dispatcher.register_worker(@win_worker, @win_caps_all)
+      assert :ok = NamingService.register_node(@linux_worker_a, @linux_caps_terrier)
+      assert :ok = NamingService.register_node(@linux_worker_b, @linux_caps_watchdog)
+      assert :ok = NamingService.register_node(@win_worker, @win_caps_all)
 
       # @linux_worker_a: terrier, retriever
       # @linux_worker_b: terrier, watchdog
@@ -253,15 +177,15 @@ defmodule CodePuppyControl.Pack.DispatcherTest do
     end
 
     test "dispatch on one type doesn't affect another type" do
-      assert :ok = Dispatcher.register_worker(@linux_worker_a, @linux_caps_terrier)
-      assert :ok = Dispatcher.register_worker(@linux_worker_b, @linux_caps_watchdog)
+      assert :ok = NamingService.register_node(@linux_worker_a, @linux_caps_terrier)
+      assert :ok = NamingService.register_node(@linux_worker_b, @linux_caps_watchdog)
 
       # Dispatch :terrier a bunch of times (counter for :terrier advances)
       Enum.each(1..10, fn _ -> Dispatcher.dispatch(:terrier) end)
 
       # :watchdog dispatch should still start at index 0
       caps = %{sub_agents: [:watchdog], host_os: "linux", max_concurrent_runs: 2}
-      assert :ok = Dispatcher.register_worker(@win_worker, caps)
+      assert :ok = NamingService.register_node(@win_worker, caps)
 
       {:ok, w1} = Dispatcher.dispatch(:watchdog)
       {:ok, w2} = Dispatcher.dispatch(:watchdog)
@@ -275,8 +199,8 @@ defmodule CodePuppyControl.Pack.DispatcherTest do
 
   describe "capability matching in dispatch" do
     test "only dispatches to workers that support the sub-agent type" do
-      assert :ok = Dispatcher.register_worker(@linux_worker_a, @linux_caps_terrier)
-      assert :ok = Dispatcher.register_worker(@macos_worker, @macos_caps_shepherd)
+      assert :ok = NamingService.register_node(@linux_worker_a, @linux_caps_terrier)
+      assert :ok = NamingService.register_node(@macos_worker, @macos_caps_shepherd)
 
       # @macos_worker does NOT support :terrier
       {:ok, t1} = Dispatcher.dispatch(:terrier)
@@ -287,8 +211,8 @@ defmodule CodePuppyControl.Pack.DispatcherTest do
     end
 
     test "filters by host_os" do
-      assert :ok = Dispatcher.register_worker(@linux_worker_a, @linux_caps_terrier)
-      assert :ok = Dispatcher.register_worker(@macos_worker, @macos_caps_shepherd)
+      assert :ok = NamingService.register_node(@linux_worker_a, @linux_caps_terrier)
+      assert :ok = NamingService.register_node(@macos_worker, @macos_caps_shepherd)
 
       # @macos_worker doesn't support terrier
       assert {:ok, node} = Dispatcher.dispatch(:terrier, host_os: "linux")
@@ -300,8 +224,8 @@ defmodule CodePuppyControl.Pack.DispatcherTest do
     end
 
     test "filters by model" do
-      assert :ok = Dispatcher.register_worker(@linux_worker_a, @linux_caps_terrier)
-      assert :ok = Dispatcher.register_worker(@linux_worker_b, @linux_caps_watchdog)
+      assert :ok = NamingService.register_node(@linux_worker_a, @linux_caps_terrier)
+      assert :ok = NamingService.register_node(@linux_worker_b, @linux_caps_watchdog)
 
       # Both support :terrier, only @linux_worker_b has claude-haiku-3-5
       assert {:ok, node} = Dispatcher.dispatch(:terrier, model: "claude-haiku-3-5")
@@ -309,7 +233,7 @@ defmodule CodePuppyControl.Pack.DispatcherTest do
     end
 
     test "returns error when no workers match the filter" do
-      assert :ok = Dispatcher.register_worker(@linux_worker_a, @linux_caps_terrier)
+      assert :ok = NamingService.register_node(@linux_worker_a, @linux_caps_terrier)
 
       assert {:error, :no_workers_available} =
                Dispatcher.dispatch(:terrier, host_os: "macos")
@@ -319,9 +243,9 @@ defmodule CodePuppyControl.Pack.DispatcherTest do
     end
 
     test "round-robin respects filtered subsets" do
-      assert :ok = Dispatcher.register_worker(@linux_worker_a, @linux_caps_terrier)
-      assert :ok = Dispatcher.register_worker(@linux_worker_b, @linux_caps_watchdog)
-      assert :ok = Dispatcher.register_worker(@macos_worker, @macos_caps_shepherd)
+      assert :ok = NamingService.register_node(@linux_worker_a, @linux_caps_terrier)
+      assert :ok = NamingService.register_node(@linux_worker_b, @linux_caps_watchdog)
+      assert :ok = NamingService.register_node(@macos_worker, @macos_caps_shepherd)
 
       # Two workers with :terrier on linux, one on macos (but macos doesn't have terrier)
       # Filter to linux: only @linux_worker_a and @linux_worker_b
@@ -342,84 +266,40 @@ defmodule CodePuppyControl.Pack.DispatcherTest do
     end
 
     test "returns error when no workers support the sub-agent type" do
-      assert :ok = Dispatcher.register_worker(@linux_worker_a, @linux_caps_terrier)
+      assert :ok = NamingService.register_node(@linux_worker_a, @linux_caps_terrier)
       assert {:error, :no_workers_available} = Dispatcher.dispatch(:shepherd)
     end
 
     test "returns error after unregistering all workers" do
-      assert :ok = Dispatcher.register_worker(@linux_worker_a, @linux_caps_terrier)
+      assert :ok = NamingService.register_node(@linux_worker_a, @linux_caps_terrier)
       assert {:ok, _} = Dispatcher.dispatch(:terrier)
 
-      assert :ok = Dispatcher.unregister_worker(@linux_worker_a)
+      assert :ok = NamingService.unregister_node(@linux_worker_a)
       assert {:error, :no_workers_available} = Dispatcher.dispatch(:terrier)
     end
   end
 
-  # ── available_workers/1 ──────────────────────────────────────────────────
+  # ── Graceful Degradation ─────────────────────────────────────────────────
 
-  describe "available_workers/1" do
-    test "returns empty list when no workers registered" do
-      assert Dispatcher.available_workers() == []
+  describe "graceful degradation" do
+    test "returns :dispatcher_not_started when Dispatcher is not running" do
+      assert {:error, :dispatcher_not_started} = Dispatcher.dispatch(:terrier, [], :nonexistent_dispatcher)
     end
 
-    test "returns all workers when no filters given" do
-      assert :ok = Dispatcher.register_worker(@linux_worker_a, @linux_caps_terrier)
-      assert :ok = Dispatcher.register_worker(@macos_worker, @macos_caps_shepherd)
 
-      workers = Dispatcher.available_workers()
-      assert length(workers) == 2
-      assert @linux_worker_a in workers
-      assert @macos_worker in workers
-    end
-
-    test "filters by sub_agent_type" do
-      assert :ok = Dispatcher.register_worker(@linux_worker_a, @linux_caps_terrier)
-      assert :ok = Dispatcher.register_worker(@macos_worker, @macos_caps_shepherd)
-      assert :ok = Dispatcher.register_worker(@win_worker, @win_caps_all)
-
-      terrier_workers = Dispatcher.available_workers(sub_agent_type: :terrier)
-      assert length(terrier_workers) == 2
-      assert @linux_worker_a in terrier_workers
-      assert @win_worker in terrier_workers
-
-      shepherd_workers = Dispatcher.available_workers(sub_agent_type: :shepherd)
-      assert length(shepherd_workers) == 2
-      assert @macos_worker in shepherd_workers
-      assert @win_worker in shepherd_workers
-
-      retriever_workers = Dispatcher.available_workers(sub_agent_type: :retriever)
-      assert length(retriever_workers) == 3
-      assert @linux_worker_a in retriever_workers
-      assert @macos_worker in retriever_workers
-      assert @win_worker in retriever_workers
-    end
-
-    test "returns empty when no workers match sub_agent_type" do
-      assert :ok = Dispatcher.register_worker(@linux_worker_a, @linux_caps_terrier)
-      assert Dispatcher.available_workers(sub_agent_type: :nonexistent) == []
-    end
   end
 
   # ── status/0 ─────────────────────────────────────────────────────────────
 
   describe "status/0" do
-    test "returns zero workers and empty round_robin when empty" do
+    test "returns empty round_robin when no dispatches have occurred" do
       status = Dispatcher.status()
-      assert status.workers == 0
       assert status.round_robin == %{}
     end
 
-    test "reflects registered workers count" do
-      assert :ok = Dispatcher.register_worker(@linux_worker_a, @linux_caps_terrier)
-      assert Dispatcher.status().workers == 1
-
-      assert :ok = Dispatcher.register_worker(@macos_worker, @macos_caps_shepherd)
-      assert Dispatcher.status().workers == 2
-    end
-
     test "shows round-robin counters after dispatches" do
-      assert :ok = Dispatcher.register_worker(@linux_worker_a, @linux_caps_terrier)
-      assert :ok = Dispatcher.register_worker(@linux_worker_b, @linux_caps_watchdog)
+      assert :ok = NamingService.register_node(@linux_worker_a, @linux_caps_terrier)
+      assert :ok = NamingService.register_node(@linux_worker_b, @linux_caps_watchdog)
 
       assert Dispatcher.status().round_robin == %{}
 
@@ -429,19 +309,13 @@ defmodule CodePuppyControl.Pack.DispatcherTest do
       Dispatcher.dispatch(:watchdog)
       assert Dispatcher.status().round_robin == %{terrier: 1, watchdog: 1}
     end
-
-    test "counts workers even after dispatches" do
-      assert :ok = Dispatcher.register_worker(@linux_worker_a, @linux_caps_terrier)
-      Dispatcher.dispatch(:terrier)
-      assert Dispatcher.status().workers == 1
-    end
   end
 
   # ── Telemetry ────────────────────────────────────────────────────────────
 
   describe "telemetry emission" do
     test "emits [:code_puppy, :distributed_pack, :dispatch, :selected] on dispatch" do
-      assert :ok = Dispatcher.register_worker(@linux_worker_a, @linux_caps_terrier)
+      assert :ok = NamingService.register_node(@linux_worker_a, @linux_caps_terrier)
 
       handler_id = make_ref()
       events = [:code_puppy, :distributed_pack, :dispatch, :selected]
@@ -454,6 +328,10 @@ defmodule CodePuppyControl.Pack.DispatcherTest do
         end,
         self()
       )
+
+      on_exit(fn ->
+        :telemetry.detach(handler_id)
+      end)
 
       assert {:ok, @linux_worker_a} = Dispatcher.dispatch(:terrier)
 
@@ -463,13 +341,11 @@ defmodule CodePuppyControl.Pack.DispatcherTest do
                          worker_node: @linux_worker_a,
                          matching_workers: 1
                        }}
-
-      :telemetry.detach(handler_id)
     end
 
     test "emits telemetry with matching count for multiple workers" do
-      assert :ok = Dispatcher.register_worker(@linux_worker_a, @linux_caps_terrier)
-      assert :ok = Dispatcher.register_worker(@linux_worker_b, @linux_caps_watchdog)
+      assert :ok = NamingService.register_node(@linux_worker_a, @linux_caps_terrier)
+      assert :ok = NamingService.register_node(@linux_worker_b, @linux_caps_watchdog)
 
       handler_id = make_ref()
       events = [:code_puppy, :distributed_pack, :dispatch, :selected]
@@ -483,6 +359,10 @@ defmodule CodePuppyControl.Pack.DispatcherTest do
         self()
       )
 
+      on_exit(fn ->
+        :telemetry.detach(handler_id)
+      end)
+
       assert {:ok, _node} = Dispatcher.dispatch(:terrier)
 
       assert_received {:dispatch_selected, %{system_time: _},
@@ -490,8 +370,6 @@ defmodule CodePuppyControl.Pack.DispatcherTest do
                          sub_agent_type: :terrier,
                          matching_workers: 2
                        }}
-
-      :telemetry.detach(handler_id)
     end
   end
 
@@ -499,23 +377,68 @@ defmodule CodePuppyControl.Pack.DispatcherTest do
 
   describe "edge cases" do
     test "single worker always gets the dispatch" do
-      assert :ok = Dispatcher.register_worker(@linux_worker_a, @linux_caps_terrier)
+      assert :ok = NamingService.register_node(@linux_worker_a, @linux_caps_terrier)
 
       results = Enum.map(1..5, fn _ -> Dispatcher.dispatch(:terrier) end)
 
       assert Enum.all?(results, fn {:ok, node} -> node == @linux_worker_a end)
     end
 
-    test "registering same worker multiple times preserves last registration" do
+    test "re-registering a worker with different caps updates capability matching" do
       caps_a = %{sub_agents: [:terrier], host_os: "linux", max_concurrent_runs: 2}
       caps_b = %{sub_agents: [:watchdog], host_os: "macos", max_concurrent_runs: 4}
 
-      assert :ok = Dispatcher.register_worker(@linux_worker_a, caps_a)
-      assert :ok = Dispatcher.register_worker(@linux_worker_a, caps_b)
+      assert :ok = NamingService.register_node(@linux_worker_a, caps_a)
+      assert {:ok, @linux_worker_a} = Dispatcher.dispatch(:terrier)
+      assert {:error, :no_workers_available} = Dispatcher.dispatch(:watchdog)
 
-      # Should have been updated to caps_b
-      assert Dispatcher.available_workers(sub_agent_type: :watchdog) == [@linux_worker_a]
-      assert Dispatcher.available_workers(sub_agent_type: :terrier) == []
+      # Re-register with different capabilities
+      assert :ok = NamingService.register_node(@linux_worker_a, caps_b)
+
+      # Should now match :watchdog but not :terrier
+      assert {:ok, @linux_worker_a} = Dispatcher.dispatch(:watchdog)
+      assert {:error, :no_workers_available} = Dispatcher.dispatch(:terrier)
+    end
+
+    test "darwin OS is normalized to macos by NamingService" do
+      darwin_caps = %{
+        sub_agents: [:terrier],
+        host_os: "darwin",
+        max_concurrent_runs: 2
+      }
+
+      assert :ok = NamingService.register_node(@macos_worker, darwin_caps)
+
+      # Should be findable with "macos" filter
+      assert {:ok, @macos_worker} = Dispatcher.dispatch(:terrier, host_os: "macos")
+    end
+  end
+
+  describe "validate capability maps on registration" do
+    test "rejects invalid OS" do
+      caps = %{
+        sub_agents: [:terrier],
+        host_os: "mars",
+        max_concurrent_runs: 2
+      }
+
+      assert {:error, :invalid_capabilities} = NamingService.register_node(:invalid_os@test, caps)
+    end
+
+    test "rejects invalid sub_agents" do
+      caps = %{
+        sub_agents: [:nonexistent_agent],
+        host_os: "linux",
+        max_concurrent_runs: 2
+      }
+
+      assert {:error, :invalid_capabilities} = NamingService.register_node(@linux_worker_a, caps)
+    end
+
+    test "does not crash on malformed input — empty caps default gracefully" do
+      # NamingService accepts empty maps: host_os defaults to "unknown", sub_agents to []
+      result = NamingService.register_node(@linux_worker_a, %{})
+      assert result == :ok
     end
   end
 end
