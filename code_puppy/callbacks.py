@@ -435,7 +435,7 @@ async def on_agent_exception(exception: Exception, *args, **kwargs) -> list[Any]
 
 
 async def on_version_check(*args, **kwargs) -> list[Any]:
-    # TODO(audit-2026): No plugin implements version_check. Consider removal or implementation.
+    # Implemented by: code_puppy/plugins/version_check/
     return await _trigger_callbacks("version_check", *args, **kwargs)
 
 
