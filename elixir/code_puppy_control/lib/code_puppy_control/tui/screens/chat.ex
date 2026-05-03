@@ -33,6 +33,7 @@ defmodule CodePuppyControl.TUI.Screens.Chat do
   alias CodePuppyControl.TUI.Renderer
   alias CodePuppyControl.Agent.Loop
   alias CodePuppyControl.Config
+  alias CodePuppyControl.SessionStorage
 
   # ── Types ──────────────────────────────────────────────────────────────────
 
@@ -110,6 +111,24 @@ defmodule CodePuppyControl.TUI.Screens.Chat do
     # Set status to streaming and update messages immediately
     state = %{state | messages: new_messages, status: :streaming}
 
+    # Trap exits for the entire critical section so that a linked process
+    # crash (e.g., Agent.Loop) never kills the TUI.
+    prev_trap = Process.flag(:trap_exit, true)
+
+    try do
+      dispatch_agent(state, new_messages)
+    after
+      Process.flag(:trap_exit, prev_trap)
+      # Drain any :EXIT messages that arrived during the critical section
+      receive do
+        {:EXIT, _, _} -> :ok
+      after
+        0 -> :ok
+      end
+    end
+  end
+
+  defp dispatch_agent(state, new_messages) do
     # Start a Renderer for streaming output
     run_id = Loop.generate_run_id()
     renderer_name = {:via, Registry, {CodePuppyControl.REPL.RendererRegistry, state.session_id}}
@@ -156,6 +175,9 @@ defmodule CodePuppyControl.TUI.Screens.Chat do
 
                 # Best-effort finalize renderer
                 finalize_renderer(renderer_pid)
+
+                # Persist messages to session storage (fire-and-forget)
+                persist_messages(state.session_id, final_messages)
 
                 {:ok, %{state | messages: final_messages, status: :idle, renderer_pid: nil}}
 
@@ -222,6 +244,29 @@ defmodule CodePuppyControl.TUI.Screens.Chat do
         :exit, _ -> :ok
       end
     end
+  end
+
+  # Fire-and-forget session persistence. Normalizes atom-keyed Agent.Loop
+  # messages to string-keyed format and saves asynchronously.
+  defp persist_messages(session_id, messages) do
+    normalized =
+      messages
+      |> Enum.map(fn
+        %{role: role, content: content} when is_atom(role) ->
+          %{"role" => Atom.to_string(role), "content" => content}
+
+        %{role: role, content: content} when is_binary(role) ->
+          %{"role" => role, "content" => content}
+
+        other ->
+          other
+      end)
+
+    SessionStorage.save_session_async(session_id, normalized, [])
+  catch
+    kind, reason ->
+      Logger.warning("Chat: session persistence failed: #{inspect(kind)}: #{inspect(reason)}")
+      :ok
   end
 
   @impl true
