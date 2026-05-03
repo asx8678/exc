@@ -226,7 +226,7 @@ defmodule CodePuppyControl.FeatureFlags do
         end
 
       {:error, :enoent} ->
-        # File doesn't exist — default all to false (no warning, this is normal)
+        # File doesn't exist — default all to true (no warning, this is normal)
         set_defaults()
 
       {:error, reason} ->
