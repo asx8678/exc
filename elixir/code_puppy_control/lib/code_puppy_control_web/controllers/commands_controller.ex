@@ -1,30 +1,20 @@
 defmodule CodePuppyControlWeb.CommandsController do
   @moduledoc """
-  REST API controller for slash command execution and autocomplete.
+  REST API controller for slash command discovery and autocomplete.
 
   Replaces `code_puppy/api/routers/commands.py` from the Python FastAPI server.
-
-  ## Current status (Wave 2)
-
-  The `list` and `show` endpoints are functional stubs that return empty
-  lists or 404s. The `execute` and `autocomplete` endpoints return 501
-  Not Implemented because the Python `command_registry` and subprocess
-  execution infrastructure have not yet been ported to Elixir.
-
-  Full implementation is deferred to a future wave once
-  `CodePuppyControl.CommandRegistry` lands.
 
   ## Endpoints
 
   - `GET /api/commands` — List all available slash commands
   - `GET /api/commands/:name` — Get info about a specific command
   - `POST /api/commands/execute` — Execute a slash command (stub)
-  - `POST /api/commands/autocomplete` — Get autocomplete suggestions (stub)
+  - `POST /api/commands/autocomplete` — Get autocomplete suggestions
   """
 
   use CodePuppyControlWeb, :controller
 
-  alias CodePuppyControl.Tools.AgentCatalogue
+  alias CodePuppyControl.CommandRegistry
 
   @doc """
   GET /api/commands
@@ -33,37 +23,9 @@ defmodule CodePuppyControlWeb.CommandsController do
 
   Returns a sorted list of command info objects including name,
   description, usage, aliases, category, and detailed help.
-
-  ## Stub note
-
-  The Python `command_registry` and plugin callback system
-  (`on_custom_command_help`) have not yet been ported to Elixir.
-  As a stopgap, this endpoint queries `AgentCatalogue` for agent
-  names and presents them as commands. Once
-  `CodePuppyControl.CommandRegistry` is implemented, this will
-  be replaced with a proper command lookup.
   """
   def index(conn, _params) do
-    # TODO: Replace with CodePuppyControl.CommandRegistry when available.
-    # The Python version reads from command_registry.get_unique_commands()
-    # and plugin callbacks (on_custom_command_help).
-    commands =
-      case try_list_agents() do
-        {:ok, agents} ->
-          Enum.map(agents, fn info ->
-            %{
-              name: info.name,
-              description: info.description,
-              usage: "/#{info.name}",
-              aliases: [],
-              category: "agent"
-            }
-          end)
-
-        :error ->
-          []
-      end
-
+    commands = CommandRegistry.list_commands()
     json(conn, commands)
   end
 
@@ -71,15 +33,17 @@ defmodule CodePuppyControlWeb.CommandsController do
   GET /api/commands/:name
 
   Gets detailed info about a specific command by name or alias.
-
-  Currently returns 404 for all names — the command registry has not been
-  ported to Elixir yet.
   """
   def show(conn, %{"name" => name}) do
-    # TODO: Integrate with CodePuppyControl.CommandRegistry when available.
-    conn
-    |> put_status(:not_found)
-    |> json(%{error: "Command '/#{name}' not found"})
+    case CommandRegistry.get_command(name) do
+      {:ok, command} ->
+        json(conn, command)
+
+      {:error, :not_found} ->
+        conn
+        |> put_status(:not_found)
+        |> json(%{error: "Command '/#{name}' not found"})
+    end
   end
 
   @doc """
@@ -96,7 +60,7 @@ defmodule CodePuppyControlWeb.CommandsController do
   has not been ported to Elixir yet.
   """
   def execute(conn, _params) do
-    # TODO: Implement command execution via Task.Supervisor + Port
+    # TODO(code-puppy-fuh): Implement command execution via Task.Supervisor + Port
     # The Python version runs commands in a subprocess with timeout.
     conn
     |> put_status(:not_implemented)
@@ -115,25 +79,13 @@ defmodule CodePuppyControlWeb.CommandsController do
 
   Request body:
       { "partial": "/se" }
-
-  Currently returns an empty suggestions list — the command registry has
-  not been ported to Elixir yet.
   """
-  def autocomplete(conn, _params) do
-    # TODO: Integrate with CodePuppyControl.CommandRegistry when available.
-    json(conn, %{suggestions: []})
+  def autocomplete(conn, %{"partial" => partial}) do
+    suggestions = CommandRegistry.autocomplete(partial)
+    json(conn, %{suggestions: suggestions})
   end
 
-  # ── Private helpers ──────────────────────────────────────────────────────
-
-  # Attempt to read from AgentCatalogue; gracefully handle the case where
-  # the GenServer hasn't started (e.g. in test or before supervision tree
-  # is fully booted).
-  defp try_list_agents do
-    try do
-      {:ok, AgentCatalogue.list_agents()}
-    catch
-      :exit, _ -> :error
-    end
+  def autocomplete(conn, _params) do
+    json(conn, %{suggestions: []})
   end
 end

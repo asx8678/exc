@@ -17,10 +17,20 @@ defmodule CodePuppyControlWeb.CommandsControllerTest do
   # ── GET /api/commands/:name ─────────────────────────────────────────────
 
   describe "GET /api/commands/:name" do
-    test "returns 404 for any command name (stub)" do
+    test "returns command info for a known command" do
       conn =
         build_conn()
         |> get("/api/commands/help")
+
+      body = json_response(conn, 200)
+      assert body["name"] == "help"
+      assert is_binary(body["description"])
+    end
+
+    test "returns 404 for unknown command" do
+      conn =
+        build_conn()
+        |> get("/api/commands/zzz_nonexistent")
 
       body = json_response(conn, 404)
       assert body["error"] =~ "not found"
@@ -43,13 +53,23 @@ defmodule CodePuppyControlWeb.CommandsControllerTest do
   # ── POST /api/commands/autocomplete ─────────────────────────────────────
 
   describe "POST /api/commands/autocomplete" do
-    test "returns empty suggestions (stub)" do
+    test "returns matching suggestions for a partial command" do
       conn =
         build_conn()
-        |> post_json("/api/commands/autocomplete", %{partial: "/se"})
+        |> post_json("/api/commands/autocomplete", %{partial: "/h"})
 
       body = json_response(conn, 200)
       assert is_list(body["suggestions"])
+      names = Enum.map(body["suggestions"], & &1["name"])
+      assert "help" in names
+    end
+
+    test "returns empty suggestions for non-matching partial" do
+      conn =
+        build_conn()
+        |> post_json("/api/commands/autocomplete", %{partial: "/zzz"})
+
+      body = json_response(conn, 200)
       assert body["suggestions"] == []
     end
   end
