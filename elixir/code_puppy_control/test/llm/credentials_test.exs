@@ -9,7 +9,7 @@ defmodule CodePuppyControl.LLM.CredentialsTest do
   - Header substitution ($VAR and ${VAR} syntax)
   - Custom endpoint resolution (url + headers + api_key)
   - Validation (missing keys)
-  - OAuth models always validate :ok
+  - OAuth models validate token presence
   """
   use ExUnit.Case, async: false
 
@@ -194,12 +194,14 @@ defmodule CodePuppyControl.LLM.CredentialsTest do
       end)
     end
 
-    test "returns :ok for OAuth models (claude_code)" do
-      assert :ok = Credentials.validate("claude_code", %{})
+    test "returns {:missing, ...} for claude_code when no OAuth token" do
+      result = Credentials.validate("claude_code", %{})
+      assert {:missing, ["CLAUDE_CODE_OAUTH_TOKEN"]} = result
     end
 
-    test "returns :ok for OAuth models (chatgpt_oauth)" do
-      assert :ok = Credentials.validate("chatgpt_oauth", %{})
+    test "returns {:missing, ...} for chatgpt_oauth when no OAuth token" do
+      result = Credentials.validate("chatgpt_oauth", %{})
+      assert {:missing, ["CHATGPT_OAUTH_TOKEN"]} = result
     end
 
     test "uses api_key_env for validation" do

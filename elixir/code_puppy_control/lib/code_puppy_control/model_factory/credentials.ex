@@ -116,8 +116,8 @@ defmodule CodePuppyControl.ModelFactory.Credentials do
   Returns `:ok` if required credentials are available, or
   `{:missing, [env_var_names]}` listing which env vars are missing.
 
-  OAuth-only models (claude_code, chatgpt_oauth) always return `:ok`
-  since they don't use API keys.
+  For OAuth-only models (claude_code, chatgpt_oauth), validates that
+  OAuth tokens exist in the token storage file with a non-empty access_token.
 
   ## Examples
 
@@ -126,17 +126,21 @@ defmodule CodePuppyControl.ModelFactory.Credentials do
 
       iex> Credentials.validate("openai", %{})
       {:missing, ["OPENAI_API_KEY"]} # if not set
+
+      iex> Credentials.validate("claude_code", %{})
+      :ok # if OAuth token file exists with valid access_token
+
+      iex> Credentials.validate("claude_code", %{})
+      {:missing, ["CLAUDE_CODE_OAUTH_TOKEN"]} # if no token file or empty access_token
   """
   @spec validate(String.t(), map()) :: :ok | {:missing, [String.t()]}
   def validate(provider_type, model_config \\ %{}) do
     case provider_type do
       "claude_code" ->
-        # TODO: Phase 4 — OAuth validation
-        :ok
+        validate_claude_code_oauth()
 
       "chatgpt_oauth" ->
-        # TODO: Phase 4 — OAuth validation
-        :ok
+        validate_chatgpt_oauth()
 
       _ ->
         required_vars = required_env_vars(provider_type, model_config)
@@ -243,6 +247,43 @@ defmodule CodePuppyControl.ModelFactory.Credentials do
 
       var_name ->
         [var_name]
+    end
+  end
+
+  # ── OAuth Validation ─────────────────────────────────────────────────────
+
+  @doc false
+  @spec validate_claude_code_oauth() :: :ok | {:missing, [String.t()]}
+  defp validate_claude_code_oauth do
+    case CodePuppyControl.Auth.ClaudeOAuth.load_tokens() do
+      {:ok, tokens} ->
+        case Map.get(tokens, "access_token") do
+          nil -> {:missing, ["CLAUDE_CODE_OAUTH_TOKEN"]}
+          "" -> {:missing, ["CLAUDE_CODE_OAUTH_TOKEN"]}
+          _token -> :ok
+        end
+
+      {:error, :not_found} ->
+        {:missing, ["CLAUDE_CODE_OAUTH_TOKEN"]}
+
+      {:error, _reason} ->
+        {:missing, ["CLAUDE_CODE_OAUTH_TOKEN"]}
+    end
+  end
+
+  @doc false
+  @spec validate_chatgpt_oauth() :: :ok | {:missing, [String.t()]}
+  defp validate_chatgpt_oauth do
+    case CodePuppyControl.Auth.ChatGptOAuth.load_stored_tokens() do
+      nil ->
+        {:missing, ["CHATGPT_OAUTH_TOKEN"]}
+
+      tokens ->
+        case Map.get(tokens, "access_token") do
+          nil -> {:missing, ["CHATGPT_OAUTH_TOKEN"]}
+          "" -> {:missing, ["CHATGPT_OAUTH_TOKEN"]}
+          _token -> :ok
+        end
     end
   end
 

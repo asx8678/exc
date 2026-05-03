@@ -130,12 +130,16 @@ defmodule CodePuppyControl.ModelFactory.CredentialsTest do
       assert {:missing, ["TEST_ABSENT_KEY"]} = result
     end
 
-    test "always returns :ok for claude_code (OAuth)" do
-      assert :ok = Credentials.validate("claude_code", %{})
+    test "returns {:missing, ...} for claude_code when no OAuth token" do
+      # Ensure no OAuth token file exists by using temp dir
+      result = Credentials.validate("claude_code", %{})
+      assert {:missing, ["CLAUDE_CODE_OAUTH_TOKEN"]} = result
     end
 
-    test "always returns :ok for chatgpt_oauth (OAuth)" do
-      assert :ok = Credentials.validate("chatgpt_oauth", %{})
+    test "returns {:missing, ...} for chatgpt_oauth when no OAuth token" do
+      # Ensure no OAuth token file exists by using temp dir
+      result = Credentials.validate("chatgpt_oauth", %{})
+      assert {:missing, ["CHATGPT_OAUTH_TOKEN"]} = result
     end
 
     test "validates custom api_key_env when specified" do
@@ -440,6 +444,76 @@ defmodule CodePuppyControl.ModelFactory.CredentialsTest do
       assert Credentials.resolve_api_key("openai", %{}) == "sk-from-env"
 
       System.delete_env("OPENAI_API_KEY")
+    end
+  end
+
+  describe "OAuth validation" do
+    setup do
+      # Create temp directories for OAuth token files
+      tmp_dir =
+        Path.join(
+          System.tmp_dir!(),
+          "oauth_test_#{:erlang.unique_integer([:positive, :monotonic])}"
+        )
+
+      File.mkdir_p!(tmp_dir)
+
+      # Redirect paths for both OAuth modules
+      prev_ex_home = System.get_env("PUP_EX_HOME")
+      System.put_env("PUP_EX_HOME", tmp_dir)
+
+      on_exit(fn ->
+        case prev_ex_home do
+          nil -> System.delete_env("PUP_EX_HOME")
+          v -> System.put_env("PUP_EX_HOME", v)
+        end
+
+        File.rm_rf(tmp_dir)
+      end)
+
+      {:ok, tmp_dir: tmp_dir}
+    end
+
+    test "claude_code returns :ok when OAuth token exists", %{tmp_dir: dir} do
+      # Create token file in expected location
+      token_path = Path.join(dir, "claude_code_oauth.json")
+      token_data = %{"access_token" => "test-token-123", "refresh_token" => "refresh-456"}
+      File.write!(token_path, Jason.encode!(token_data))
+
+      assert :ok = Credentials.validate("claude_code", %{})
+    end
+
+    test "claude_code returns {:missing, ...} when access_token is empty", %{tmp_dir: dir} do
+      # Create token file with empty access_token
+      token_path = Path.join(dir, "claude_code_oauth.json")
+      token_data = %{"access_token" => "", "refresh_token" => "refresh-456"}
+      File.write!(token_path, Jason.encode!(token_data))
+
+      result = Credentials.validate("claude_code", %{})
+      assert {:missing, ["CLAUDE_CODE_OAUTH_TOKEN"]} = result
+    end
+
+    test "chatgpt_oauth returns :ok when OAuth token exists", %{tmp_dir: dir} do
+      # Create token file in expected location
+      auth_dir = Path.join(dir, "auth")
+      File.mkdir_p!(auth_dir)
+      token_path = Path.join(auth_dir, "chatgpt_oauth.json")
+      token_data = %{"access_token" => "test-token-789", "api_key" => "test-token-789"}
+      File.write!(token_path, Jason.encode!(token_data))
+
+      assert :ok = Credentials.validate("chatgpt_oauth", %{})
+    end
+
+    test "chatgpt_oauth returns {:missing, ...} when access_token is missing", %{tmp_dir: dir} do
+      # Create token file without access_token
+      auth_dir = Path.join(dir, "auth")
+      File.mkdir_p!(auth_dir)
+      token_path = Path.join(auth_dir, "chatgpt_oauth.json")
+      token_data = %{"refresh_token" => "refresh-789"}
+      File.write!(token_path, Jason.encode!(token_data))
+
+      result = Credentials.validate("chatgpt_oauth", %{})
+      assert {:missing, ["CHATGPT_OAUTH_TOKEN"]} = result
     end
   end
 end
