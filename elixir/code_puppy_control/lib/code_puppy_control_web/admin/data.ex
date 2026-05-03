@@ -1,6 +1,6 @@
 defmodule CodePuppyControlWeb.Admin.Data do
   @moduledoc """
-  Read-only data adapter for the admin LiveView UI.
+  Data adapter for the admin LiveView UI.
 
   This is the **single seam** between the admin LiveView surface and the
   CodePuppy Control runtime. LiveViews under `CodePuppyControlWeb.Admin.*`
@@ -16,6 +16,9 @@ defmodule CodePuppyControlWeb.Admin.Data do
 
     * Reads from existing context modules (`Run.Manager`, `AgentCatalogue`,
       `Sessions`, `PackParallelism`).
+    * Provides a small, curated set of mutations (pack limit, session
+      deletion, scheduler control) that are safe for admin UI use. Every
+      mutation is wrapped in a `rescue` to avoid crashing the LiveView.
     * Shells out to `git worktree list --porcelain` for read-only worktree
       enumeration.
     * Subscribes the calling process to the `EventBus` global topic so
@@ -27,8 +30,8 @@ defmodule CodePuppyControlWeb.Admin.Data do
 
   ## What this module does NOT do
 
-    * **No mutations.** No `start_run`, no `cancel_run`, no `set_limit`.
-      The admin UI is observe-only in v1.
+    * **No raw runtime access.** No `Run.*`, `Tools.*`, or direct ETS/GeneServer
+      calls. All interactions go through the context modules.
     * **No business logic.** Decisions about what a "healthy" pack looks
       like, which agents are visible, etc., are made by the underlying
       modules. We just render what they tell us.
@@ -38,6 +41,7 @@ defmodule CodePuppyControlWeb.Admin.Data do
   alias CodePuppyControl.EventBus
   alias CodePuppyControl.Plugins.PackParallelism
   alias CodePuppyControl.Run
+  alias CodePuppyControl.Scheduler
   alias CodePuppyControl.Sessions
   alias CodePuppyControl.Tools.{AgentCatalogue, AgentManager}
 
@@ -393,4 +397,74 @@ defmodule CodePuppyControlWeb.Admin.Data do
 
   defp short_branch("refs/heads/" <> name), do: name
   defp short_branch(other), do: other
+
+  # ── Mutations (admin-safe) ─────────────────────────────────────────
+
+  @doc """
+  Updates the pack parallelism limit.
+  """
+  @spec set_pack_limit(non_neg_integer()) :: :ok | {:error, term()}
+  def set_pack_limit(new_limit) do
+    PackParallelism.set_limit(new_limit)
+  rescue
+    e -> {:error, Exception.message(e)}
+  end
+
+  @doc """
+  Deletes a chat session by name.
+  """
+  @spec delete_session(String.t()) :: :ok | {:error, term()}
+  def delete_session(name) do
+    Sessions.delete_session(name)
+  rescue
+    e -> {:error, Exception.message(e)}
+  end
+
+  # ── Scheduler ───────────────────────────────────────────────────────
+
+  @doc """
+  Lists all scheduled tasks.
+  """
+  @spec list_scheduled_tasks() :: [map()]
+  def list_scheduled_tasks do
+    Scheduler.list_tasks()
+  rescue
+    _ -> []
+  end
+
+  @doc """
+  Gets scheduler statistics.
+  """
+  @spec get_scheduler_stats() :: map()
+  def get_scheduler_stats do
+    Scheduler.statistics()
+  rescue
+    _ -> %{total: 0, enabled: 0, disabled: 0, with_schedule: 0, one_shot: 0, last_24h_runs: 0}
+  end
+
+  @doc """
+  Toggles a scheduled task's enabled state.
+  """
+  @spec toggle_task(integer()) :: {:ok, map()} | {:error, term()}
+  def toggle_task(task_id) do
+    case Scheduler.get_task(task_id) do
+      {:ok, task} -> Scheduler.toggle_task(task)
+      {:error, :not_found} -> {:error, :not_found}
+    end
+  rescue
+    e -> {:error, Exception.message(e)}
+  end
+
+  @doc """
+  Triggers immediate execution of a task.
+  """
+  @spec run_task_now(integer()) :: {:ok, map()} | {:error, term()}
+  def run_task_now(task_id) do
+    case Scheduler.run_task_now(task_id) do
+      {:ok, job} -> {:ok, %{job_id: job.id}}
+      {:error, reason} -> {:error, reason}
+    end
+  rescue
+    e -> {:error, Exception.message(e)}
+  end
 end

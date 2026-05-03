@@ -131,7 +131,9 @@ defmodule CodePuppyControlWeb.Admin.Components do
       %{key: :agents, label: "Agents", path: "/admin/agents"},
       %{key: :jobs, label: "Jobs", path: "/admin/jobs"},
       %{key: :worktrees, label: "Worktrees", path: "/admin/worktrees"},
-      %{key: :pack, label: "Pack", path: "/admin/pack"}
+      %{key: :pack, label: "Pack", path: "/admin/pack"},
+      %{key: :sessions, label: "Sessions", path: "/admin/sessions"},
+      %{key: :scheduler, label: "Scheduler", path: "/admin/scheduler"}
     ]
   end
 

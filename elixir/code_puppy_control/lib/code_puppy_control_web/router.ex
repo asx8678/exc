@@ -139,6 +139,8 @@ defmodule CodePuppyControlWeb.Router do
       live "/jobs/:id", JobDetailLive, :show
       live "/worktrees", WorktreesLive, :index
       live "/pack", PackLive, :index
+      live "/sessions", SessionsLive, :index
+      live "/scheduler", SchedulerLive, :index
     end
   end
 

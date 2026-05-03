@@ -30,7 +30,7 @@ strip_quotes([$" | Rest]) ->
     end;
 strip_quotes(V) -> V.
 
--file("/opt/homebrew/Cellar/erlang/28.4.2/lib/erlang/lib/parsetools-2.7.1/include/yeccpre.hrl", 0).
+-file("/home/adam/.local/share/mise/installs/erlang/28.5/lib/parsetools-2.7.1/include/yeccpre.hrl", 0).
 %%
 %% %CopyrightBegin%
 %%

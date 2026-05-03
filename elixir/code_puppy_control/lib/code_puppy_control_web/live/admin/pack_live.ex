@@ -10,9 +10,9 @@ defmodule CodePuppyControlWeb.Admin.PackLive do
 
   ## Discipline
 
-  Read-only. Limit changes go through `/pack-parallel` slash commands
-  or the underlying `PackParallelism.set_limit/1` API — the admin UI
-  in v1 does not expose mutation.
+  The admin UI exposes limited mutation: the pack limit can be changed
+  via an inline form. Other mutations (session deletion, scheduler
+  control) live on their respective admin pages.
 
   (Extended in code_puppy-df1.2 for cluster orchestration.)
   """
@@ -32,7 +32,7 @@ defmodule CodePuppyControlWeb.Admin.PackLive do
       Process.send_after(self(), :tick, @tick_ms)
     end
 
-    {:ok, refresh(assign(socket, :active_nav, :pack))}
+    {:ok, refresh(assign(socket, :active_nav, :pack) |> assign(:show_limit_form, false))}
   end
 
   @impl true
@@ -49,6 +49,34 @@ defmodule CodePuppyControlWeb.Admin.PackLive do
 
   @impl true
   def handle_info(_other, socket), do: {:noreply, socket}
+
+  @impl true
+  def handle_event("toggle_limit_form", _, socket) do
+    {:noreply, assign(socket, :show_limit_form, !socket.assigns.show_limit_form)}
+  end
+
+  @impl true
+  def handle_event("set_limit", %{"limit" => limit_str}, socket) do
+    case Integer.parse(limit_str) do
+      {limit, ""} when limit >= 1 ->
+        case Data.set_pack_limit(limit) do
+          :ok ->
+            socket =
+              socket
+              |> put_flash(:info, "Pack limit updated to #{limit}")
+              |> assign(:show_limit_form, false)
+              |> refresh()
+
+            {:noreply, socket}
+
+          {:error, reason} ->
+            {:noreply, put_flash(socket, :error, "Failed to update limit: #{reason}")}
+        end
+
+      _ ->
+        {:noreply, put_flash(socket, :error, "Invalid limit: must be an integer >= 1")}
+    end
+  end
 
   @impl true
   def terminate(_reason, _socket) do
@@ -86,6 +114,25 @@ defmodule CodePuppyControlWeb.Admin.PackLive do
         sub={(@pack.waiters > 0 && "queued for a slot") || nil}
       />
     </section>
+
+    <div style="margin-bottom: 1rem; display: flex; align-items: center; gap: 1rem;">
+      <h2 style="margin: 0;">Pack Slots</h2>
+      <button phx-click="toggle_limit_form" class="btn-primary btn-sm">
+        {if @show_limit_form, do: "Cancel", else: "Change Limit"}
+      </button>
+    </div>
+
+    <div :if={@show_limit_form} class="card" style="margin-bottom: 1rem; max-width: 400px; padding: 1rem; border: 1px solid #30363d; border-radius: 6px;">
+      <form phx-submit="set_limit">
+        <label style="display: block; margin-bottom: 0.5rem;">
+          New limit:
+          <input type="number" name="limit" value={@pack.limit} min="1" max="100" 
+                 style="width: 100%; padding: 0.5rem; background: #0d1117; border: 1px solid #30363d; 
+                        border-radius: 4px; color: #c9d1d9;" />
+        </label>
+        <button type="submit" class="btn-primary">Apply</button>
+      </form>
+    </div>
 
     <h2>Active runs holding slots</h2>
     <%= if @active_jobs == [] do %>

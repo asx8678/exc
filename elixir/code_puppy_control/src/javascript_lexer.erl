@@ -1,4 +1,4 @@
--file("/opt/homebrew/Cellar/erlang/28.4.2/lib/erlang/lib/parsetools-2.7.1/include/leexinc.hrl", 0).
+-file("/home/adam/.local/share/mise/installs/erlang/28.5/lib/parsetools-2.7.1/include/leexinc.hrl", 0).
 %%
 %% %CopyrightBegin%
 %%
@@ -61,7 +61,7 @@ binary_to_int([$0, $B | Bin]) -> list_to_integer(Bin, 2).
 octal_to_int([$0, $o | Oct]) -> list_to_integer(Oct, 8);
 octal_to_int([$0, $O | Oct]) -> list_to_integer(Oct, 8).
 
--file("/opt/homebrew/Cellar/erlang/28.4.2/lib/erlang/lib/parsetools-2.7.1/include/leexinc.hrl", 47).
+-file("/home/adam/.local/share/mise/installs/erlang/28.5/lib/parsetools-2.7.1/include/leexinc.hrl", 47).
 
 format_error({illegal,S}) -> ["illegal characters ",io_lib:write_string(S)];
 format_error({user,S}) -> S.
@@ -4808,4 +4808,4 @@ yyaction_112(TokenLine) ->
 -file("src/javascript_lexer.xrl", 198).
 yyaction_113(TokenChars, TokenLine) ->
      { token, { regex, TokenLine, TokenChars } } .
--file("/opt/homebrew/Cellar/erlang/28.4.2/lib/erlang/lib/parsetools-2.7.1/include/leexinc.hrl", 377).
+-file("/home/adam/.local/share/mise/installs/erlang/28.5/lib/parsetools-2.7.1/include/leexinc.hrl", 377).

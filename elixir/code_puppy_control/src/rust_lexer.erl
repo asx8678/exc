@@ -1,4 +1,4 @@
--file("/opt/homebrew/Cellar/erlang/28.4.2/lib/erlang/lib/parsetools-2.7.1/include/leexinc.hrl", 0).
+-file("/home/adam/.local/share/mise/installs/erlang/28.5/lib/parsetools-2.7.1/include/leexinc.hrl", 0).
 %%
 %% %CopyrightBegin%
 %%
@@ -72,7 +72,7 @@ parse_binary([$0, $b | Rest]) ->
     Filtered = [C || C <- Rest, C =/= $_],
     list_to_integer(Filtered, 2).
 
--file("/opt/homebrew/Cellar/erlang/28.4.2/lib/erlang/lib/parsetools-2.7.1/include/leexinc.hrl", 47).
+-file("/home/adam/.local/share/mise/installs/erlang/28.5/lib/parsetools-2.7.1/include/leexinc.hrl", 47).
 
 format_error({illegal,S}) -> ["illegal characters ",io_lib:write_string(S)];
 format_error({user,S}) -> S.
@@ -3340,4 +3340,4 @@ yyaction_92(TokenLine) ->
 -file("src/rust_lexer.xrl", 185).
 yyaction_93(TokenLine) ->
      { token, { '>', TokenLine } } .
--file("/opt/homebrew/Cellar/erlang/28.4.2/lib/erlang/lib/parsetools-2.7.1/include/leexinc.hrl", 377).
+-file("/home/adam/.local/share/mise/installs/erlang/28.5/lib/parsetools-2.7.1/include/leexinc.hrl", 377).
