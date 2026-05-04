@@ -1,7 +1,7 @@
 # Fork Changelog
 
 This document summarizes the key differences and enhancements in this fork
-relative to the upstream [Code Puppy](https://github.com/openadaptfork/code_puppy) project.
+relative to the upstream [Code Puppy](https://github.com/mpfaffenberger/code_puppy) project.
 
 For per-commit detail, see `git log`.
 
@@ -55,4 +55,4 @@ For per-commit detail, see `git log`.
 ---
 
 For the upstream project's changelog, see the
-[upstream repository](https://github.com/openadaptfork/code_puppy).
+[upstream repository](https://github.com/mpfaffenberger/code_puppy).

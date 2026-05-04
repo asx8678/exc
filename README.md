@@ -75,7 +75,7 @@ This fork adds significant capabilities to the original code_puppy, transforming
 
 ```bash
 uvx --from codepp code-puppy -i
-````
+```
 
 ## Installation
 
@@ -283,7 +283,6 @@ enable_elixir_control=false
 | Python Version | GIL Status | Parallelism |
 |----------------|------------|-------------|
 | Python 3.14 | Standard GIL | Full functionality, standard concurrency |
-| Python 3.13t | Experimental free-threading | Enhanced parallelism (experimental) |
 | **Python 3.14t** | **Production free-threading** | **True parallel execution across cores** |
 
 #### Running with Free-Threading
