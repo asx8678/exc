@@ -270,7 +270,11 @@ defmodule CodePuppyControl.FeatureFlags do
                   {:error, reason} ->
                     # Clean up temp file on rename failure
                     File.rm(tmp_path)
-                    Logger.warning("FeatureFlags: failed to rename flags.json (#{inspect(reason)})")
+
+                    Logger.warning(
+                      "FeatureFlags: failed to rename flags.json (#{inspect(reason)})"
+                    )
+
                     {:error, reason}
                 end
 

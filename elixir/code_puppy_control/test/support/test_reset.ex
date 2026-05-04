@@ -236,6 +236,7 @@ defmodule CodePuppyControl.TestSupport.Reset do
 
       # Rollout: reset counters and clear rollout percentages (code_puppy-djs.6)
       safe_call(CodePuppyControl.Rollout, :reset_counters)
+
       for cap <- CodePuppyControl.FeatureFlags.capabilities() do
         safe_call(CodePuppyControl.Rollout, :set_percentage, [cap, 0])
         safe_call(CodePuppyControl.Rollout, :set_error_threshold, [cap, 0.10])

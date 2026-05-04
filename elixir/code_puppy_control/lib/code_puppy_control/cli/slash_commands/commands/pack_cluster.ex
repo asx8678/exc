@@ -42,7 +42,11 @@ defmodule CodePuppyControl.CLI.SlashCommands.Commands.PackCluster do
       IO.puts("    Cookie:    #{inspect(Node.get_cookie())}")
       IO.puts("")
       IO.puts("    #{IO.ANSI.faint()}Use /pack cluster nodes for details#{IO.ANSI.reset()}")
-      IO.puts("    #{IO.ANSI.faint()}Use /pack cluster capabilities for agent matrix#{IO.ANSI.reset()}")
+
+      IO.puts(
+        "    #{IO.ANSI.faint()}Use /pack cluster capabilities for agent matrix#{IO.ANSI.reset()}"
+      )
+
       IO.puts("")
     else
       IO.puts("")
@@ -50,7 +54,11 @@ defmodule CodePuppyControl.CLI.SlashCommands.Commands.PackCluster do
       IO.puts("")
       IO.puts("    Status:    #{IO.ANSI.faint()}disabled#{IO.ANSI.reset()}")
       IO.puts("")
-      IO.puts("    #{IO.ANSI.faint()}Enable with: packs.distributed.enabled = true#{IO.ANSI.reset()}")
+
+      IO.puts(
+        "    #{IO.ANSI.faint()}Enable with: packs.distributed.enabled = true#{IO.ANSI.reset()}"
+      )
+
       IO.puts("")
     end
   end
@@ -166,7 +174,11 @@ defmodule CodePuppyControl.CLI.SlashCommands.Commands.PackCluster do
     )
 
     IO.puts("")
-    IO.puts("    #{IO.ANSI.faint()}Enable with: packs.distributed.enabled = true#{IO.ANSI.reset()}")
+
+    IO.puts(
+      "    #{IO.ANSI.faint()}Enable with: packs.distributed.enabled = true#{IO.ANSI.reset()}"
+    )
+
     IO.puts("")
   end
 

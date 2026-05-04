@@ -181,7 +181,7 @@ if (-not $env:CODESIGN_CERT_BASE64 -or -not $env:CODESIGN_PASSWORD) {
 | ID | Risk | Severity | Recommendation |
 |----|------|----------|----------------|
 | RESIDUAL-1 | GitHub Actions use tag refs not SHA digests | Low | Optional defense-in-depth; not a release blocker |
-| RESIDUAL-2 | Elixir format check fails on pre-existing unformatted files | Low | Pre-existing; not caused by this audit. Separate housekeeping task |
+| RESIDUAL-2 | ~~Elixir format check fails on pre-existing unformatted files~~ | ~~Low~~ | **Fixed** — `mix format` applied to 33 files; `mix format --check-formatted` now passes. Pre-existing atom quoting and indentation normalization only; no logic changes |
 | RESIDUAL-3 | `codepp` package not auditable by pip-audit (not on PyPI) | Informational | Expected; will be auditable after first PyPI publish |
 
 **No follow-up issues filed** — all residual risks are low/informational and do not block release.

@@ -47,6 +47,7 @@ defmodule CodePuppyControl.FeatureFlagsTest do
     test "all capabilities default to true" do
       # Reload to pick up missing file defaults
       :ok = FeatureFlags.reload()
+
       for cap <- FeatureFlags.capabilities() do
         assert FeatureFlags.enabled?(cap) == true
       end

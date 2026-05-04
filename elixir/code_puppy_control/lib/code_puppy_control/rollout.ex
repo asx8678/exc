@@ -101,7 +101,12 @@ defmodule CodePuppyControl.Rollout do
     # Ensure the counter row exists before atomic update
     ensure_counter_row(capability)
 
-    :ets.update_counter(@counters_ets, {capability, counter_key}, 1, {{capability, counter_key}, 0})
+    :ets.update_counter(
+      @counters_ets,
+      {capability, counter_key},
+      1,
+      {{capability, counter_key}, 0}
+    )
 
     :ok
   end
@@ -175,17 +180,18 @@ defmodule CodePuppyControl.Rollout do
         total_elixir = elixir_ok + elixir_err
         elixir_error_rate = if total_elixir > 0, do: elixir_err / total_elixir, else: 0.0
 
-        {cap, %{
-          percentage: cfg.percentage,
-          error_threshold: cfg.error_threshold,
-          counters: %{
-            elixir_ok: elixir_ok,
-            elixir_err: elixir_err,
-            python_ok: python_ok,
-            python_err: python_err
-          },
-          elixir_error_rate: elixir_error_rate
-        }}
+        {cap,
+         %{
+           percentage: cfg.percentage,
+           error_threshold: cfg.error_threshold,
+           counters: %{
+             elixir_ok: elixir_ok,
+             elixir_err: elixir_err,
+             python_ok: python_ok,
+             python_err: python_err
+           },
+           elixir_error_rate: elixir_error_rate
+         }}
       end)
       |> Map.new()
 

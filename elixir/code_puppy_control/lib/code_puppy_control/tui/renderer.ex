@@ -487,8 +487,8 @@ defmodule CodePuppyControl.TUI.Renderer do
           state.spinner_ids
 
         ref ->
-      state.output_mod.stop_spinner(ref)
-      Map.delete(state.spinner_ids, idx)
+          state.output_mod.stop_spinner(ref)
+          Map.delete(state.spinner_ids, idx)
       end
 
     state = %{state | spinner_ids: spinner_ids}

@@ -236,16 +236,19 @@ defmodule CodePuppyControlWeb.Admin.PackLive do
   # ── Helpers ────────────────────────────────────────────────────────────
 
   defp success_rate(%{dispatches: 0}), do: "—"
+
   defp success_rate(%{dispatches: total, successes: success}) do
     pct = Float.round(success / total * 100, 1)
     "#{pct}%"
   end
 
   defp format_capabilities(nil), do: "—"
+
   defp format_capabilities(caps) when is_map(caps) do
     caps
     |> Map.get(:sub_agent_names, [])
     |> Enum.join(", ")
   end
+
   defp format_capabilities(_), do: "—"
 end

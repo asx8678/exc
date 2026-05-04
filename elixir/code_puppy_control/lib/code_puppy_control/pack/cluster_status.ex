@@ -47,24 +47,25 @@ defmodule CodePuppyControl.Pack.ClusterStatus do
     workers = Config.workers()
 
     # Gather per-node status from all subsystems
-    node_statuses = Enum.map(workers, fn worker ->
-      monitor_status = safe_node_monitor_status(worker)
-      load_info = safe_load_info(worker)
-      capabilities = safe_capabilities(worker)
+    node_statuses =
+      Enum.map(workers, fn worker ->
+        monitor_status = safe_node_monitor_status(worker)
+        load_info = safe_load_info(worker)
+        capabilities = safe_capabilities(worker)
 
-      %{
-        node: worker,
-        status: get_status(monitor_status),
-        capabilities: capabilities,
-        active_dispatches: get_in_load(load_info, :active_dispatches, 0),
-        max_concurrent: get_in_load(load_info, :max_concurrent, 4),
-        available_slots: safe_available_slots(worker),
-        active_runs: get_active_runs(monitor_status),
-        total_dispatches: get_in_load(load_info, :total_dispatches, 0),
-        total_completions: get_in_load(load_info, :total_completions, 0),
-        total_failures: get_in_load(load_info, :total_failures, 0)
-      }
-    end)
+        %{
+          node: worker,
+          status: get_status(monitor_status),
+          capabilities: capabilities,
+          active_dispatches: get_in_load(load_info, :active_dispatches, 0),
+          max_concurrent: get_in_load(load_info, :max_concurrent, 4),
+          available_slots: safe_available_slots(worker),
+          active_runs: get_active_runs(monitor_status),
+          total_dispatches: get_in_load(load_info, :total_dispatches, 0),
+          total_completions: get_in_load(load_info, :total_completions, 0),
+          total_failures: get_in_load(load_info, :total_failures, 0)
+        }
+      end)
 
     connected = Enum.filter(node_statuses, &(&1.status == :connected))
     disconnected = Enum.filter(node_statuses, &(&1.status != :connected))
@@ -103,21 +104,23 @@ defmodule CodePuppyControl.Pack.ClusterStatus do
       "║ Available Slots:    #{pad(Integer.to_string(snapshot.total_available_slots), 24)}║"
     ]
 
-    worker_lines = Enum.flat_map(snapshot.connected_workers ++ snapshot.disconnected_workers, fn w ->
-      status_icon = case w.status do
-        :connected -> "🟢"
-        :disconnected -> "🔴"
-        :shutting_down -> "🟡"
-        _ -> "⚪"
-      end
+    worker_lines =
+      Enum.flat_map(snapshot.connected_workers ++ snapshot.disconnected_workers, fn w ->
+        status_icon =
+          case w.status do
+            :connected -> "🟢"
+            :disconnected -> "🔴"
+            :shutting_down -> "🟡"
+            _ -> "⚪"
+          end
 
-      [
-        "╠──────────────────────────────────────────────╣",
-        "║ #{status_icon} #{pad(inspect(w.node), 42)}║",
-        "║    Slots: #{pad("#{w.active_dispatches}/#{w.max_concurrent}", 34)}║",
-        "║    Runs:  #{pad("#{w.total_dispatches} dispatched, #{w.total_completions} done, #{w.total_failures} failed", 34)}║"
-      ]
-    end)
+        [
+          "╠──────────────────────────────────────────────╣",
+          "║ #{status_icon} #{pad(inspect(w.node), 42)}║",
+          "║    Slots: #{pad("#{w.active_dispatches}/#{w.max_concurrent}", 34)}║",
+          "║    Runs:  #{pad("#{w.total_dispatches} dispatched, #{w.total_completions} done, #{w.total_failures} failed", 34)}║"
+        ]
+      end)
 
     footer = [
       "╚══════════════════════════════════════════════╝"
@@ -172,6 +175,7 @@ defmodule CodePuppyControl.Pack.ClusterStatus do
   defp get_status(_), do: :unknown
 
   defp get_in_load(nil, _key, default), do: default
+
   defp get_in_load(info, key, default) do
     Map.get(info, key, default)
   end

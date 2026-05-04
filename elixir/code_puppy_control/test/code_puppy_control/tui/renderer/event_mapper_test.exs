@@ -9,7 +9,11 @@ defmodule CodePuppyControl.TUI.Renderer.EventMapperTest do
 
     test "wire-format TextDelta via Event.from_wire" do
       assert {:ok, %Event.TextDelta{index: 0, text: "hello"}} =
-               EventMapper.event_to_canonical(%{"type" => "text_delta", "index" => 0, "text" => "hello"})
+               EventMapper.event_to_canonical(%{
+                 "type" => "text_delta",
+                 "index" => 0,
+                 "text" => "hello"
+               })
     end
 
     test "wire-format ToolCallStart via Event.from_wire" do

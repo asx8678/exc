@@ -131,14 +131,14 @@ defmodule CodePuppyControl.Pack.TLS do
     config_path = Keyword.get(opts, :config_path, default_config_path())
 
     # Write the config file so it's ready when the VM starts
-    write_ssl_dist_config!(config_path, [
+    write_ssl_dist_config!(config_path,
       certfile: certfile,
       keyfile: keyfile,
       cacertfile: cacertfile,
       verify: Keyword.get(opts, :verify, :verify_peer),
       depth: Keyword.get(opts, :depth, 2),
       secure_renegotiate: Keyword.get(opts, :secure_renegotiate, true)
-    ])
+    )
 
     ["-proto_dist", "inet_tls", "-ssl_dist_optfile", config_path]
   end
@@ -159,6 +159,7 @@ defmodule CodePuppyControl.Pack.TLS do
 
     # Check certfile
     certfile = Keyword.get(opts, :certfile)
+
     errors =
       if certfile && File.exists?(certfile),
         do: errors,
@@ -166,6 +167,7 @@ defmodule CodePuppyControl.Pack.TLS do
 
     # Check keyfile
     keyfile = Keyword.get(opts, :keyfile)
+
     errors =
       if keyfile && File.exists?(keyfile),
         do: errors,
@@ -173,6 +175,7 @@ defmodule CodePuppyControl.Pack.TLS do
 
     # Check cacertfile
     cacertfile = Keyword.get(opts, :cacertfile)
+
     errors =
       if cacertfile && File.exists?(cacertfile),
         do: errors,

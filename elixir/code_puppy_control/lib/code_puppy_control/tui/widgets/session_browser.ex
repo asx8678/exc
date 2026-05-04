@@ -146,7 +146,13 @@ defmodule CodePuppyControl.TUI.Widgets.SessionBrowser do
     )
   end
 
-  @session_column_order %{"Session" => 0, "Messages" => 1, "Tokens" => 2, "Time" => 3, "Status" => 4}
+  @session_column_order %{
+    "Session" => 0,
+    "Messages" => 1,
+    "Tokens" => 2,
+    "Time" => 3,
+    "Status" => 4
+  }
 
   defp render_session_row({session, idx}) do
     name =

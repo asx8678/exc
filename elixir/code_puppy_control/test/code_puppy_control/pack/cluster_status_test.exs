@@ -105,10 +105,10 @@ defmodule CodePuppyControl.Pack.ClusterStatusTest do
         enabled: true,
         tls_enabled: false,
         local_node: Node.self(),
-        configured_workers: [:"test@localhost"],
+        configured_workers: [:test@localhost],
         connected_workers: [
           %{
-            node: :"test@localhost",
+            node: :test@localhost,
             status: :connected,
             capabilities: nil,
             active_dispatches: 2,
@@ -137,12 +137,21 @@ defmodule CodePuppyControl.Pack.ClusterStatusTest do
         enabled: false,
         tls_enabled: false,
         local_node: Node.self(),
-        configured_workers: [:"down@host"],
+        configured_workers: [:down@host],
         connected_workers: [],
         disconnected_workers: [
-          %{node: :"down@host", status: :disconnected, capabilities: nil,
-            active_dispatches: 0, max_concurrent: 4, available_slots: 0,
-            active_runs: [], total_dispatches: 0, total_completions: 0, total_failures: 0}
+          %{
+            node: :down@host,
+            status: :disconnected,
+            capabilities: nil,
+            active_dispatches: 0,
+            max_concurrent: 4,
+            available_slots: 0,
+            active_runs: [],
+            total_dispatches: 0,
+            total_completions: 0,
+            total_failures: 0
+          }
         ],
         total_active_dispatches: 0,
         total_available_slots: 0,
@@ -158,12 +167,21 @@ defmodule CodePuppyControl.Pack.ClusterStatusTest do
         enabled: true,
         tls_enabled: false,
         local_node: Node.self(),
-        configured_workers: [:"draining@host"],
+        configured_workers: [:draining@host],
         connected_workers: [],
         disconnected_workers: [
-          %{node: :"draining@host", status: :shutting_down, capabilities: nil,
-            active_dispatches: 0, max_concurrent: 4, available_slots: 0,
-            active_runs: [], total_dispatches: 0, total_completions: 0, total_failures: 0}
+          %{
+            node: :draining@host,
+            status: :shutting_down,
+            capabilities: nil,
+            active_dispatches: 0,
+            max_concurrent: 4,
+            available_slots: 0,
+            active_runs: [],
+            total_dispatches: 0,
+            total_completions: 0,
+            total_failures: 0
+          }
         ],
         total_active_dispatches: 0,
         total_available_slots: 0,
@@ -241,9 +259,9 @@ defmodule CodePuppyControl.Pack.ClusterStatusTest do
         enabled: true,
         tls_enabled: false,
         local_node: Node.self(),
-        configured_workers: [:"a@h", :"b@h"],
-        connected_workers: [%{node: :"a@h"}],
-        disconnected_workers: [%{node: :"b@h"}],
+        configured_workers: [:a@h, :b@h],
+        connected_workers: [%{node: :a@h}],
+        disconnected_workers: [%{node: :b@h}],
         total_active_dispatches: 0,
         total_available_slots: 0,
         dispatch_style: :async

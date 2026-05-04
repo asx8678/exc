@@ -54,8 +54,12 @@ defmodule CodePuppyControl.Distribution.TLS do
   @spec proto_dist_tls?() :: boolean()
   def proto_dist_tls? do
     case :application.get_env(:kernel, :proto_dist) do
-      {:ok, :inet_tls} -> true
-      {:ok, _} -> false
+      {:ok, :inet_tls} ->
+        true
+
+      {:ok, _} ->
+        false
+
       :undefined ->
         # Check via the actual distribution module
         dist_module = :erlang.system_info(:dist)

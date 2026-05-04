@@ -282,12 +282,28 @@ defmodule CodePuppyControl.Pack.Dispatcher do
 
   # ── Private: Progress-aware Await Loop (Phase I.5) ────────────────────
 
-  defp await_with_progress(run_id, target_node, agent_name, session_id, start_mono, timeout, progress_cb) do
+  defp await_with_progress(
+         run_id,
+         target_node,
+         agent_name,
+         session_id,
+         start_mono,
+         timeout,
+         progress_cb
+       ) do
     deadline = System.monotonic_time(:millisecond) + timeout
     do_await_loop(run_id, target_node, agent_name, session_id, start_mono, deadline, progress_cb)
   end
 
-  defp do_await_loop(run_id, target_node, agent_name, session_id, start_mono, deadline, progress_cb) do
+  defp do_await_loop(
+         run_id,
+         target_node,
+         agent_name,
+         session_id,
+         start_mono,
+         deadline,
+         progress_cb
+       ) do
     remaining = max(deadline - System.monotonic_time(:millisecond), 0)
 
     if remaining <= 0 do
@@ -302,11 +318,29 @@ defmodule CodePuppyControl.Pack.Dispatcher do
 
         {:"$gen_cast", {:progress, ^run_id, payload}} ->
           handle_progress(run_id, payload, progress_cb)
-          do_await_loop(run_id, target_node, agent_name, session_id, start_mono, deadline, progress_cb)
+
+          do_await_loop(
+            run_id,
+            target_node,
+            agent_name,
+            session_id,
+            start_mono,
+            deadline,
+            progress_cb
+          )
 
         {:progress, ^run_id, payload} ->
           handle_progress(run_id, payload, progress_cb)
-          do_await_loop(run_id, target_node, agent_name, session_id, start_mono, deadline, progress_cb)
+
+          do_await_loop(
+            run_id,
+            target_node,
+            agent_name,
+            session_id,
+            start_mono,
+            deadline,
+            progress_cb
+          )
       after
         remaining ->
           handle_dispatch_timeout(run_id, target_node, agent_name, session_id)
@@ -388,7 +422,15 @@ defmodule CodePuppyControl.Pack.Dispatcher do
       safe_register_run(target_node, run_id)
 
       # Await result, handling progress updates during the wait (Phase I.5)
-      await_with_progress(run_id, target_node, agent_name, session_id, start_mono, timeout, progress_cb)
+      await_with_progress(
+        run_id,
+        target_node,
+        agent_name,
+        session_id,
+        start_mono,
+        timeout,
+        progress_cb
+      )
     catch
       :exit, reason ->
         Logger.warning(

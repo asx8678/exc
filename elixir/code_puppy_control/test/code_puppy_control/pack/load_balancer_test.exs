@@ -37,9 +37,9 @@ defmodule CodePuppyControl.Pack.LoadBalancerTest do
     # Register some test workers
     on_exit(fn ->
       try do
-        NamingService.unregister_node(:"pup_lb_a@localhost")
-        NamingService.unregister_node(:"pup_lb_b@localhost")
-        NamingService.unregister_node(:"pup_lb_c@localhost")
+        NamingService.unregister_node(:pup_lb_a@localhost)
+        NamingService.unregister_node(:pup_lb_b@localhost)
+        NamingService.unregister_node(:pup_lb_c@localhost)
       catch
         :exit, _ -> :ok
       end
@@ -72,7 +72,7 @@ defmodule CodePuppyControl.Pack.LoadBalancerTest do
 
     test "returns :none when workers exist but none match sub_agent type" do
       NamingService.register_capabilities(
-        :"pup_lb_a@localhost",
+        :pup_lb_a@localhost,
         %{sub_agents: [:watchdog], max_concurrent_runs: 2}
       )
 
@@ -80,7 +80,7 @@ defmodule CodePuppyControl.Pack.LoadBalancerTest do
     end
 
     test "with one worker registered returns that worker" do
-      node_a = :"pup_lb_a@localhost"
+      node_a = :pup_lb_a@localhost
 
       NamingService.register_capabilities(
         node_a,
@@ -94,8 +94,8 @@ defmodule CodePuppyControl.Pack.LoadBalancerTest do
     end
 
     test "round-robins across multiple eligible workers" do
-      node_a = :"pup_lb_a@localhost"
-      node_b = :"pup_lb_b@localhost"
+      node_a = :pup_lb_a@localhost
+      node_b = :pup_lb_b@localhost
 
       NamingService.register_capabilities(
         node_a,
@@ -124,8 +124,8 @@ defmodule CodePuppyControl.Pack.LoadBalancerTest do
     end
 
     test "round-robin wraps correctly after many selections" do
-      node_a = :"pup_lb_a@localhost"
-      node_b = :"pup_lb_b@localhost"
+      node_a = :pup_lb_a@localhost
+      node_b = :pup_lb_b@localhost
 
       NamingService.register_capabilities(
         node_a,
@@ -154,8 +154,8 @@ defmodule CodePuppyControl.Pack.LoadBalancerTest do
     end
 
     test "respects constraints in selection" do
-      node_a = :"pup_lb_a@localhost"
-      node_b = :"pup_lb_b@localhost"
+      node_a = :pup_lb_a@localhost
+      node_b = :pup_lb_b@localhost
 
       NamingService.register_capabilities(
         node_a,
@@ -181,7 +181,7 @@ defmodule CodePuppyControl.Pack.LoadBalancerTest do
 
   describe "record_dispatch/2" do
     test "increments active_dispatches" do
-      node_a = :"pup_lb_a@localhost"
+      node_a = :pup_lb_a@localhost
 
       NamingService.register_capabilities(
         node_a,
@@ -208,7 +208,7 @@ defmodule CodePuppyControl.Pack.LoadBalancerTest do
     end
 
     test "initializes unknown node with default capacity" do
-      unknown_node = :"pup_unknown@localhost"
+      unknown_node = :pup_unknown@localhost
 
       LoadBalancer.record_dispatch(unknown_node, "run-x")
       Process.sleep(50)
@@ -228,7 +228,7 @@ defmodule CodePuppyControl.Pack.LoadBalancerTest do
 
   describe "record_completion/3" do
     test "decrements active_dispatches on success" do
-      node_a = :"pup_lb_a@localhost"
+      node_a = :pup_lb_a@localhost
 
       NamingService.register_capabilities(
         node_a,
@@ -252,7 +252,7 @@ defmodule CodePuppyControl.Pack.LoadBalancerTest do
     end
 
     test "increments failure counter on failure" do
-      node_a = :"pup_lb_a@localhost"
+      node_a = :pup_lb_a@localhost
 
       NamingService.register_capabilities(
         node_a,
@@ -273,7 +273,7 @@ defmodule CodePuppyControl.Pack.LoadBalancerTest do
     end
 
     test "increments failure counter on rejection" do
-      node_a = :"pup_lb_a@localhost"
+      node_a = :pup_lb_a@localhost
 
       NamingService.register_capabilities(
         node_a,
@@ -298,8 +298,8 @@ defmodule CodePuppyControl.Pack.LoadBalancerTest do
 
   describe "capacity exclusion" do
     test "worker at capacity is excluded from selection" do
-      node_a = :"pup_lb_a@localhost"
-      node_b = :"pup_lb_b@localhost"
+      node_a = :pup_lb_a@localhost
+      node_b = :pup_lb_b@localhost
 
       # node_a has capacity 1, node_b has capacity 4
       NamingService.register_capabilities(
@@ -334,7 +334,7 @@ defmodule CodePuppyControl.Pack.LoadBalancerTest do
     end
 
     test "returns :none when ALL workers are at capacity" do
-      node_a = :"pup_lb_a@localhost"
+      node_a = :pup_lb_a@localhost
 
       NamingService.register_capabilities(
         node_a,
@@ -357,7 +357,7 @@ defmodule CodePuppyControl.Pack.LoadBalancerTest do
 
   describe "available_slots/1" do
     test "returns correct value for tracked node" do
-      node_a = :"pup_lb_a@localhost"
+      node_a = :pup_lb_a@localhost
 
       NamingService.register_capabilities(
         node_a,
@@ -376,7 +376,7 @@ defmodule CodePuppyControl.Pack.LoadBalancerTest do
 
     test "returns default for unknown node" do
       # Unknown node gets default max_concurrent of 4
-      assert LoadBalancer.available_slots(:"pup_totally_unknown@nowhere") == 4
+      assert LoadBalancer.available_slots(:pup_totally_unknown@nowhere) == 4
     end
   end
 
@@ -386,8 +386,8 @@ defmodule CodePuppyControl.Pack.LoadBalancerTest do
 
   describe "load_snapshot/0" do
     test "returns all tracked nodes" do
-      node_a = :"pup_lb_a@localhost"
-      node_b = :"pup_lb_b@localhost"
+      node_a = :pup_lb_a@localhost
+      node_b = :pup_lb_b@localhost
 
       NamingService.register_capabilities(
         node_a,
@@ -417,7 +417,7 @@ defmodule CodePuppyControl.Pack.LoadBalancerTest do
 
   describe "sync_node/1" do
     test "loads capabilities from NamingService" do
-      node_a = :"pup_lb_a@localhost"
+      node_a = :pup_lb_a@localhost
 
       NamingService.register_capabilities(
         node_a,
@@ -433,7 +433,7 @@ defmodule CodePuppyControl.Pack.LoadBalancerTest do
     end
 
     test "updates max_concurrent on re-sync" do
-      node_a = :"pup_lb_a@localhost"
+      node_a = :pup_lb_a@localhost
 
       NamingService.register_capabilities(
         node_a,
@@ -458,11 +458,11 @@ defmodule CodePuppyControl.Pack.LoadBalancerTest do
 
     test "uses default when NamingService has no capabilities" do
       # A node not in NamingService gets default max_concurrent
-      LoadBalancer.sync_node(:"pup_no_caps@localhost")
+      LoadBalancer.sync_node(:pup_no_caps@localhost)
       Process.sleep(50)
 
       snapshot = LoadBalancer.load_snapshot()
-      assert snapshot[:"pup_no_caps@localhost"].max_concurrent == 4
+      assert snapshot[:pup_no_caps@localhost].max_concurrent == 4
     end
   end
 
@@ -472,7 +472,7 @@ defmodule CodePuppyControl.Pack.LoadBalancerTest do
 
   describe "remove_node/1" do
     test "removes node from tracking" do
-      node_a = :"pup_lb_a@localhost"
+      node_a = :pup_lb_a@localhost
 
       NamingService.register_capabilities(
         node_a,
@@ -492,11 +492,11 @@ defmodule CodePuppyControl.Pack.LoadBalancerTest do
 
     test "removing unknown node is a no-op" do
       # Should not crash
-      LoadBalancer.remove_node(:"pup_nonexistent@nowhere")
+      LoadBalancer.remove_node(:pup_nonexistent@nowhere)
       Process.sleep(50)
 
       snapshot = LoadBalancer.load_snapshot()
-      refute Map.has_key?(snapshot, :"pup_nonexistent@nowhere")
+      refute Map.has_key?(snapshot, :pup_nonexistent@nowhere)
     end
   end
 end

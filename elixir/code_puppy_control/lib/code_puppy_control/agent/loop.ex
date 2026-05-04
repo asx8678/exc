@@ -567,7 +567,10 @@ defmodule CodePuppyControl.Agent.Loop do
     usage = turn.usage || %{}
     prompt_tokens = usage[:prompt_tokens] || usage["prompt_tokens"] || 0
     completion_tokens = usage[:completion_tokens] || usage["completion_tokens"] || 0
-    cached_tokens = usage[:cached_tokens] || usage["cached_tokens"] || usage[:cache_read_input_tokens] || usage["cache_read_input_tokens"] || 0
+
+    cached_tokens =
+      usage[:cached_tokens] || usage["cached_tokens"] || usage[:cache_read_input_tokens] ||
+        usage["cache_read_input_tokens"] || 0
 
     TokenLedger.record_attempt(state.run_id, model,
       session_id: state.session_id,

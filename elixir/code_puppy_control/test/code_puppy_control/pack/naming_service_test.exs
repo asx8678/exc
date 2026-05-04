@@ -31,18 +31,18 @@ defmodule CodePuppyControl.Pack.NamingServiceTest do
         available_models: ["claude-sonnet-4-20250514"]
       }
 
-      assert :ok = NamingService.register_capabilities(:"pup_w1@host1", caps)
-      assert NamingService.node_capabilities(:"pup_w1@host1") == caps
+      assert :ok = NamingService.register_capabilities(:pup_w1@host1, caps)
+      assert NamingService.node_capabilities(:pup_w1@host1) == caps
     end
 
     test "upserts — replaces previous capabilities" do
       caps_v1 = %{sub_agents: [:terrier], host_os: "linux"}
       caps_v2 = %{sub_agents: [:terrier, :watchdog], host_os: "macos"}
 
-      NamingService.register_capabilities(:"pup_w2@host2", caps_v1)
-      NamingService.register_capabilities(:"pup_w2@host2", caps_v2)
+      NamingService.register_capabilities(:pup_w2@host2, caps_v1)
+      NamingService.register_capabilities(:pup_w2@host2, caps_v2)
 
-      assert NamingService.node_capabilities(:"pup_w2@host2") == caps_v2
+      assert NamingService.node_capabilities(:pup_w2@host2) == caps_v2
     end
   end
 
@@ -51,17 +51,17 @@ defmodule CodePuppyControl.Pack.NamingServiceTest do
   describe "unregister_node/1" do
     test "removes all entries for a node" do
       caps = %{sub_agents: [:terrier], host_os: "linux"}
-      NamingService.register_capabilities(:"pup_w3@host3", caps)
+      NamingService.register_capabilities(:pup_w3@host3, caps)
 
-      assert NamingService.node_capabilities(:"pup_w3@host3") == caps
+      assert NamingService.node_capabilities(:pup_w3@host3) == caps
 
-      assert :ok = NamingService.unregister_node(:"pup_w3@host3")
+      assert :ok = NamingService.unregister_node(:pup_w3@host3)
 
-      assert NamingService.node_capabilities(:"pup_w3@host3") == nil
+      assert NamingService.node_capabilities(:pup_w3@host3) == nil
     end
 
     test "is idempotent — no error for unknown node" do
-      assert :ok = NamingService.unregister_node(:"nonexistent@nowhere")
+      assert :ok = NamingService.unregister_node(:nonexistent@nowhere)
     end
   end
 
@@ -69,36 +69,36 @@ defmodule CodePuppyControl.Pack.NamingServiceTest do
 
   describe "find_nodes/1" do
     test "returns correct nodes for a sub-agent type" do
-      NamingService.register_capabilities(:"w1@h1", %{
+      NamingService.register_capabilities(:w1@h1, %{
         sub_agents: [:terrier, :watchdog],
         host_os: "linux"
       })
 
-      NamingService.register_capabilities(:"w2@h2", %{
+      NamingService.register_capabilities(:w2@h2, %{
         sub_agents: [:terrier],
         host_os: "macos"
       })
 
-      NamingService.register_capabilities(:"w3@h3", %{
+      NamingService.register_capabilities(:w3@h3, %{
         sub_agents: [:shepherd],
         host_os: "linux"
       })
 
       terrier_nodes = NamingService.find_nodes(:terrier)
-      assert :"w1@h1" in terrier_nodes
-      assert :"w2@h2" in terrier_nodes
-      refute :"w3@h3" in terrier_nodes
+      assert :w1@h1 in terrier_nodes
+      assert :w2@h2 in terrier_nodes
+      refute :w3@h3 in terrier_nodes
 
       watchdog_nodes = NamingService.find_nodes(:watchdog)
-      assert :"w1@h1" in watchdog_nodes
-      refute :"w2@h2" in watchdog_nodes
+      assert :w1@h1 in watchdog_nodes
+      refute :w2@h2 in watchdog_nodes
 
       shepherd_nodes = NamingService.find_nodes(:shepherd)
-      assert [:"w3@h3"] == shepherd_nodes
+      assert [:w3@h3] == shepherd_nodes
     end
 
     test "returns empty list for unknown sub-agent type" do
-      NamingService.register_capabilities(:"w1@h1", %{sub_agents: [:terrier]})
+      NamingService.register_capabilities(:w1@h1, %{sub_agents: [:terrier]})
 
       assert NamingService.find_nodes(:nonexistent_agent) == []
     end
@@ -108,30 +108,30 @@ defmodule CodePuppyControl.Pack.NamingServiceTest do
 
   describe "find_nodes/2 with constraints" do
     test "filters by single constraint" do
-      NamingService.register_capabilities(:"w1@h1", %{
+      NamingService.register_capabilities(:w1@h1, %{
         sub_agents: [:terrier],
         host_os: "linux"
       })
 
-      NamingService.register_capabilities(:"w2@h2", %{
+      NamingService.register_capabilities(:w2@h2, %{
         sub_agents: [:terrier],
         host_os: "macos"
       })
 
       linux_terriers = NamingService.find_nodes(:terrier, host_os: "linux")
 
-      assert :"w1@h1" in linux_terriers
-      refute :"w2@h2" in linux_terriers
+      assert :w1@h1 in linux_terriers
+      refute :w2@h2 in linux_terriers
     end
 
     test "filters by multiple constraints" do
-      NamingService.register_capabilities(:"w1@h1", %{
+      NamingService.register_capabilities(:w1@h1, %{
         sub_agents: [:terrier],
         host_os: "linux",
         available_models: ["claude-sonnet-4-20250514", "gpt-4o"]
       })
 
-      NamingService.register_capabilities(:"w2@h2", %{
+      NamingService.register_capabilities(:w2@h2, %{
         sub_agents: [:terrier],
         host_os: "linux",
         available_models: ["gpt-4o"]
@@ -143,12 +143,12 @@ defmodule CodePuppyControl.Pack.NamingServiceTest do
           available_models: "claude-sonnet-4-20250514"
         )
 
-      assert :"w1@h1" in result
-      refute :"w2@h2" in result
+      assert :w1@h1 in result
+      refute :w2@h2 in result
     end
 
     test "returns empty when no nodes match constraints" do
-      NamingService.register_capabilities(:"w1@h1", %{
+      NamingService.register_capabilities(:w1@h1, %{
         sub_agents: [:terrier],
         host_os: "macos"
       })
@@ -157,13 +157,13 @@ defmodule CodePuppyControl.Pack.NamingServiceTest do
     end
 
     test "accepts map constraints in addition to keyword list" do
-      NamingService.register_capabilities(:"w1@h1", %{
+      NamingService.register_capabilities(:w1@h1, %{
         sub_agents: [:terrier],
         host_os: "linux"
       })
 
       result = NamingService.find_nodes(:terrier, %{host_os: "linux"})
-      assert :"w1@h1" in result
+      assert :w1@h1 in result
     end
   end
 
@@ -174,13 +174,13 @@ defmodule CodePuppyControl.Pack.NamingServiceTest do
       caps1 = %{sub_agents: [:terrier], host_os: "linux"}
       caps2 = %{sub_agents: [:watchdog], host_os: "macos"}
 
-      NamingService.register_capabilities(:"w1@h1", caps1)
-      NamingService.register_capabilities(:"w2@h2", caps2)
+      NamingService.register_capabilities(:w1@h1, caps1)
+      NamingService.register_capabilities(:w2@h2, caps2)
 
       all = NamingService.all_capabilities()
 
-      assert Map.get(all, :"w1@h1") == caps1
-      assert Map.get(all, :"w2@h2") == caps2
+      assert Map.get(all, :w1@h1) == caps1
+      assert Map.get(all, :w2@h2) == caps2
     end
 
     test "returns empty map when no nodes registered" do
@@ -192,14 +192,14 @@ defmodule CodePuppyControl.Pack.NamingServiceTest do
 
   describe "node_capabilities/1" do
     test "returns nil for unknown node" do
-      assert NamingService.node_capabilities(:"nobody@nowhere") == nil
+      assert NamingService.node_capabilities(:nobody@nowhere) == nil
     end
 
     test "returns capabilities for known node" do
       caps = %{sub_agents: [:terrier], host_os: "linux"}
-      NamingService.register_capabilities(:"w1@h1", caps)
+      NamingService.register_capabilities(:w1@h1, caps)
 
-      assert NamingService.node_capabilities(:"w1@h1") == caps
+      assert NamingService.node_capabilities(:w1@h1) == caps
     end
   end
 
@@ -233,9 +233,9 @@ defmodule CodePuppyControl.Pack.NamingServiceTest do
       results = Task.await_many(tasks, 10_000)
 
       assert Enum.all?(results, fn
-        :ok -> true
-        _ -> false
-      end)
+               :ok -> true
+               _ -> false
+             end)
     end
   end
 end

@@ -91,9 +91,10 @@ defmodule CodePuppyControl.RolloutTest do
 
       # At 0%, should always route to Python
       # Try multiple times to be sure
-      results = for _ <- 1..20 do
-        Rollout.should_use_elixir?(@capability)
-      end
+      results =
+        for _ <- 1..20 do
+          Rollout.should_use_elixir?(@capability)
+        end
 
       assert Enum.all?(results, &(&1 == false))
     end
@@ -102,9 +103,10 @@ defmodule CodePuppyControl.RolloutTest do
       FeatureFlags.set_flag(@capability, false)
       Rollout.set_percentage(@capability, 100)
 
-      results = for _ <- 1..20 do
-        Rollout.should_use_elixir?(@capability)
-      end
+      results =
+        for _ <- 1..20 do
+          Rollout.should_use_elixir?(@capability)
+        end
 
       assert Enum.all?(results, &(&1 == true))
     end
@@ -112,9 +114,10 @@ defmodule CodePuppyControl.RolloutTest do
     test "50% returns a mix of true and false over many calls" do
       Rollout.set_percentage(@capability, 50)
 
-      results = for _ <- 1..200 do
-        Rollout.should_use_elixir?(@capability)
-      end
+      results =
+        for _ <- 1..200 do
+          Rollout.should_use_elixir?(@capability)
+        end
 
       true_count = Enum.count(results, & &1)
       # With 200 samples at 50%, we expect roughly 100 ± 40
@@ -333,7 +336,8 @@ defmodule CodePuppyControl.RolloutTest do
       # The capability may or may not be in status depending on whether we
       # recorded any counters. If it's there, check the threshold.
       case Map.get(status.capabilities, @capability) do
-        nil -> :ok  # Not present yet — that's fine
+        # Not present yet — that's fine
+        nil -> :ok
         cap_status -> assert_in_delta cap_status.error_threshold, 0.10, 0.001
       end
     end

@@ -34,14 +34,14 @@ defmodule CodePuppyControl.Pack.ConfigTest do
 
       Application.put_env(:code_puppy_control, :distributed_packs, %{
         enabled: true,
-        workers: [:"pup_w1@localhost"],
+        workers: [:pup_w1@localhost],
         cookie: :my_cookie
       })
 
       config = Config.load()
 
       assert config.enabled == true
-      assert config.workers == [:"pup_w1@localhost"]
+      assert config.workers == [:pup_w1@localhost]
       assert config.cookie == :my_cookie
       # Defaults still present for unoverridden keys
       assert config.connect_timeout == 5_000
@@ -60,12 +60,12 @@ defmodule CodePuppyControl.Pack.ConfigTest do
 
       Application.put_env(:code_puppy_control, :distributed_packs,
         enabled: true,
-        workers: [:"pup_w1@host"]
+        workers: [:pup_w1@host]
       )
 
       config = Config.load()
       assert config.enabled == true
-      assert config.workers == [:"pup_w1@host"]
+      assert config.workers == [:pup_w1@host]
 
       # Restore
       if original do
@@ -121,7 +121,7 @@ defmodule CodePuppyControl.Pack.ConfigTest do
     test "returns configured worker list" do
       original = Application.get_env(:code_puppy_control, :distributed_packs)
 
-      workers = [:"pup_w1@host1", :"pup_w2@host2"]
+      workers = [:pup_w1@host1, :pup_w2@host2]
       Application.put_env(:code_puppy_control, :distributed_packs, %{workers: workers})
 
       assert Config.workers() == workers

@@ -169,11 +169,11 @@ defmodule CodePuppyControl.Application do
       # Periodic scheduler for cron tasks — excluded in test to avoid
       # Ecto-sandbox contention. CronScheduler tests start
       # their own supervised instance instead. (code_puppy-5xd.6)
+      # Distributed packs — Phase I (disabled by default)
+      # Only starts if packs.distributed.enabled = true in puppy.cfg
+      # (code_puppy-yge.2)
       | cron_scheduler_child() ++
-        # Distributed packs — Phase I (disabled by default)
-        # Only starts if packs.distributed.enabled = true in puppy.cfg
-        # (code_puppy-yge.2)
-        maybe_pack_children() ++ [CodePuppyControlWeb.Endpoint]
+          maybe_pack_children() ++ [CodePuppyControlWeb.Endpoint]
     ]
 
     # Relax restart intensity in test to tolerate repeated kills in OTP lifecycle

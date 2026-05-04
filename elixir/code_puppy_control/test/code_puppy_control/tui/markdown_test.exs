@@ -44,6 +44,7 @@ defmodule CodePuppyControl.TUI.MarkdownTest do
 
     test "h1 header produces styled output" do
       result = Markdown.render("# Title")
+
       assert has_any_tag?(result),
              "expected at least one Owl.Tag for header styling"
     end

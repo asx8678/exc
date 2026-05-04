@@ -58,14 +58,17 @@ defmodule CodePuppyControl.Pack.DispatcherTest do
     on_exit(fn ->
       # Clean up any test-registered capabilities
       try do
-        CodePuppyControl.Pack.NamingService.unregister_node(:"pup_test@localhost")
-        CodePuppyControl.Pack.NamingService.unregister_node(:"pup_test2@localhost")
+        CodePuppyControl.Pack.NamingService.unregister_node(:pup_test@localhost)
+        CodePuppyControl.Pack.NamingService.unregister_node(:pup_test2@localhost)
       catch
         :exit, _ -> :ok
       end
     end)
 
-    {:ok, naming_started: naming_started, lb_started: lb_started, node_monitor_started: node_monitor_started}
+    {:ok,
+     naming_started: naming_started,
+     lb_started: lb_started,
+     node_monitor_started: node_monitor_started}
   end
 
   # ---------------------------------------------------------------------------
@@ -123,7 +126,7 @@ defmodule CodePuppyControl.Pack.DispatcherTest do
       Application.put_env(:code_puppy_control, :distributed_packs, %{enabled: true})
 
       # Register a fake worker node in NamingService
-      test_node = :"pup_test@localhost"
+      test_node = :pup_test@localhost
       caps = %{sub_agents: [:terrier, :watchdog], host_os: "linux"}
       CodePuppyControl.Pack.NamingService.register_capabilities(test_node, caps)
 
@@ -143,7 +146,7 @@ defmodule CodePuppyControl.Pack.DispatcherTest do
       Application.put_env(:code_puppy_control, :distributed_packs, %{enabled: true})
 
       # Register a worker that does NOT support :shepherd
-      test_node = :"pup_test2@localhost"
+      test_node = :pup_test2@localhost
       caps = %{sub_agents: [:terrier, :watchdog], host_os: "linux"}
       CodePuppyControl.Pack.NamingService.register_capabilities(test_node, caps)
 
@@ -361,8 +364,8 @@ defmodule CodePuppyControl.Pack.DispatcherTest do
       Application.put_env(:code_puppy_control, :distributed_packs, %{enabled: true})
 
       # Register two workers
-      node_a = :"pup_test@localhost"
-      node_b = :"pup_test2@localhost"
+      node_a = :pup_test@localhost
+      node_b = :pup_test2@localhost
 
       CodePuppyControl.Pack.NamingService.register_capabilities(
         node_a,
@@ -401,7 +404,7 @@ defmodule CodePuppyControl.Pack.DispatcherTest do
       original = Application.get_env(:code_puppy_control, :distributed_packs, %{})
       Application.put_env(:code_puppy_control, :distributed_packs, %{enabled: true})
 
-      test_node = :"pup_test@localhost"
+      test_node = :pup_test@localhost
 
       CodePuppyControl.Pack.NamingService.register_capabilities(
         test_node,
@@ -429,7 +432,7 @@ defmodule CodePuppyControl.Pack.DispatcherTest do
 
   describe "Dispatcher records dispatch/completion via LoadBalancer (Phase I.4)" do
     test "LoadBalancer tracks dispatches when workers registered" do
-      node_a = :"pup_test@localhost"
+      node_a = :pup_test@localhost
 
       CodePuppyControl.Pack.NamingService.register_capabilities(
         node_a,

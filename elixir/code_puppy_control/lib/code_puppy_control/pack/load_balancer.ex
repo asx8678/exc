@@ -175,62 +175,66 @@ defmodule CodePuppyControl.Pack.LoadBalancer do
 
   @impl true
   def handle_cast({:record_dispatch, node_name, run_id}, state) do
-    state = update_in(state.nodes[node_name], fn
-      nil ->
-        Logger.debug("LoadBalancer: dispatch to unknown node #{inspect(node_name)}, initializing")
+    state =
+      update_in(state.nodes[node_name], fn
+        nil ->
+          Logger.debug(
+            "LoadBalancer: dispatch to unknown node #{inspect(node_name)}, initializing"
+          )
 
-        %{
-          active_dispatches: 1,
-          max_concurrent: @default_max_concurrent,
-          total_dispatches: 1,
-          total_completions: 0,
-          total_failures: 0,
-          last_dispatch_at: System.monotonic_time(:millisecond),
-          last_result_at: nil
-        }
+          %{
+            active_dispatches: 1,
+            max_concurrent: @default_max_concurrent,
+            total_dispatches: 1,
+            total_completions: 0,
+            total_failures: 0,
+            last_dispatch_at: System.monotonic_time(:millisecond),
+            last_result_at: nil
+          }
 
-      info ->
-        %{info |
-          active_dispatches: info.active_dispatches + 1,
-          total_dispatches: info.total_dispatches + 1,
-          last_dispatch_at: System.monotonic_time(:millisecond)
-        }
-    end)
+        info ->
+          %{
+            info
+            | active_dispatches: info.active_dispatches + 1,
+              total_dispatches: info.total_dispatches + 1,
+              last_dispatch_at: System.monotonic_time(:millisecond)
+          }
+      end)
 
-    Logger.debug(
-      "LoadBalancer: recorded dispatch run_id=#{run_id} to #{inspect(node_name)}"
-    )
+    Logger.debug("LoadBalancer: recorded dispatch run_id=#{run_id} to #{inspect(node_name)}")
 
     {:noreply, state}
   end
 
   @impl true
   def handle_cast({:record_completion, node_name, run_id, status}, state) do
-    state = update_in(state.nodes[node_name], fn
-      nil ->
-        Logger.debug(
-          "LoadBalancer: completion for unknown node #{inspect(node_name)}, ignoring"
-        )
+    state =
+      update_in(state.nodes[node_name], fn
+        nil ->
+          Logger.debug(
+            "LoadBalancer: completion for unknown node #{inspect(node_name)}, ignoring"
+          )
 
-        nil
+          nil
 
-      info ->
-        active = max(info.active_dispatches - 1, 0)
+        info ->
+          active = max(info.active_dispatches - 1, 0)
 
-        {completions, failures} =
-          case status do
-            :success -> {info.total_completions + 1, info.total_failures}
-            :failure -> {info.total_completions, info.total_failures + 1}
-            :rejected -> {info.total_completions, info.total_failures + 1}
-          end
+          {completions, failures} =
+            case status do
+              :success -> {info.total_completions + 1, info.total_failures}
+              :failure -> {info.total_completions, info.total_failures + 1}
+              :rejected -> {info.total_completions, info.total_failures + 1}
+            end
 
-        %{info |
-          active_dispatches: active,
-          total_completions: completions,
-          total_failures: failures,
-          last_result_at: System.monotonic_time(:millisecond)
-        }
-    end)
+          %{
+            info
+            | active_dispatches: active,
+              total_completions: completions,
+              total_failures: failures,
+              last_result_at: System.monotonic_time(:millisecond)
+          }
+      end)
 
     Logger.debug(
       "LoadBalancer: recorded completion run_id=#{run_id} on #{inspect(node_name)} " <>
@@ -245,30 +249,31 @@ defmodule CodePuppyControl.Pack.LoadBalancer do
     caps = NamingService.node_capabilities(node_name)
     max_concurrent = get_max_concurrent(caps)
 
-    state = update_in(state.nodes[node_name], fn
-      nil ->
-        Logger.info(
-          "LoadBalancer: synced new node #{inspect(node_name)} (max_concurrent: #{max_concurrent})"
-        )
+    state =
+      update_in(state.nodes[node_name], fn
+        nil ->
+          Logger.info(
+            "LoadBalancer: synced new node #{inspect(node_name)} (max_concurrent: #{max_concurrent})"
+          )
 
-        %{
-          active_dispatches: 0,
-          max_concurrent: max_concurrent,
-          total_dispatches: 0,
-          total_completions: 0,
-          total_failures: 0,
-          last_dispatch_at: nil,
-          last_result_at: nil
-        }
+          %{
+            active_dispatches: 0,
+            max_concurrent: max_concurrent,
+            total_dispatches: 0,
+            total_completions: 0,
+            total_failures: 0,
+            last_dispatch_at: nil,
+            last_result_at: nil
+          }
 
-      info ->
-        Logger.debug(
-          "LoadBalancer: synced existing node #{inspect(node_name)} " <>
-            "(max_concurrent: #{info.max_concurrent} -> #{max_concurrent})"
-        )
+        info ->
+          Logger.debug(
+            "LoadBalancer: synced existing node #{inspect(node_name)} " <>
+              "(max_concurrent: #{info.max_concurrent} -> #{max_concurrent})"
+          )
 
-        %{info | max_concurrent: max_concurrent}
-    end)
+          %{info | max_concurrent: max_concurrent}
+      end)
 
     {:noreply, state}
   end

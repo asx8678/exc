@@ -186,7 +186,14 @@ defmodule CodePuppyControl.TUI.Screens.Chat do
                 finalize_renderer(renderer_pid)
 
                 error_msg = %{role: :assistant, content: "Error: #{inspect(reason)}"}
-                {:ok, %{state | messages: new_messages ++ [error_msg], status: :idle, renderer_pid: nil}}
+
+                {:ok,
+                 %{
+                   state
+                   | messages: new_messages ++ [error_msg],
+                     status: :idle,
+                     renderer_pid: nil
+                 }}
             end
           after
             safe_stop_loop(loop_pid)
@@ -196,8 +203,13 @@ defmodule CodePuppyControl.TUI.Screens.Chat do
           Logger.error("Chat: failed to start agent loop: #{inspect(reason)}")
           finalize_renderer(renderer_pid)
 
-          error_msg = %{role: :assistant, content: "Error: failed to start agent loop: #{inspect(reason)}"}
-          {:ok, %{state | messages: new_messages ++ [error_msg], status: :idle, renderer_pid: nil}}
+          error_msg = %{
+            role: :assistant,
+            content: "Error: failed to start agent loop: #{inspect(reason)}"
+          }
+
+          {:ok,
+           %{state | messages: new_messages ++ [error_msg], status: :idle, renderer_pid: nil}}
       end
     catch
       kind, reason ->

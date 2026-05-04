@@ -283,7 +283,7 @@ defmodule CodePuppyControl.Pack.TLSTest do
         Application.put_env(
           :code_puppy_control,
           :distributed_packs,
-          [tls: [enabled: true, certfile: "/c.pem"]]
+          tls: [enabled: true, certfile: "/c.pem"]
         )
 
         result = TLS.load_config()

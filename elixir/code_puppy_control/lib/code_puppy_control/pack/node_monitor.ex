@@ -233,20 +233,22 @@ defmodule CodePuppyControl.Pack.NodeMonitor do
 
   @impl true
   def handle_cast({:register_run, node_name, run_id}, state) do
-    state = update_in(state.nodes[node_name], fn
-      nil -> nil
-      info -> %{info | active_runs: [run_id | info.active_runs]}
-    end)
+    state =
+      update_in(state.nodes[node_name], fn
+        nil -> nil
+        info -> %{info | active_runs: [run_id | info.active_runs]}
+      end)
 
     {:noreply, state}
   end
 
   @impl true
   def handle_cast({:unregister_run, node_name, run_id}, state) do
-    state = update_in(state.nodes[node_name], fn
-      nil -> nil
-      info -> %{info | active_runs: List.delete(info.active_runs, run_id)}
-    end)
+    state =
+      update_in(state.nodes[node_name], fn
+        nil -> nil
+        info -> %{info | active_runs: List.delete(info.active_runs, run_id)}
+      end)
 
     {:noreply, state}
   end
@@ -264,10 +266,11 @@ defmodule CodePuppyControl.Pack.NodeMonitor do
     safe_remove_lb(node_name)
 
     # Update node status
-    state = update_in(state.nodes[node_name], fn
-      nil -> nil
-      info -> %{info | status: :shutting_down, active_runs: []}
-    end)
+    state =
+      update_in(state.nodes[node_name], fn
+        nil -> nil
+        info -> %{info | status: :shutting_down, active_runs: []}
+      end)
 
     {:noreply, state}
   end
@@ -282,9 +285,10 @@ defmodule CodePuppyControl.Pack.NodeMonitor do
       Logger.info("NodeMonitor: received capabilities from #{inspect(worker_node)}")
 
       # Update node info with capabilities
-      state = update_in(state.nodes[worker_node], fn info ->
-        %{info | capabilities: capabilities}
-      end)
+      state =
+        update_in(state.nodes[worker_node], fn info ->
+          %{info | capabilities: capabilities}
+        end)
 
       # Register in NamingService
       CodePuppyControl.Pack.NamingService.register_capabilities(worker_node, capabilities)
@@ -296,7 +300,10 @@ defmodule CodePuppyControl.Pack.NodeMonitor do
 
       {:noreply, state}
     else
-      Logger.debug("NodeMonitor: ignoring capabilities from unconfigured node #{inspect(worker_node)}")
+      Logger.debug(
+        "NodeMonitor: ignoring capabilities from unconfigured node #{inspect(worker_node)}"
+      )
+
       {:noreply, state}
     end
   end

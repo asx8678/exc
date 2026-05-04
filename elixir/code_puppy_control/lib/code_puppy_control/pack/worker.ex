@@ -187,9 +187,7 @@ defmodule CodePuppyControl.Pack.Worker do
           {:noreply, state}
 
         {:error, {:duplicate_run_id, run_id}} ->
-          Logger.warning(
-            "PackWorker: rejected duplicate dispatch for run_id=#{run_id}"
-          )
+          Logger.warning("PackWorker: rejected duplicate dispatch for run_id=#{run_id}")
 
           reject_dispatch(dispatch_msg, :duplicate)
 
@@ -453,9 +451,7 @@ defmodule CodePuppyControl.Pack.Worker do
         e ->
           PackTelemetry.dispatch_exception(run_id, Exception.message(e))
 
-          Logger.error(
-            "PackWorker: sub-agent #{inspect(sub_agent_name)} crashed: #{inspect(e)}"
-          )
+          Logger.error("PackWorker: sub-agent #{inspect(sub_agent_name)} crashed: #{inspect(e)}")
 
           send_result_back(dispatch_msg, %{
             status: :failure,

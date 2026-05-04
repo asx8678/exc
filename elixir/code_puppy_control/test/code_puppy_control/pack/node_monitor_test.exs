@@ -90,7 +90,7 @@ defmodule CodePuppyControl.Pack.NodeMonitorTest do
     end
 
     test "initializes configured workers as disconnected", %{name: name} do
-      worker = :"pup_test_w@localhost"
+      worker = :pup_test_w@localhost
 
       start_supervised({
         NodeMonitor,
@@ -103,7 +103,7 @@ defmodule CodePuppyControl.Pack.NodeMonitorTest do
     end
 
     test "updates state on simulated nodeup", %{name: name} do
-      worker = :"pup_test_w2@localhost"
+      worker = :pup_test_w2@localhost
 
       {:ok, pid} =
         start_supervised({
@@ -128,7 +128,7 @@ defmodule CodePuppyControl.Pack.NodeMonitorTest do
     end
 
     test "emits telemetry on nodeup", %{name: name} do
-      worker = :"pup_test_w3@localhost"
+      worker = :pup_test_w3@localhost
 
       {:ok, pid} =
         start_supervised({
@@ -148,7 +148,7 @@ defmodule CodePuppyControl.Pack.NodeMonitorTest do
     end
 
     test "updates state on simulated nodedown", %{name: name} do
-      worker = :"pup_test_w4@localhost"
+      worker = :pup_test_w4@localhost
 
       {:ok, pid} =
         start_supervised({
@@ -185,8 +185,8 @@ defmodule CodePuppyControl.Pack.NodeMonitorTest do
     end
 
     test "emits reconnected telemetry when previously-disconnected node reconnects",
-        %{name: name} do
-      worker = :"pup_test_w5@localhost"
+         %{name: name} do
+      worker = :pup_test_w5@localhost
 
       {:ok, pid} =
         start_supervised({
@@ -236,8 +236,8 @@ defmodule CodePuppyControl.Pack.NodeMonitorTest do
     end
 
     test "connected_nodes/0 returns only connected nodes", %{name: name} do
-      w1 = :"pup_w1@localhost"
-      w2 = :"pup_w2@localhost"
+      w1 = :pup_w1@localhost
+      w2 = :pup_w2@localhost
 
       {:ok, pid} =
         start_supervised({
@@ -268,7 +268,7 @@ defmodule CodePuppyControl.Pack.NodeMonitorTest do
           [enabled: true, workers: [], heartbeat_interval: 60_000, name: name]
         })
 
-      unknown = :"unknown@alien_host"
+      unknown = :unknown@alien_host
 
       send(pid, {:nodeup, unknown, []})
       Process.sleep(50)
@@ -284,7 +284,7 @@ defmodule CodePuppyControl.Pack.NodeMonitorTest do
           [enabled: true, workers: [], heartbeat_interval: 60_000, name: name]
         })
 
-      unknown = :"unknown@alien_host"
+      unknown = :unknown@alien_host
 
       send(pid, {:nodedown, unknown, []})
       Process.sleep(50)
@@ -299,7 +299,7 @@ defmodule CodePuppyControl.Pack.NodeMonitorTest do
         [enabled: true, workers: [], heartbeat_interval: 60_000, name: name]
       })
 
-      assert NodeMonitor.node_status(:"totally_unknown@nowhere", name) == nil
+      assert NodeMonitor.node_status(:totally_unknown@nowhere, name) == nil
     end
   end
 
@@ -307,7 +307,7 @@ defmodule CodePuppyControl.Pack.NodeMonitorTest do
 
   describe "in-flight run tracking (Phase I.4)" do
     test "register_run/2 adds run to node's active_runs", %{name: name} do
-      worker = :"pup_run_test@localhost"
+      worker = :pup_run_test@localhost
 
       start_supervised({
         NodeMonitor,
@@ -325,7 +325,7 @@ defmodule CodePuppyControl.Pack.NodeMonitorTest do
     end
 
     test "unregister_run/2 removes it", %{name: name} do
-      worker = :"pup_run_test2@localhost"
+      worker = :pup_run_test2@localhost
 
       start_supervised({
         NodeMonitor,
@@ -357,11 +357,11 @@ defmodule CodePuppyControl.Pack.NodeMonitorTest do
       })
 
       # Unknown node has no active runs
-      assert NodeMonitor.active_runs(:"unknown@nowhere", name) == []
+      assert NodeMonitor.active_runs(:unknown@nowhere, name) == []
     end
 
     test "grace expiry clears active_runs AND removes from LoadBalancer", %{name: name} do
-      worker = :"pup_grace_test@localhost"
+      worker = :pup_grace_test@localhost
 
       # Start NamingService and LoadBalancer for this test
       {:ok, _} = start_supervised({CodePuppyControl.Pack.NamingService, []})

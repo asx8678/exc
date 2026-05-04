@@ -89,14 +89,10 @@ defmodule Mix.Tasks.CodePuppy.GenDistCerts do
     {:Subject, {:rdnSequence, subject_attrs}} = ca_subject()
 
     :public_key.pkix_sign(
-      {:OTPTBSCertificate,
-       :v3,
-       generate_serial(),
+      {:OTPTBSCertificate, :v3, generate_serial(),
        {:AlgorithmIdentifier, {:rsaEncryption, 1}, :asn1_NO_VALUE},
-       {:AlgorithmIdentifier, {:rsaEncryption, 1}, :asn1_NO_VALUE},
-       subject_attrs,
-       {:Validity, from_time(), to_time()},
-       subject_attrs,
+       {:AlgorithmIdentifier, {:rsaEncryption, 1}, :asn1_NO_VALUE}, subject_attrs,
+       {:Validity, from_time(), to_time()}, subject_attrs,
        {:SubjectPublicKeyInfo, {:AlgorithmIdentifier, {:rsaEncryption, 1}, :asn1_NO_VALUE}, key},
        :asn1_NO_VALUE,
        [
@@ -111,14 +107,10 @@ defmodule Mix.Tasks.CodePuppy.GenDistCerts do
     {:Subject, {:rdnSequence, subject_attrs}} = node_subject(name)
 
     :public_key.pkix_sign(
-      {:OTPTBSCertificate,
-       :v3,
-       generate_serial(),
+      {:OTPTBSCertificate, :v3, generate_serial(),
        {:AlgorithmIdentifier, {:rsaEncryption, 1}, :asn1_NO_VALUE},
-       {:AlgorithmIdentifier, {:rsaEncryption, 1}, :asn1_NO_VALUE},
-       subject_attrs,
-       {:Validity, from_time(), to_time()},
-       ca_subject_attrs(),
+       {:AlgorithmIdentifier, {:rsaEncryption, 1}, :asn1_NO_VALUE}, subject_attrs,
+       {:Validity, from_time(), to_time()}, ca_subject_attrs(),
        {:SubjectPublicKeyInfo, {:AlgorithmIdentifier, {:rsaEncryption, 1}, :asn1_NO_VALUE}, key},
        :asn1_NO_VALUE,
        [

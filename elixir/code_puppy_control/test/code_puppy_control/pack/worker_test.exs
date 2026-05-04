@@ -69,8 +69,9 @@ defmodule CodePuppyControl.Pack.WorkerTest do
 
     test "returns error for duplicate run_id" do
       state = %{active_runs: %{"run-existing" => %{sub_agent: :terrier, started_at: 0}}}
+
       assert {:error, {:duplicate_run_id, "run-existing"}} =
-        Worker.check_duplicate_run_id("run-existing", state)
+               Worker.check_duplicate_run_id("run-existing", state)
     end
 
     test "returns :ok for different run_id when others are active" do
@@ -161,11 +162,12 @@ defmodule CodePuppyControl.Pack.WorkerTest do
       # An ephemeral worker that never had active runs won't auto-shutdown
       # (idle_since is only set after a run completes). This test verifies
       # the ephemeral worker starts correctly and doesn't crash on timers.
-      {:ok, pid} = start_worker(
-        mode: :ephemeral,
-        idle_timeout_ms: 50,
-        capabilities: %{sub_agents: []}
-      )
+      {:ok, pid} =
+        start_worker(
+          mode: :ephemeral,
+          idle_timeout_ms: 50,
+          capabilities: %{sub_agents: []}
+        )
 
       # Worker is alive — it waits for work, not shutting down
       assert Process.alive?(pid)

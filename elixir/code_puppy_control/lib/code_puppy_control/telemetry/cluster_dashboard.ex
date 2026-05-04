@@ -165,11 +165,16 @@ defmodule CodePuppyControl.Telemetry.ClusterDashboard do
     state = process_telemetry_event(event, measurements, metadata, state)
 
     # Broadcast update to subscribers
-    Phoenix.PubSub.broadcast(@pubsub, @dashboard_topic, {:dashboard_update, %{
-      event: event,
-      metadata: metadata,
-      cluster_health: cluster_health(state)
-    }})
+    Phoenix.PubSub.broadcast(
+      @pubsub,
+      @dashboard_topic,
+      {:dashboard_update,
+       %{
+         event: event,
+         metadata: metadata,
+         cluster_health: cluster_health(state)
+       }}
+    )
 
     {:noreply, state}
   end
@@ -179,35 +184,60 @@ defmodule CodePuppyControl.Telemetry.ClusterDashboard do
 
   # ── Telemetry Processing ────────────────────────────────────────────────
 
-  defp process_telemetry_event([:code_puppy, :distributed_pack, :node, :connected], _m, meta, state) do
+  defp process_telemetry_event(
+         [:code_puppy, :distributed_pack, :node, :connected],
+         _m,
+         meta,
+         state
+       ) do
     node = Map.get(meta, :node)
     caps = Map.get(meta, :capabilities, %{})
 
-    state = %{state | nodes: Map.put(state.nodes, node, %{
-      status: :connected,
-      connected_at: System.monotonic_time(:millisecond),
-      capabilities: caps,
-      active_runs: 0,
-      total_completed: 0,
-      last_seen: System.monotonic_time(:millisecond)
-    })}
+    state = %{
+      state
+      | nodes:
+          Map.put(state.nodes, node, %{
+            status: :connected,
+            connected_at: System.monotonic_time(:millisecond),
+            capabilities: caps,
+            active_runs: 0,
+            total_completed: 0,
+            last_seen: System.monotonic_time(:millisecond)
+          })
+    }
 
     Logger.info("ClusterDashboard: node connected — #{inspect(node)}")
     state
   end
 
-  defp process_telemetry_event([:code_puppy, :distributed_pack, :node, :disconnected], _m, meta, state) do
+  defp process_telemetry_event(
+         [:code_puppy, :distributed_pack, :node, :disconnected],
+         _m,
+         meta,
+         state
+       ) do
     node = Map.get(meta, :node)
 
-    state = update_in(state.nodes, [node], fn info ->
-      %{info | status: :disconnected, last_seen: System.monotonic_time(:millisecond)}
-    end, fn -> nil end)
+    state =
+      update_in(
+        state.nodes,
+        [node],
+        fn info ->
+          %{info | status: :disconnected, last_seen: System.monotonic_time(:millisecond)}
+        end,
+        fn -> nil end
+      )
 
     Logger.info("ClusterDashboard: node disconnected — #{inspect(node)}")
     state
   end
 
-  defp process_telemetry_event([:code_puppy, :distributed_pack, :dispatch, :start], _m, meta, state) do
+  defp process_telemetry_event(
+         [:code_puppy, :distributed_pack, :dispatch, :start],
+         _m,
+         meta,
+         state
+       ) do
     run_id = Map.get(meta, :run_id)
     target = Map.get(meta, :target_node)
 
@@ -220,20 +250,32 @@ defmodule CodePuppyControl.Telemetry.ClusterDashboard do
       timestamp: System.monotonic_time(:millisecond)
     }
 
-    state = %{state |
-      dispatch_history: [entry | state.dispatch_history],
-      total_dispatches: state.total_dispatches + 1
+    state = %{
+      state
+      | dispatch_history: [entry | state.dispatch_history],
+        total_dispatches: state.total_dispatches + 1
     }
 
     # Increment active_runs on the target node
-    state = update_in(state.nodes, [target], fn info ->
-      if info, do: %{info | active_runs: info.active_runs + 1}, else: nil
-    end, fn -> nil end)
+    state =
+      update_in(
+        state.nodes,
+        [target],
+        fn info ->
+          if info, do: %{info | active_runs: info.active_runs + 1}, else: nil
+        end,
+        fn -> nil end
+      )
 
     state
   end
 
-  defp process_telemetry_event([:code_puppy, :distributed_pack, :dispatch, :stop], _m, meta, state) do
+  defp process_telemetry_event(
+         [:code_puppy, :distributed_pack, :dispatch, :stop],
+         _m,
+         meta,
+         state
+       ) do
     run_id = Map.get(meta, :run_id)
     status = Map.get(meta, :status)
 
@@ -241,25 +283,35 @@ defmodule CodePuppyControl.Telemetry.ClusterDashboard do
     state = update_dispatch_entry(state, run_id, :completed, nil)
 
     # Update counters
-    state = case status do
-      :success -> %{state | total_successes: state.total_successes + 1}
-      _ -> %{state | total_failures: state.total_failures + 1}
-    end
+    state =
+      case status do
+        :success -> %{state | total_successes: state.total_successes + 1}
+        _ -> %{state | total_failures: state.total_failures + 1}
+      end
 
     # Decrement active_runs on the target node
-    state = Enum.reduce(state.nodes, state, fn {node_name, info}, acc ->
-      if info.active_runs > 0 do
-        put_in(acc.nodes[node_name], %{info | active_runs: info.active_runs - 1,
-          total_completed: info.total_completed + 1})
-      else
-        acc
-      end
-    end)
+    state =
+      Enum.reduce(state.nodes, state, fn {node_name, info}, acc ->
+        if info.active_runs > 0 do
+          put_in(acc.nodes[node_name], %{
+            info
+            | active_runs: info.active_runs - 1,
+              total_completed: info.total_completed + 1
+          })
+        else
+          acc
+        end
+      end)
 
     state
   end
 
-  defp process_telemetry_event([:code_puppy, :distributed_pack, :dispatch, :exception], _m, meta, state) do
+  defp process_telemetry_event(
+         [:code_puppy, :distributed_pack, :dispatch, :exception],
+         _m,
+         meta,
+         state
+       ) do
     run_id = Map.get(meta, :run_id)
 
     state = update_dispatch_entry(state, run_id, :failed, nil)
@@ -271,13 +323,14 @@ defmodule CodePuppyControl.Telemetry.ClusterDashboard do
   # ── Helpers ──────────────────────────────────────────────────────────────
 
   defp update_dispatch_entry(state, run_id, status, duration_ms) do
-    history = Enum.map(state.dispatch_history, fn entry ->
-      if entry.run_id == run_id and entry.status == :started do
-        %{entry | status: status, duration_ms: duration_ms}
-      else
-        entry
-      end
-    end)
+    history =
+      Enum.map(state.dispatch_history, fn entry ->
+        if entry.run_id == run_id and entry.status == :started do
+          %{entry | status: status, duration_ms: duration_ms}
+        else
+          entry
+        end
+      end)
 
     %{state | dispatch_history: history}
   end

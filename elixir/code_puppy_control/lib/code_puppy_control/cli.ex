@@ -70,7 +70,11 @@ defmodule CodePuppyControl.CLI do
     * `:interactive_default`     — Plain interactive REPL (no prompt / empty prompt)
   """
   @spec resolve_run_mode(map()) ::
-          :one_shot | :interactive_with_prompt | :continue_session | :interactive_default | :worker_mode
+          :one_shot
+          | :interactive_with_prompt
+          | :continue_session
+          | :interactive_default
+          | :worker_mode
   def resolve_run_mode(opts) do
     case opts do
       %{worker: true} ->
@@ -169,10 +173,11 @@ defmodule CodePuppyControl.CLI do
     IO.puts("Starting worker node: #{Node.self()}")
     IO.puts("Waiting for leader connection...")
 
-    {:ok, _} = CodePuppyControl.Pack.Worker.Application.start_link(
-      node_name: Node.self(),
-      mode: :persistent
-    )
+    {:ok, _} =
+      CodePuppyControl.Pack.Worker.Application.start_link(
+        node_name: Node.self(),
+        mode: :persistent
+      )
 
     # Block until shutdown (worker runs indefinitely)
     Process.sleep(:infinity)
