@@ -481,13 +481,58 @@ defmodule CodePuppyControl.CLI.SmokeTest do
 
     test "no_python_packaged_env cleans up Python worker script vars" do
       env = Smoke.no_python_packaged_env()
-      assert List.keyfind(env, "PUP_PYTHON_WORKER_SCRIPT", 0) == {"PUP_PYTHON_WORKER_SCRIPT", ""}
-      assert List.keyfind(env, "PYTHON_WORKER_SCRIPT", 0) == {"PYTHON_WORKER_SCRIPT", ""}
+      # nil values are interpreted by System.cmd/3 as "unset in child
+      # process" — they must NOT be empty strings (which could be
+      # misinterpreted as a configured path).
+      assert List.keyfind(env, "PUP_PYTHON_WORKER_SCRIPT", 0) ==
+               {"PUP_PYTHON_WORKER_SCRIPT", nil}
+
+      assert List.keyfind(env, "PYTHON_WORKER_SCRIPT", 0) ==
+               {"PYTHON_WORKER_SCRIPT", nil}
     end
 
     test "no_python_packaged_env includes PUP_SMOKE_PROBE" do
       env = Smoke.no_python_packaged_env()
       assert List.keyfind(env, "PUP_SMOKE_PROBE", 0) == {"PUP_SMOKE_PROBE", "1"}
+    end
+
+    test "no_python_packaged_env places sanitized PATH dir under sandbox_dir" do
+      sandbox_dir = System.tmp_dir!()
+      env = Smoke.no_python_packaged_env(sandbox_dir: sandbox_dir)
+
+      # PATH should point inside the sandbox dir
+      {"PATH", path} = List.keyfind(env, "PATH", 0)
+
+      assert String.starts_with?(path, sandbox_dir),
+             "sanitized PATH dir should be under sandbox_dir; got: #{path}"
+
+      # Clean up the tiny dir we just created
+      File.rm_rf(path)
+    end
+
+    test "no_python_packaged_env falls back to tmp when sandbox_dir is nil" do
+      env = Smoke.no_python_packaged_env(sandbox_dir: nil)
+
+      {"PATH", path} = List.keyfind(env, "PATH", 0)
+
+      assert String.starts_with?(path, System.tmp_dir!()),
+             "sanitized PATH dir should fall back to tmp_dir; got: #{path}"
+
+      File.rm_rf(path)
+    end
+
+    test "PUP_RUNTIME is restored even when a phase fails" do
+      pre = System.get_env("PUP_RUNTIME")
+
+      # Pass an unknown phase that will produce a :fail result.
+      # The env must still be restored.
+      _ =
+        Smoke.run_phases([no_python: true, phases: [:unknown_phase_xyz]], %{
+          dir: "/tmp/fake_sandbox"
+        })
+
+      post = System.get_env("PUP_RUNTIME")
+      assert pre == post, "PUP_RUNTIME was not restored after failing no_python run"
     end
   end
 

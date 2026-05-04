@@ -465,9 +465,12 @@ defmodule CodePuppyControl.Run.State do
         {:stop, :normal, state}
 
       elapsed > @inactivity_timeout * 2 ->
-        # Force shutdown even if still running (something is wrong)
-        Logger.warning("Run #{state.run_id} stuck for too long, forcing shutdown")
-        RunExecutor.terminate_executor(state.run_id)
+        # Force shutdown even if still running (something is wrong).
+        # Use the executor module stored in metadata at start time
+        # so a mid-flight PUP_RUNTIME change does not redirect
+        # termination to the wrong backend.
+        executor_mod = Map.get(state.metadata, :executor_module, RunExecutor)
+        executor_mod.terminate_executor(state.run_id)
         {:stop, :normal, state}
 
       true ->

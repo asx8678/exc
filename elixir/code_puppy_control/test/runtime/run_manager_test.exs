@@ -431,4 +431,140 @@ defmodule CodePuppyControl.Runtime.RunManagerTest do
       assert {:error, :not_found} = Manager.get_run(run_id)
     end
   end
+
+  # ---------------------------------------------------------------------------
+  # Executor boundary: explicit-module variants (code-puppy-96g follow-up)
+  # ---------------------------------------------------------------------------
+  # Regression: lifecycle operations must use the executor module stored
+  # in the run's metadata at start time, not the current runtime selection.
+  # If PUP_RUNTIME changes mid-flight, cancel/delete must still route to
+  # the original executor.
+
+  # Two fake executor modules that record which module handled each call.
+  defmodule FakeExecutorA do
+    @behaviour CodePuppyControl.Run.Executor.Behaviour
+
+    @impl true
+    def start_executor(run_id, _opts) do
+      send(test_process(), {:executor_a, :start, run_id})
+      CodePuppyControl.Run.Executor.Elixir.start_executor(run_id, opts: [])
+    end
+
+    @impl true
+    def begin_run(run_id, _opts) do
+      send(test_process(), {:executor_a, :begin, run_id})
+      :ok
+    end
+
+    @impl true
+    def cancel_run(run_id) do
+      send(test_process(), {:executor_a, :cancel, run_id})
+      :ok
+    end
+
+    @impl true
+    def terminate_executor(run_id) do
+      send(test_process(), {:executor_a, :terminate, run_id})
+      :ok
+    end
+
+    defp test_process, do: Application.get_env(:code_puppy_control, :executor_test_pid)
+  end
+
+  defmodule FakeExecutorB do
+    @behaviour CodePuppyControl.Run.Executor.Behaviour
+
+    @impl true
+    def start_executor(run_id, _opts) do
+      send(test_process(), {:executor_b, :start, run_id})
+      CodePuppyControl.Run.Executor.Elixir.start_executor(run_id, opts: [])
+    end
+
+    @impl true
+    def begin_run(run_id, _opts) do
+      send(test_process(), {:executor_b, :begin, run_id})
+      :ok
+    end
+
+    @impl true
+    def cancel_run(run_id) do
+      send(test_process(), {:executor_b, :cancel, run_id})
+      :ok
+    end
+
+    @impl true
+    def terminate_executor(run_id) do
+      send(test_process(), {:executor_b, :terminate, run_id})
+      :ok
+    end
+
+    defp test_process, do: Application.get_env(:code_puppy_control, :executor_test_pid)
+  end
+
+  describe "Executor boundary: explicit-module cancel/delete" do
+    setup do
+      saved_app = Application.get_env(:code_puppy_control, :run_executor_module)
+
+      on_exit(fn ->
+        case saved_app do
+          nil -> Application.delete_env(:code_puppy_control, :run_executor_module)
+          v -> Application.put_env(:code_puppy_control, :run_executor_module, v)
+        end
+
+        Application.delete_env(:code_puppy_control, :executor_test_pid)
+      end)
+
+      :ok
+    end
+
+    test "cancel_run uses original executor even when runtime changes" do
+      # Start with FakeExecutorA
+      Application.put_env(:code_puppy_control, :run_executor_module, FakeExecutorA)
+      Application.put_env(:code_puppy_control, :executor_test_pid, self())
+
+      assert {:ok, run_id} = Manager.start_run("boundary-cancel-session", "boundary-agent")
+
+      # Should have received executor_a start and begin messages
+      assert_received {:executor_a, :start, ^run_id}
+      assert_received {:executor_a, :begin, ^run_id}
+
+      # Switch to FakeExecutorB mid-flight
+      Application.put_env(:code_puppy_control, :run_executor_module, FakeExecutorB)
+
+      # Cancel should still route through FakeExecutorA (the original)
+      assert :ok = Manager.cancel_run(run_id, "runtime_changed")
+      assert_received {:executor_a, :cancel, ^run_id}
+      refute_received {:executor_b, :cancel, _}
+
+      Manager.delete_run(run_id)
+    end
+
+    test "delete_run uses original executor even when runtime changes" do
+      # Start with FakeExecutorA
+      Application.put_env(:code_puppy_control, :run_executor_module, FakeExecutorA)
+      Application.put_env(:code_puppy_control, :executor_test_pid, self())
+
+      assert {:ok, run_id} = Manager.start_run("boundary-delete-session", "boundary-agent")
+
+      # Switch to FakeExecutorB mid-flight
+      Application.put_env(:code_puppy_control, :run_executor_module, FakeExecutorB)
+
+      # Delete should still route through FakeExecutorA (the original)
+      assert :ok = Manager.delete_run(run_id)
+      assert_received {:executor_a, :terminate, ^run_id}
+      refute_received {:executor_b, :terminate, _}
+    end
+
+    test "metadata stores the executor module from start time" do
+      Application.put_env(:code_puppy_control, :run_executor_module, FakeExecutorA)
+      Application.put_env(:code_puppy_control, :executor_test_pid, self())
+
+      assert {:ok, run_id} = Manager.start_run("boundary-meta-session", "boundary-agent")
+
+      assert {:ok, state} = Manager.get_run(run_id)
+      assert state.metadata.executor_module == FakeExecutorA
+
+      Manager.delete_run(run_id)
+    end
+  end
 end

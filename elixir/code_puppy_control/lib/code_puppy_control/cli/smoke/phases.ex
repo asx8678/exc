@@ -288,6 +288,7 @@ defmodule CodePuppyControl.CLI.Smoke.Phases do
   @spec escript(keyword()) :: phase_result()
   def escript(opts \\ []) do
     no_python = Keyword.get(opts, :no_python, false)
+    sandbox_dir = Keyword.get(opts, :sandbox_dir)
 
     candidates = [
       Path.join(File.cwd!(), "pup"),
@@ -307,7 +308,7 @@ defmodule CodePuppyControl.CLI.Smoke.Phases do
         }
 
       path ->
-        probe_packaged_cli(:escript, path, no_python: no_python)
+        probe_packaged_cli(:escript, path, no_python: no_python, sandbox_dir: sandbox_dir)
     end
   end
 
@@ -323,10 +324,11 @@ defmodule CodePuppyControl.CLI.Smoke.Phases do
   @spec burrito(keyword()) :: phase_result()
   def burrito(opts \\ []) do
     no_python = Keyword.get(opts, :no_python, false)
+    sandbox_dir = Keyword.get(opts, :sandbox_dir)
 
     case BurritoArtifact.find_burrito_artifact() do
       {:ok, path} ->
-        probe_packaged_cli(:burrito, path, no_python: no_python)
+        probe_packaged_cli(:burrito, path, no_python: no_python, sandbox_dir: sandbox_dir)
 
       {:skip, reason, metrics} ->
         %{
@@ -372,8 +374,14 @@ defmodule CodePuppyControl.CLI.Smoke.Phases do
   # detect-and-shortcircuit if they ever need to.
   defp probe_packaged_cli(phase, path, opts) do
     no_python = Keyword.get(opts, :no_python, false)
+    sandbox_dir = Keyword.get(opts, :sandbox_dir)
 
-    env = if no_python, do: Smoke.no_python_packaged_env(), else: packaged_cli_env()
+    env =
+      if no_python do
+        Smoke.no_python_packaged_env(sandbox_dir: sandbox_dir)
+      else
+        packaged_cli_env()
+      end
 
     with {:version, {ver_out, 0}} <-
            {:version, System.cmd(path, ["--version"], stderr_to_stdout: true, env: env)},

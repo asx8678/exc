@@ -52,8 +52,16 @@ defmodule CodePuppyControl.Run.Executor do
     end
   end
 
+  # ── Runtime-selected (facade) API ───────────────────────────────────
+  #
+  # These functions select the executor module from PUP_RUNTIME / app env
+  # at call time.  Prefer the explicit-module variants below for all
+  # lifecycle operations on an *existing* run so that the executor
+  # module used at start time is preserved even if the runtime mode
+  # changes mid-flight.
+
   @doc """
-  Start an executor process for the given run.
+  Start an executor process for the given run (runtime-selected module).
 
   Delegates to `executor_module().start_executor/2`.
   """
@@ -64,7 +72,7 @@ defmodule CodePuppyControl.Run.Executor do
   end
 
   @doc """
-  Begin execution of a previously-started run.
+  Begin execution of a previously-started run (runtime-selected module).
 
   Delegates to `executor_module().begin_run/2`.
   """
@@ -75,7 +83,7 @@ defmodule CodePuppyControl.Run.Executor do
   end
 
   @doc """
-  Cancel a running run.
+  Cancel a running run (runtime-selected module).
 
   Delegates to `executor_module().cancel_run/1`.
   """
@@ -86,13 +94,53 @@ defmodule CodePuppyControl.Run.Executor do
   end
 
   @doc """
-  Terminate the executor process for a run.
+  Terminate the executor process for a run (runtime-selected module).
 
   Delegates to `executor_module().terminate_executor/1`.
   """
   @spec terminate_executor(String.t()) :: :ok | {:error, :not_found}
   def terminate_executor(run_id) do
     mod = executor_module()
+    mod.terminate_executor(run_id)
+  end
+
+  # ── Explicit-module variants ──────────────────────────────────────
+  #
+  # These accept an explicit executor module (typically derived from
+  # the run's stored metadata) so that lifecycle operations always use
+  # the same executor backend that was selected at start time, even if
+  # PUP_RUNTIME or the app-env override changes mid-flight.
+
+  @doc """
+  Start an executor process for the given run using an explicit module.
+  """
+  @spec start_executor(String.t(), keyword(), module()) ::
+          {:ok, pid()} | {:error, term()}
+  def start_executor(run_id, opts, mod) do
+    mod.start_executor(run_id, opts)
+  end
+
+  @doc """
+  Begin execution of a previously-started run using an explicit module.
+  """
+  @spec begin_run(String.t(), keyword(), module()) :: :ok | {:error, term()}
+  def begin_run(run_id, opts, mod) do
+    mod.begin_run(run_id, opts)
+  end
+
+  @doc """
+  Cancel a running run using an explicit module.
+  """
+  @spec cancel_run(String.t(), module()) :: :ok | {:error, term()}
+  def cancel_run(run_id, mod) do
+    mod.cancel_run(run_id)
+  end
+
+  @doc """
+  Terminate the executor process for a run using an explicit module.
+  """
+  @spec terminate_executor(String.t(), module()) :: :ok | {:error, :not_found}
+  def terminate_executor(run_id, mod) do
     mod.terminate_executor(run_id)
   end
 end

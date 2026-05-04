@@ -72,7 +72,8 @@ defmodule CodePuppyControl.Run.Manager do
     # Start executor first (Elixir or Python)
     executor_opts = [config: config, session_id: session_id, agent_name: agent_name]
 
-    with {:ok, executor_pid} <- Executor.start_executor(run_id, executor_opts),
+    with {:ok, executor_pid} <-
+           Executor.start_executor(run_id, executor_opts, executor_mod),
          # Start run state tracker with link to executor/worker
          {:ok, _state_pid} <-
            Run.Supervisor.start_run(run_id,
@@ -81,8 +82,9 @@ defmodule CodePuppyControl.Run.Manager do
              worker_pid: executor_pid,
              metadata: full_metadata
            ) do
-      # Tell executor to begin the run
-      Executor.begin_run(run_id, executor_opts)
+      # Tell executor to begin the run — use the same module that
+      # was selected at start time, not the current runtime.
+      Executor.begin_run(run_id, executor_opts, executor_mod)
 
       Logger.info("Run #{run_id} started successfully with executor #{inspect(executor_pid)}")
       {:ok, run_id}
@@ -90,8 +92,9 @@ defmodule CodePuppyControl.Run.Manager do
       {:error, reason} = error ->
         Logger.error("Failed to start run #{run_id}: #{inspect(reason)}")
 
-        # Cleanup any partial state
-        cleanup_failed_start(run_id)
+        # Cleanup any partial state — pass the executor module we
+        # already selected so cleanup targets the right backend.
+        cleanup_failed_start(run_id, executor_mod)
 
         error
     end
@@ -127,9 +130,14 @@ defmodule CodePuppyControl.Run.Manager do
         # Already finished, nothing to do
         :ok
 
-      {:ok, _} ->
-        # Send cancel to executor, update state
-        Executor.cancel_run(run_id)
+      {:ok, state} ->
+        # Use the executor module stored in metadata at start time,
+        # not the current runtime — a mid-flight PUP_RUNTIME change
+        # must not redirect cancellation to the wrong backend.
+        executor_mod = Map.get(state.metadata, :executor_module, Executor.executor_module())
+
+        # Send cancel to executor and update state
+        Executor.cancel_run(run_id, executor_mod)
         Run.State.cancel(run_id, reason || "user_cancelled")
         :ok
 
@@ -215,11 +223,14 @@ defmodule CodePuppyControl.Run.Manager do
   """
   @spec delete_run(String.t()) :: :ok | {:error, :not_found}
   def delete_run(run_id) do
-    # Check if run exists first
+    # Check if run exists first and derive its executor module
     case get_run(run_id) do
-      {:ok, _} ->
+      {:ok, state} ->
+        # Use the executor module stored in metadata at start time.
+        executor_mod = Map.get(state.metadata, :executor_module, Executor.executor_module())
+
         # Stop the executor first (Elixir or Python)
-        Executor.terminate_executor(run_id)
+        Executor.terminate_executor(run_id, executor_mod)
 
         # Then stop the run state process
         Run.Supervisor.terminate_run(run_id)
@@ -239,9 +250,10 @@ defmodule CodePuppyControl.Run.Manager do
     "run-#{timestamp}-#{base}"
   end
 
-  defp cleanup_failed_start(run_id) do
-    # Try to terminate any partially started processes
-    Executor.terminate_executor(run_id)
+  defp cleanup_failed_start(run_id, executor_mod) do
+    # Try to terminate any partially started processes using the
+    # executor module that was selected at start time.
+    Executor.terminate_executor(run_id, executor_mod)
     Run.Supervisor.terminate_run(run_id)
   catch
     _ -> :ok
