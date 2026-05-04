@@ -2,9 +2,9 @@
 
 **🐶✨The sassy AI code agent that makes IDEs look outdated** ✨🐶
 
-[![Version](https://img.shields.io/pypi/v/code-puppy?style=for-the-badge&logo=python&label=Version&color=purple)](https://pypi.org/project/code-puppy/)
-[![Downloads](https://img.shields.io/badge/Downloads-170k%2B-brightgreen?style=for-the-badge&logo=download)](https://pypi.org/project/code-puppy/)
-[![Python](https://img.shields.io/badge/Python-3.11--3.14-blue?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
+[![Version](https://img.shields.io/pypi/v/codepp?style=for-the-badge&logo=python&label=Version&color=purple)](https://pypi.org/project/codepp/)
+[![Downloads](https://img.shields.io/badge/Downloads-170k%2B-brightgreen?style=for-the-badge&logo=download)](https://pypi.org/project/codepp/)
+[![Python](https://img.shields.io/badge/Python-3.14+-blue?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
 [![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
 
 [![100% Open Source](https://img.shields.io/badge/100%25-Open%20Source-blue?style=for-the-badge)](https://github.com/mpfaffenberger/code_puppy)
@@ -282,7 +282,7 @@ enable_elixir_control=false
 
 | Python Version | GIL Status | Parallelism |
 |----------------|------------|-------------|
-| Python 3.11-3.12 | Standard GIL | Full functionality, standard concurrency |
+| Python 3.14 | Standard GIL | Full functionality, standard concurrency |
 | Python 3.13t | Experimental free-threading | Enhanced parallelism (experimental) |
 | **Python 3.14t** | **Production free-threading** | **True parallel execution across cores** |
 
@@ -317,7 +317,7 @@ python3.14t -c "import sys; print(f'Free-threading: {not sys._is_gil_enabled()}'
 
 ## Requirements
 
-- Python 3.11+
+- Python 3.14+
 - OpenAI API key (for GPT models)
 - Cerebras API key (for Cerebras models)
 - Anthropic key (for Claude models)

@@ -258,7 +258,7 @@ Options:
   -c, --continue        Resume the most recent persisted session, then enter interactive mode
   -p, --prompt PROMPT   Execute a single prompt and exit
   -i, --interactive     Run in interactive mode
-  --bridge-mode         Parsed; reserved flag with no runtime effect in current Elixir CLI
+  --bridge-mode         Force Python runtime (sets PUP_RUNTIME=python for the session)
 ```
 
 ### Python bridge-worker mode
@@ -365,7 +365,7 @@ Start a REPL with slash commands, model/agent switching, and session management:
 - **`mix pup_ex.auth.login` is scaffolding only.** Full OAuth PKCE flow (ChatGPT, Claude) is not yet implemented.
 - **SQLite lock warnings in smoke.** The smoke task starts the full OTP app briefly; multiple SQLite pool connections may log `database is locked` errors. These are cosmetic and do not affect smoke results.
 - **~8 hardcoded path references** still resolve outside `Paths.*` — tracked in ADR-003, scheduled for Phase 2 cleanup. No new hardcoded paths should be added.
-- **`--bridge-mode` in the Elixir CLI** is parsed as a reserved flag but has **no runtime effect** in the current Elixir CLI — it does not set `CODE_PUPPY_BRIDGE` or delegate to Python. The Python CLI does implement `--bridge-mode` as a JSON-RPC bridge worker over stdio.
+- **`--bridge-mode` in the Elixir CLI** sets `PUP_RUNTIME=python` for the session, forcing the Elixir CLI to delegate capabilities to the Python bridge runtime (see `RuntimeSelector`, code_puppy-bwt). This is distinct from the Python CLI's `--bridge-mode`, which sets `CODE_PUPPY_BRIDGE=1` and runs the Python process as a JSON-RPC bridge worker over stdio for Elixir orchestration.
 - **First-run marker.** After setup, `mix pup_ex.doctor` may note "First-run marker — not initialized yet." This is informational and does not block usage.
 
 ### Running `mix pup_ex.smoke` in CI

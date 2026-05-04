@@ -1,7 +1,7 @@
 # Thin Shell Contract: Python → Elixir Migration
 
 > **Issue:** Thin Shell Contract  
-> **Status:** Draft - Shepherd Review Addressed — Complete module classification, verified line counts, full RPC documentation  
+> **Status:** Draft - Shepherd Review Addressed — Complete module classification, verified line counts, full RPC documentation. Uncategorized modules are migration backlog, not release blockers.
 > **Last Updated:** 2026-04-17  
 > **Changes:** Fixed base_agent.py count (3,152 vs ~1,300), added command_line/ tier, documented all 34 bridge RPC methods, added "Uncategorized" section with 62K+ lines, corrected Rust counts (38 files, 119K lines)
 
@@ -143,9 +143,11 @@ This document defines the **"thin shell"** — the minimal Python surface that r
 
 ---
 
-## Uncategorized — Decision Pending
+## Uncategorized — Migration Backlog
 
-The following **62,000+ lines** across major modules are not yet classified as retained or deletable. These require architectural review to determine migration path.
+The following **62,000+ lines** across major modules are not yet classified as retained or deletable. These are **migration backlog items**, not release blockers — each will be classified as the Elixir migration progresses per-module. No architectural decisions are pending for the current release; these modules remain in Python and function as-is.
+
+When a module reaches parity in Elixir, it should be reclassified as **Deletable** and a porting issue filed. Until then, the "Proposed Direction" column is advisory and subject to change.
 
 ### Infrastructure & Utilities
 
@@ -154,7 +156,7 @@ The following **62,000+ lines** across major modules are not yet classified as r
 | `utils/` | 33 | 5,914 | File display, grep, path utils | Partial migration to Elixir `FileOps` |
 | `messaging/` | 14 | 5,760 | MessageBus, event routing | Hybrid: keep local router, use Elixir EventBus for cross-process |
 | `hook_engine/` | 8 | 1,326 | Hook lifecycle management | **Likely Retain** — core to Python plugin system |
-| `compaction/` | 5 | 951 | Context compaction | **Decision Pending** — review against Elixir state management |
+| `compaction/` | 5 | 951 | Context compaction | **Migration backlog** — review against Elixir state management |
 | `capability/` | 4 | 720 | Capability registration | **Likely Retain** — Python-side feature flags |
 | `code_context/` | 3 | 683 | Code context extraction | Review against Elixir text processing |
 | `routing/` | 9 | 447 | Request routing | **Likely Delete** — Elixir has native routing |
@@ -239,7 +241,7 @@ Key unclassified top-level modules:
 | Tools (interface) | `tools/agent_tools`, `common`, `ask_user_question/` | 4,000 |
 | command_line | 58 files | 17,143 |
 
-**Note:** The 43% unclassified figure from the shepherd review refers to the gap between ~35K retained and the full 144K LOC. The categorized "retained" and "deletable" sections only account for ~46% of the codebase. This document now identifies the remaining 57% as requiring architectural decisions.
+**Note:** The 43% unclassified figure from the shepherd review refers to the gap between ~35K retained and the full 144K LOC. The categorized "retained" and "deletable" sections only account for ~46% of the codebase. The remaining 57% is **migration backlog** — functional Python code that will be classified as the Elixir migration progresses. These modules are not release blockers.
 
 ---
 

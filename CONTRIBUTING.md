@@ -22,6 +22,8 @@ Code Puppy is actively migrating from Python to Elixir (the `pup-ex` rewrite). D
 |**_Deprecation warnings_** | Guiding users toward `pup-ex` equivalents |
 |**_Documentation updates_** | README fixes, migration guides, API docs |
 |**_CI/infrastructure_** | Changes that don't touch `code_puppy/**/*.py` |
+|**_Release hardening_** | Tests, packaging metadata (`pyproject.toml`, `.python-version`), release scripts (`scripts/`), CI workflows, and docs — when linked to an issue |
+|**_Test coverage_** | New or updated tests for existing `code_puppy/**/*.py` modules |
 
 ### What's NOT Allowed ❌
 
@@ -38,6 +40,7 @@ Code Puppy is actively migrating from Python to Elixir (the `pup-ex` rewrite). D
 2. **Require justification** - Every Python change needs an issue reference
 3. **Label appropriately** - Use `bug-fix`, `docs`, or `deprecation` labels
 4. **Ask: "Could this go in Elixir?"** - If yes, redirect the contributor
+5. **Release hardening exception** - Tests, docs, packaging, scripts, and CI may change without the `critical-freeze-override` label if linked to a release-hardening issue (e.g. Phase K). New `code_puppy/**/*.py` feature work remains frozen.
 
 ### Emergency Override Process
 
