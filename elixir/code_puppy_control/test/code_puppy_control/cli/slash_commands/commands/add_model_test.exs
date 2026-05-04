@@ -15,10 +15,18 @@ defmodule CodePuppyControl.CLI.SlashCommands.Commands.AddModelTest do
   alias CodePuppyControl.ModelsDevParser.{ModelInfo, ProviderInfo}
 
   setup do
-    # Start the SlashCommands Registry GenServer if not already running
+    # Start the SlashCommands Registry GenServer if not already running.
+    # Use start_supervised/1 (not !) to tolerate the race where the app
+    # supervisor already started it.
     case Process.whereis(Registry) do
-      nil -> start_supervised!({Registry, []})
-      _pid -> :ok
+      nil ->
+        case start_supervised({Registry, []}) do
+          {:ok, pid} -> {:ok, pid}
+          {:error, {:already_started, pid}} -> {:ok, pid}
+        end
+
+      _pid ->
+        :ok
     end
 
     Registry.clear()
@@ -35,14 +43,20 @@ defmodule CodePuppyControl.CLI.SlashCommands.Commands.AddModelTest do
         )
       )
 
-    # Start the LockKeeper for concurrency-safe persistence
+    # Start the LockKeeper for concurrency-safe persistence.
+    # Use start_supervised/1 (not !) to tolerate the race where the app
+    # supervisor already started LockKeeper between our whereis check
+    # and the start_supervised! call.
     case Process.whereis(
            CodePuppyControl.CLI.SlashCommands.Commands.AddModelPersistence.LockKeeper
          ) do
       nil ->
-        start_supervised!(
-          {CodePuppyControl.CLI.SlashCommands.Commands.AddModelPersistence.LockKeeper, []}
-        )
+        case start_supervised(
+               {CodePuppyControl.CLI.SlashCommands.Commands.AddModelPersistence.LockKeeper, []}
+             ) do
+          {:ok, pid} -> {:ok, pid}
+          {:error, {:already_started, pid}} -> {:ok, pid}
+        end
 
       _pid ->
         :ok

@@ -52,6 +52,41 @@ defmodule CodePuppyControl.TestSupport.OtpLifecycleHelpers do
     do_wait_for_restart(module, ets_table, deadline)
   end
 
+  @doc """
+  Wait for a named GenServer to restart, ETS table to be recreated, AND
+  a population check to pass (e.g. configs are loaded).
+
+  `population_fn` is a 0-arity function that should return a truthy value
+  once the ETS table is fully populated. Polls every 20ms until all
+  conditions are met or timeout expires.
+
+  This exists because `wait_for_restart/3` only checks process + table
+  existence, but some GenServers (like ModelRegistry) create the ETS
+  table in init/1 *before* populating it — there is a window where the
+  table exists but is empty, causing assertions on data to fail.
+  """
+  @spec wait_for_restart_and_populated(module(), atom(), (-> term()), pos_integer()) ::
+          pid()
+  def wait_for_restart_and_populated(module, ets_table, population_fn, timeout_ms \\ 5000) do
+    deadline = System.monotonic_time(:millisecond) + timeout_ms
+    pid = do_wait_for_restart(module, ets_table, deadline)
+    do_wait_for_populated(population_fn, deadline)
+    pid
+  end
+
+  defp do_wait_for_populated(population_fn, deadline) do
+    if System.monotonic_time(:millisecond) > deadline do
+      flunk("Timed out waiting for ETS table to be populated")
+    end
+
+    if population_fn.() do
+      :ok
+    else
+      Process.sleep(20)
+      do_wait_for_populated(population_fn, deadline)
+    end
+  end
+
   defp do_wait_for_restart(module, ets_table, deadline) do
     if System.monotonic_time(:millisecond) > deadline do
       flunk("Timed out waiting for #{inspect(module)} to restart")

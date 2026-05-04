@@ -77,15 +77,34 @@ defmodule CodePuppyControl.Tokens.Estimator do
     # Check cache first using content hash
     cache_key = :erlang.phash2(text)
 
-    case :ets.lookup(@ets_table, cache_key) do
-      [{^cache_key, cached_value}] ->
+    case safe_lookup(@ets_table, cache_key) do
+      {:ok, cached_value} ->
         cached_value
 
-      [] ->
+      :miss ->
         result = do_estimate_tokens(text)
-        :ets.insert(@ets_table, {cache_key, result})
+        safe_insert(@ets_table, {cache_key, result})
         result
     end
+  end
+
+  # Safe ETS wrappers that tolerate the table being destroyed by
+  # a concurrent test teardown between ensure_table_exists and the
+  # actual ETS call. Falls through to compute the result without
+  # caching when the table is gone.
+  defp safe_lookup(table, key) do
+    case :ets.lookup(table, key) do
+      [{^key, cached_value}] -> {:ok, cached_value}
+      [] -> :miss
+    end
+  rescue
+    ArgumentError -> :miss
+  end
+
+  defp safe_insert(table, entry) do
+    :ets.insert(table, entry)
+  rescue
+    ArgumentError -> :ok
   end
 
   @spec do_estimate_tokens(String.t()) :: integer()

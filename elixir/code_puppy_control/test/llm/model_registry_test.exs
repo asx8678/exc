@@ -19,7 +19,21 @@ defmodule CodePuppyControl.LLM.ModelRegistryTest do
 
   setup do
     CodePuppyControl.TestSupport.Reset.ensure_gen_server_started(ModelRegistry)
+
+    # Wait for configs to be populated — there is a window between
+    # the GenServer process starting and ETS being populated in init/1.
+    # Under concurrent test load, the process may be alive but configs
+    # not yet loaded.
+    wait_for_configs_populated()
+
     :ok
+  end
+
+  defp wait_for_configs_populated do
+    if map_size(ModelRegistry.get_all_configs()) == 0 do
+      Process.sleep(10)
+      wait_for_configs_populated()
+    end
   end
 
   # ── get_config ──────────────────────────────────────────────────────────

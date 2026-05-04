@@ -139,12 +139,12 @@ defmodule CodePuppyControl.Plugins.PackParallelismTest do
       # Two waiters
       task1 =
         Task.async(fn ->
-          PackParallelism.acquire(timeout: 2000)
+          PackParallelism.acquire(timeout: 5000)
         end)
 
       task2 =
         Task.async(fn ->
-          PackParallelism.acquire(timeout: 2000)
+          PackParallelism.acquire(timeout: 5000)
         end)
 
       Process.sleep(50)
@@ -153,12 +153,12 @@ defmodule CodePuppyControl.Plugins.PackParallelismTest do
       # Release one slot — should wake task1 first (FIFO)
       PackParallelism.release()
 
-      result1 = Task.await(task1, 1000)
+      result1 = Task.await(task1, 5000)
       assert result1 == :ok
 
       # Release another — wakes task2
       PackParallelism.release()
-      result2 = Task.await(task2, 1000)
+      result2 = Task.await(task2, 5000)
       assert result2 == :ok
 
       # Clean up

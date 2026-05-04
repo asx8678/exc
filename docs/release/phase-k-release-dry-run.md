@@ -2,7 +2,7 @@
 
 > **Date:** 2026-05-04
 > **Issue:** code-puppy-530.9
-> **Verdict:** **GO** ✅ — Owl.IO.select flake resolved (code-puppy-530.10)
+> **Verdict:** **GO** ✅ — all known flakes resolved
 
 ---
 
@@ -101,22 +101,40 @@ in `try/after` block.
 **The Owl.IO.select flake is completely eliminated.** Zero occurrences
 across all targeted and full suite runs after the fix.
 
-### Other Observed Flakes (pre-existing, separate issue)
+### Other Observed Flakes (pre-existing, now resolved — code-puppy-1j1)
 
-Two additional intermittent flakes appeared once each across 3 full suite
-runs. These are pre-existing race conditions, not related to the Owl.IO
-fix. Filed as **code-puppy-1j1** (P3):
+Four additional intermittent flakes were observed and fixed:
 
-1. `ModelRegistry restart behavior` (otp_lifecycle_test.exs:337) — ETS
-   read during GenServer restart window sees empty table. Race condition
-   between supervisor restart and test assertion.
-2. `AddModelTest unsupported_reason` (add_model_test.exs:650) — `LockKeeper`
-   `already_started` race in `start_supervised!` setup.
+1. **`ModelRegistry restart behavior`** (otp_lifecycle_test.exs:337) — ETS
+   read during GenServer restart window sees empty table. **Fixed:** Added
+   `wait_for_restart_and_populated/4` helper that polls until configs are
+   non-empty, not just until ETS table exists. Applied to all ModelRegistry
+   restart tests.
 
-Both are test-harness timing issues, not product defects. Flake rate is
-low (~1/6 each across 3 runs × 7725 tests). Previously known flakes
-mentioned in the task context (RateLimiter circuit_open, CommandRunner
-echo) did not manifest.
+2. **`AddModelTest unsupported_reason`** (add_model_test.exs:650) —
+   `LockKeeper` `already_started` race in `start_supervised!` setup.
+   **Fixed:** Replaced `start_supervised!` with `start_supervised/1` that
+   accepts `{:error, {:already_started, pid}}` as a valid outcome.
+
+3. **`PackParallelism release/0 wakes next waiter in FIFO order`** —
+   `Task.await(task1, 1000)` timed out under concurrent load.
+   **Fixed:** Increased acquire timeout from 2000→5000ms and
+   `Task.await` timeout from 1000→5000ms.
+
+4. **`ModelRegistryTest get_config/1`** (model_registry_test.exs:28) —
+   `get_all_configs()` returned empty because the GenServer had started
+   but ETS wasn't populated yet. **Fixed:** Added `wait_for_configs_populated/0`
+   in test setup that polls until configs are non-empty.
+
+5. **`Messaging.CoreTest prune_and_filter/2`** — `Estimator.estimate_tokens/1`
+   crashed with `ArgumentError` on `:ets.insert` because another test
+   destroyed the shared ETS table between the `ensure_table_exists` check
+   and the actual insert. **Fixed:** Added `safe_lookup/2` and
+   `safe_insert/2` wrappers with `rescue ArgumentError` — when the table
+   is gone, the result is computed without caching.
+
+After all fixes, the full suite ran **3 consecutive clean runs** with
+0 failures each (7725 tests, 0 failures).
 
 ---
 
@@ -185,7 +203,6 @@ Zero secret exposure. Zero console errors.
 |----|------|----------|--------|
 | BLOCKER-K9-1 | ~~`/agent` Owl.IO.select test flake~~ | ~~Medium~~ | **RESOLVED** in code-puppy-530.10 — `force_fallback_select` env + `CaptureIO("\n")` |
 | RESIDUAL-K9-1 | Burrito host-only build not exercised locally (no Zig) | Low | CI validates; K.5 design; `--strict` mode available for Zig-equipped hosts |
-| RESIDUAL-K9-2 | ModelRegistry ETS restart + AddModelTest LockKeeper flakes | Low | **code-puppy-1j1** filed (P3, post-release) |
 
 ---
 
@@ -202,10 +219,11 @@ Zero secret exposure. Zero console errors.
 - Burrito is covered by CI; local skip is by design.
 - The Owl.IO.select flake (code-puppy-530.10) has been **resolved** by
   forcing `fallback_select` in tests via application env.
-- Two additional pre-existing test-harness flakes (ModelRegistry ETS
-  restart, AddModelTest LockKeeper race) are filed as code-puppy-1j1
-  (P3, post-release). Neither is a product defect.
-- Full suite achieved 0 failures in the release gate run and in 1 of 3
-  standalone runs (other 2 had one-off test-harness races).
+- All four additional test-harness flakes (ModelRegistry ETS restart,
+  AddModelTest LockKeeper race, PackParallelism FIFO timeout,
+  ModelRegistryTest empty configs, Messaging.CoreTest ETS table)
+  have been **resolved** (code-puppy-1j1).
+- Full suite achieved **3 consecutive clean runs** (7725 tests, 0 failures)
+  after all flake fixes.
 
 **No release blockers remain.** Ship it carefully, not recklessly. 🐶

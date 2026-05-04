@@ -315,6 +315,14 @@ defmodule CodePuppyControl.LLM.OtpLifecycleTest do
 
       kill_and_restart(ModelRegistry, :model_configs)
 
+      # Wait for configs to be fully populated (not just ETS table existence)
+      # — there is a window between :ets.new/2 and population in init/1
+      wait_for_restart_and_populated(
+        ModelRegistry,
+        :model_configs,
+        fn -> map_size(ModelRegistry.get_all_configs()) > 0 end
+      )
+
       all_after = ModelRegistry.get_all_configs()
       assert map_size(all_after) > 0
 
@@ -354,8 +362,12 @@ defmodule CodePuppyControl.LLM.OtpLifecycleTest do
       # successful recovered read. (code_puppy-i1n)
       for r <- results, do: assert(r in [:table_gone, :exit_caught, nil] or is_map(r))
 
-      wait_for_restart(ModelRegistry, :model_configs)
-      assert map_size(ModelRegistry.get_all_configs()) > 0
+      wait_for_restart_and_populated(
+        ModelRegistry,
+        :model_configs,
+        fn -> map_size(ModelRegistry.get_all_configs()) > 0 end
+      )
+
       flush_exits()
     end
 
@@ -368,7 +380,12 @@ defmodule CodePuppyControl.LLM.OtpLifecycleTest do
         ArgumentError -> :ok
       end
 
-      wait_for_restart(ModelRegistry, :model_configs)
+      wait_for_restart_and_populated(
+        ModelRegistry,
+        :model_configs,
+        fn -> map_size(ModelRegistry.get_all_configs()) > 0 end
+      )
+
       assert is_list(ModelRegistry.list_model_names())
       flush_exits()
     end
@@ -389,7 +406,12 @@ defmodule CodePuppyControl.LLM.OtpLifecycleTest do
         end
 
       kill_process(ModelRegistry)
-      wait_for_restart(ModelRegistry, :model_configs)
+
+      wait_for_restart_and_populated(
+        ModelRegistry,
+        :model_configs,
+        fn -> map_size(ModelRegistry.get_all_configs()) > 0 end
+      )
 
       for {_t, r} <- yield_and_collect(tasks, 10_000) do
         case r do
@@ -416,6 +438,13 @@ defmodule CodePuppyControl.LLM.OtpLifecycleTest do
 
     test "reload after restart produces same models" do
       kill_and_restart(ModelRegistry, :model_configs)
+
+      wait_for_restart_and_populated(
+        ModelRegistry,
+        :model_configs,
+        fn -> map_size(ModelRegistry.get_all_configs()) > 0 end
+      )
+
       assert :ok = ModelRegistry.reload()
       assert map_size(ModelRegistry.get_all_configs()) > 0
     end
@@ -482,7 +511,11 @@ defmodule CodePuppyControl.LLM.OtpLifecycleTest do
           end
         end)
 
-      wait_for_restart(ModelRegistry, :model_configs)
+      wait_for_restart_and_populated(
+        ModelRegistry,
+        :model_configs,
+        fn -> map_size(ModelRegistry.get_all_configs()) > 0 end
+      )
 
       assert successes > 0,
              "At least one ModelRegistry read should succeed across the restart race"
