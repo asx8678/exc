@@ -28,25 +28,20 @@ console errors, and secret exposure patterns.
 | `/admin/agents` | 200 | ✅ | h1: Agents | 0 | none |
 | `/admin/jobs` | 200 | ✅ | h1: Jobs | 0 | none |
 | `/admin/worktrees` | 200 | ✅ | h1: Worktrees | 0 | none |
-| `/admin/pack` | **500** | ❌ | GenServer exit: ClusterDashboard not alive | 1 | none |
+| `/admin/pack` | 200 | ✅ | h1: Pack | 0 | none |
 | `/admin/sessions` | 200 | ✅ | h1: Sessions | 0 | none |
 | `/admin/scheduler` | 200 | ✅ | h1: Scheduler | 0 | none |
 | `/admin/jobs/not-real` | 200 | ✅ | h1: Jobs (graceful) | 0 | none |
 
 ### Findings
 
-- **9 of 11 routes return 200** — all JSON endpoints and LiveView admin pages functional.
-- **`/admin/pack` returns 500**: `GenServer.call(ClusterDashboard, :snapshot, 5000)` fails
-  because the `ClusterDashboard` process is not started in single-node dev mode.
-  This is a **cluster/distribution feature** that requires multi-node setup.
-  The error page is Phoenix's default error page (no secret leakage, no stack trace
-  exposure to end user beyond the GenServer exit message in dev mode).
-  **Assessment:** Not a release blocker. In production multi-node deployments, this
-  process would be started. A defensive `try/catch` or fallback in the LiveView
-  would improve UX; filed as residual risk.
+- **11 of 11 routes return 200** — all JSON endpoints and LiveView admin pages functional.
+- **`/admin/pack`** now renders gracefully when `ClusterDashboard` GenServer is not started
+  in single-node dev mode. A safe fallback snapshot (`cluster_health: :down`, empty nodes,
+  zero dispatches) is returned instead of a 500. Fixed in corrective commit.
 - **`/admin/jobs/not-real`** gracefully returns 200 with the Jobs LiveView —
   no 404 or 500 for unknown job slugs. Correct LiveView behavior.
-- **Zero console errors** on all routes except `/admin/pack` (expected 500 response).
+- **Zero console errors** on all routes.
 - **Zero secret exposure** across all routes — no `sk-`, `api_key`, `token`,
   `BEGIN PRIVATE`, or `BEGIN CERTIFICATE` patterns found in any rendered HTML.
 - **All LiveView admin pages** have `phx-attributes-present`, `data-phx-session`,
@@ -55,9 +50,9 @@ console errors, and secret exposure patterns.
 
 ### Phoenix Log Review
 
-After QA route hits, the Phoenix log (`/tmp/code-puppy-phase-k-phx.log`) contains
-only **1 error** — the `/admin/pack` GenServer exit documented above. No other
-exceptions, crashes, or unexpected errors.
+After QA route hits, the Phoenix log contains **zero errors**. The `/admin/pack`
+GenServer exit that was present in the initial QA run is now caught and handled
+gracefully.
 
 ---
 
@@ -122,14 +117,42 @@ The automated Playwright QA above covers all routes qa-kitten would have tested.
 
 | ID | Risk | Severity | Recommendation |
 |----|------|----------|----------------|
-| RESIDUAL-K8-1 | `/admin/pack` 500 in single-node dev (ClusterDashboard not started) | Medium | Add defensive fallback or try/catch in PackLive; not a release blocker for production |
+| RESIDUAL-K8-1 | ~~`/admin/pack` 500 in single-node dev~~ | ~~Medium~~ | **Fixed** — `safe_cluster_snapshot/0` catches `:exit` and returns fallback; `safe_cluster_subscribe/0` added. 11/11 routes now 200. |
 | RESIDUAL-K8-2 | qa-kitten model/tool errors prevented browser-agent QA | Low | Investigate qa-kitten model config separately; Playwright coverage achieved via script |
 
 ---
 
 ## 5. Verdict
 
-**K.8 QA: PASS** — 9/11 admin routes return 200 with LiveView active; the single
-500 (`/admin/pack`) is an expected single-node limitation, not a code defect.
-All CLI entry points, Elixir smoke tests, plugin imports, and bridge connectivity
-are functional. Zero secret exposure. No release blockers found.
+**K.8 QA: PASS** — 11/11 admin routes return 200 with LiveView active. The
+`/admin/pack` 500 from the initial run has been fixed with a safe fallback
+snapshot when `ClusterDashboard` is absent (single-node dev). All CLI entry
+points, Elixir smoke tests, plugin imports, and bridge connectivity are
+functional. Zero secret exposure. Zero console errors. No release blockers.
+
+## 6. Corrective Action
+
+The initial QA run found `/admin/pack` returning 500 when `ClusterDashboard`
+GenServer was not started in single-node dev mode. This violated the K.8
+acceptance criterion of no Admin UI 500s.
+
+**Fix:** Added `safe_cluster_snapshot/0` and `safe_cluster_subscribe/0` helpers
+in `PackLive` that catch `:exit` from the GenServer call and return a fallback
+snapshot:
+
+```elixir
+@empty_cluster_snapshot %{
+  nodes: %{},
+  dispatch_history: [],
+  totals: %{dispatches: 0, successes: 0, failures: 0},
+  connected_nodes: 0,
+  cluster_health: :down
+}
+```
+
+**Tests added:** Two new tests in `pack_live_test.exs` under a
+`"without ClusterDashboard (single-node dev)"` describe block that stops
+the GenServer before the test and verifies `/admin/pack` renders with
+HTTP 200, shows "down" cluster health, and handles tick events.
+
+**Rerun result:** 11/11 routes return 200. 5/5 PackLive tests pass.

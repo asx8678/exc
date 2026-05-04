@@ -28,7 +28,7 @@ defmodule CodePuppyControlWeb.Admin.PackLive do
   def mount(_params, _session, socket) do
     if connected?(socket) do
       Data.subscribe_global_events()
-      ClusterDashboard.subscribe()
+      safe_cluster_subscribe()
       Process.send_after(self(), :tick, @tick_ms)
     end
 
@@ -87,7 +87,7 @@ defmodule CodePuppyControlWeb.Admin.PackLive do
   defp refresh(socket) do
     pack = Data.pack_status()
     jobs = Data.list_jobs() |> Enum.filter(&(&1.status in [:starting, :running, :paused]))
-    cluster = ClusterDashboard.snapshot()
+    cluster = safe_cluster_snapshot()
 
     socket
     |> assign(:page_title, "Pack")
@@ -99,6 +99,26 @@ defmodule CodePuppyControlWeb.Admin.PackLive do
     |> assign(:cluster_health, cluster.cluster_health)
     |> assign(:dispatch_history, Enum.take(cluster.dispatch_history, 20))
     |> assign(:cluster_totals, cluster.totals)
+  end
+
+  @empty_cluster_snapshot %{
+    nodes: %{},
+    dispatch_history: [],
+    totals: %{dispatches: 0, successes: 0, failures: 0},
+    connected_nodes: 0,
+    cluster_health: :down
+  }
+
+  defp safe_cluster_snapshot do
+    ClusterDashboard.snapshot()
+  catch
+    :exit, _ -> @empty_cluster_snapshot
+  end
+
+  defp safe_cluster_subscribe do
+    ClusterDashboard.subscribe()
+  catch
+    :exit, _ -> :ok
   end
 
   @impl true
