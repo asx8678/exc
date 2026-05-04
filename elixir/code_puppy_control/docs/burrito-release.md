@@ -192,11 +192,26 @@ scripts/build-burrito.sh --target linux_musl_x86_64
 
 When using `--host-only` on a musl-based system (detected via `/etc/alpine-release` or `ldd --version` containing "musl"), the script automatically selects the `linux_musl_*` target.
 
-### Missing targets
+### CI build coverage
 
-| Target | Status |
-|--------|--------|
-| `macos_x86_64` | Not yet tracked (follow-up needed) |
+The CI workflow (`burrito-release.yml`) builds **host-native** binaries on
+3 runner platforms. This covers the most common architectures; additional
+targets from `mix.exs` are available via local cross-compilation.
+
+| CI matrix platform | Burrito target | Runner |
+|---------------------|----------------|--------|
+| `macos-arm64` | `macos_arm64` | `macos-latest` |
+| `linux-x86_64` | `linux_x86_64` | `ubuntu-latest` |
+| `windows-x86_64` | `windows_x86_64` | `windows-latest` |
+
+Targets **not** built by CI (available via `scripts/build-burrito.sh --target <name>`):
+
+| Target | Notes |
+|--------|-------|
+| `macos_x86_64` | Cross-compile from arm64 or build locally on Intel Mac |
+| `linux_arm64` | Cross-compile from x86_64 or build on ARM hardware |
+| `linux_musl_x86_64` | Cross-compile via Zig's musl target |
+| `linux_musl_arm64` | Cross-compile via Zig's musl target |
 
 ## Known Issues
 
