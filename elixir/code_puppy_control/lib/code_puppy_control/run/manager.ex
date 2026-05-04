@@ -1,30 +1,38 @@
 defmodule CodePuppyControl.Run.Manager do
   @moduledoc """
-  Coordinates run lifecycle between Registry, State, and Workers.
+  Coordinates run lifecycle between Registry, State, and Executors.
 
   This is the high-level API for managing runs:
-  - Starting runs with associated Python workers
+  - Starting runs with an appropriate executor (Elixir or Python)
   - Tracking run state and progress
   - Cancelling and cleaning up runs
   - Querying run information
+
+  The executor is selected via `Run.Executor` based on `PUP_RUNTIME`:
+  - Unset/auto/elixir → Elixir-native executor (no Python required)
+  - python → Python bridge executor
 
   ## Usage
 
       {:ok, run_id} = Run.Manager.start_run("session-123", "elixir-dev", config: %{})
       Run.Manager.get_run(run_id)
       Run.Manager.cancel_run(run_id)
+
+  Refs: code-puppy-96g
   """
 
   require Logger
 
-  alias CodePuppyControl.{Run, PythonWorker}
+  alias CodePuppyControl.{Run, Run.Executor}
 
   @doc """
-  Starts a new run with an associated Python worker.
+  Starts a new run with an associated executor.
+
+  The executor is selected automatically based on `PUP_RUNTIME`.
 
   ## Options
 
-    * `:config` - Configuration map to pass to the Python worker
+    * `:config` - Configuration map to pass to the executor
     * `:metadata` - Additional metadata for the run
 
   ## Returns
@@ -46,7 +54,12 @@ defmodule CodePuppyControl.Run.Manager do
     # Note: Telemetry.run_start is emitted in Run.State.init for consistency
     # This ensures we track the actual process start time accurately
 
-    Logger.info("Starting run #{run_id} for session #{session_id}, agent #{agent_name}")
+    executor_mod = Executor.executor_module()
+
+    Logger.info(
+      "Starting run #{run_id} for session #{session_id}, agent #{agent_name} " <>
+        "(executor: #{inspect(executor_mod)})"
+    )
 
     # Merge session and agent info into metadata
     full_metadata =
@@ -54,27 +67,24 @@ defmodule CodePuppyControl.Run.Manager do
       |> Map.put(:session_id, session_id)
       |> Map.put(:agent_name, agent_name)
       |> Map.put(:config, config)
+      |> Map.put(:executor_module, executor_mod)
 
-    # Start Python worker first
-    with {:ok, worker_pid} <- PythonWorker.Supervisor.start_worker(run_id),
-         # Start run state tracker with link to worker
+    # Start executor first (Elixir or Python)
+    executor_opts = [config: config, session_id: session_id, agent_name: agent_name]
+
+    with {:ok, executor_pid} <- Executor.start_executor(run_id, executor_opts),
+         # Start run state tracker with link to executor/worker
          {:ok, _state_pid} <-
            Run.Supervisor.start_run(run_id,
              session_id: session_id,
              agent_name: agent_name,
-             worker_pid: worker_pid,
+             worker_pid: executor_pid,
              metadata: full_metadata
            ) do
-      # Tell worker to start the run
-      # Use run_id for Registry lookup, not worker_pid
-      PythonWorker.Port.start_run(run_id, %{
-        run_id: run_id,
-        session_id: session_id,
-        agent_name: agent_name,
-        config: config
-      })
+      # Tell executor to begin the run
+      Executor.begin_run(run_id, executor_opts)
 
-      Logger.info("Run #{run_id} started successfully with worker #{inspect(worker_pid)}")
+      Logger.info("Run #{run_id} started successfully with executor #{inspect(executor_pid)}")
       {:ok, run_id}
     else
       {:error, reason} = error ->
@@ -103,7 +113,7 @@ defmodule CodePuppyControl.Run.Manager do
   @doc """
   Cancels a running run.
 
-  Sends a cancel signal to the Python worker and updates the run state.
+  Sends a cancel signal to the executor and updates the run state.
 
   ## Returns
 
@@ -118,8 +128,8 @@ defmodule CodePuppyControl.Run.Manager do
         :ok
 
       {:ok, _} ->
-        # Send cancel to worker, update state
-        PythonWorker.Port.cancel_run(run_id)
+        # Send cancel to executor, update state
+        Executor.cancel_run(run_id)
         Run.State.cancel(run_id, reason || "user_cancelled")
         :ok
 
@@ -208,8 +218,8 @@ defmodule CodePuppyControl.Run.Manager do
     # Check if run exists first
     case get_run(run_id) do
       {:ok, _} ->
-        # Stop the Python worker first
-        PythonWorker.Supervisor.terminate_worker(run_id)
+        # Stop the executor first (Elixir or Python)
+        Executor.terminate_executor(run_id)
 
         # Then stop the run state process
         Run.Supervisor.terminate_run(run_id)
@@ -231,7 +241,7 @@ defmodule CodePuppyControl.Run.Manager do
 
   defp cleanup_failed_start(run_id) do
     # Try to terminate any partially started processes
-    PythonWorker.Supervisor.terminate_worker(run_id)
+    Executor.terminate_executor(run_id)
     Run.Supervisor.terminate_run(run_id)
   catch
     _ -> :ok

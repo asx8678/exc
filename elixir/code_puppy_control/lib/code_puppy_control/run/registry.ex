@@ -3,7 +3,8 @@ defmodule CodePuppyControl.Run.Registry do
   Registry for tracking run-related processes.
 
   Uses a partitioned Registry for concurrent access.
-  Keys are tuples like `{:python_worker, run_id}` or `{:run_state, run_id}`.
+  Keys are tuples like `{:python_worker, run_id}`, `{:run_executor, run_id}`
+  or `{:run_state, run_id}`.
   """
 
   def child_spec(_opts) do

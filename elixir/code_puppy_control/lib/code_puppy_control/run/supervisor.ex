@@ -24,7 +24,7 @@ defmodule CodePuppyControl.Run.Supervisor do
   Options:
     * `:session_id` - The session this run belongs to
     * `:agent_name` - The agent being run
-    * `:worker_pid` - The Python worker PID to monitor
+    * `:worker_pid` - The executor/worker PID to monitor (Elixir or Python)
     * `:metadata` - Additional run metadata
 
   Returns `{:ok, pid}` on success. If a process already exists

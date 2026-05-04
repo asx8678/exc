@@ -4,7 +4,7 @@ defmodule CodePuppyControl.Run.State do
 
   Tracks:
   - Run lifecycle (:starting, :running, :completed, :failed, :cancelled)
-  - Associated Python worker PID (monitored for crashes)
+  - Associated executor/worker PID (monitored for crashes)
   - Session and agent context
   - Tool executions and their results
   - Correlation between requests and responses
@@ -12,13 +12,15 @@ defmodule CodePuppyControl.Run.State do
 
   This process is started on demand and exits when the run completes
   or after a period of inactivity.
+
+  Refs: code-puppy-96g (executor boundary refactor)
   """
 
   use GenServer
 
   require Logger
 
-  alias CodePuppyControl.PythonWorker.Supervisor, as: WorkerSupervisor
+  alias CodePuppyControl.Run.Executor, as: RunExecutor
 
   defstruct [
     :run_id,
@@ -127,8 +129,15 @@ defmodule CodePuppyControl.Run.State do
   @spec get_state(String.t()) :: {:ok, t()} | {:error, :not_found}
   def get_state(run_id) do
     case Registry.lookup(CodePuppyControl.Run.Registry, {:run_state, run_id}) do
-      [] -> {:error, :not_found}
-      [{pid, _} | _] -> {:ok, GenServer.call(pid, :get_state)}
+      [] ->
+        {:error, :not_found}
+
+      [{pid, _} | _] ->
+        try do
+          {:ok, GenServer.call(pid, :get_state)}
+        catch
+          :exit, _ -> {:error, :not_found}
+        end
     end
   end
 
@@ -329,11 +338,6 @@ defmodule CodePuppyControl.Run.State do
         error: reason || "cancelled"
     }
 
-    # Also cancel the worker if running
-    if state.worker_pid do
-      WorkerSupervisor.terminate_worker(state.run_id)
-    end
-
     Logger.info("Run #{state.run_id} cancelled: #{inspect(reason)}")
     {:noreply, touch(new_state)}
   end
@@ -427,14 +431,14 @@ defmodule CodePuppyControl.Run.State do
         {:DOWN, ref, :process, pid, reason},
         %{worker_pid: pid, worker_ref: ref} = state
       ) do
-    # Worker died - mark run as failed if not already completed
+    # Executor/worker died - mark run as failed if not already in a terminal state
     if state.status not in [:completed, :failed, :cancelled] do
-      Logger.error("Worker for run #{state.run_id} died: #{inspect(reason)}")
+      Logger.error("Executor/worker for run #{state.run_id} died: #{inspect(reason)}")
 
       new_state = %{
         state
         | status: :failed,
-          error: "Worker process terminated: #{inspect(reason)}",
+          error: "Executor/worker process terminated: #{inspect(reason)}",
           completed_at: DateTime.utc_now()
       }
 
@@ -463,7 +467,7 @@ defmodule CodePuppyControl.Run.State do
       elapsed > @inactivity_timeout * 2 ->
         # Force shutdown even if still running (something is wrong)
         Logger.warning("Run #{state.run_id} stuck for too long, forcing shutdown")
-        WorkerSupervisor.terminate_worker(state.run_id)
+        RunExecutor.terminate_executor(state.run_id)
         {:stop, :normal, state}
 
       true ->
