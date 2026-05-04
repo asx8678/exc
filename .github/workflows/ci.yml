@@ -48,6 +48,12 @@ jobs:
       - name: Test (pytest)
         run: uv run pytest tests
 
+      - name: Python package artifact smoke
+        # Build wheel, install in temp venv, verify entry points work.
+        # Lightweight (uv build + install + --help checks, ~15s).
+        # Runs on every PR/main push to catch packaging regressions early.
+        run: ./scripts/python-package-smoke.sh
+
   # ── Elixir format + compile + test ───────────────────────────────────────
 
   elixir-quality:

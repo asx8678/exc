@@ -10,6 +10,7 @@ SCRIPT_NAME="$(basename "${BASH_SOURCE[0]}")"
 SKIP_PYTHON=false
 SKIP_ELIXIR=false
 WITH_BURRITO=false
+PYTHON_DIST=false
 RUN_INTEGRATION=false
 RUN_E2E=false
 FAILED=0
@@ -40,6 +41,8 @@ Options:
   --skip-python    Skip Python dependency/lint/test gates
   --skip-elixir    Skip Elixir format/compile/test/smoke gates
   --with-burrito   Pass --with-burrito through to packaged smoke
+  --python-dist    Also run Python package artifact smoke
+                   (builds wheel, installs in temp venv, verifies entry points)
   --integration    Also run: mix test --only integration
   --e2e            Also run: mix test --only e2e
   --help, -h       Show this help
@@ -47,6 +50,7 @@ Options:
 Notes:
   - This script does not require live LLM credentials.
   - Packaged Burrito smoke is opt-in because it depends on host Zig/Burrito tooling.
+  - Python artifact smoke is opt-in because it builds/installs a wheel.
   - Use --skip-python --skip-elixir to validate argument parsing and summary output.
 HELP
 }
@@ -169,6 +173,15 @@ run_python_gate() {
 
   run_step "Python lint" "$REPO_ROOT" uv run ruff check code_puppy tests scripts
   run_step "Python tests" "$REPO_ROOT" uv run pytest tests
+
+  if [[ "$PYTHON_DIST" == "true" ]]; then
+    local smoke_script="$REPO_ROOT/scripts/python-package-smoke.sh"
+    if [[ -x "$smoke_script" ]]; then
+      run_step "Python artifact smoke" "$REPO_ROOT" "$smoke_script"
+    else
+      record_failure "Python artifact smoke" "$smoke_script not found or not executable"
+    fi
+  fi
 }
 
 run_elixir_gate() {
@@ -268,6 +281,7 @@ while [[ $# -gt 0 ]]; do
     --skip-python) SKIP_PYTHON=true; shift ;;
     --skip-elixir) SKIP_ELIXIR=true; shift ;;
     --with-burrito) WITH_BURRITO=true; shift ;;
+    --python-dist) PYTHON_DIST=true; shift ;;
     --integration) RUN_INTEGRATION=true; shift ;;
     --e2e) RUN_E2E=true; shift ;;
     --help|-h) usage; exit 0 ;;
