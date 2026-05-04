@@ -330,20 +330,31 @@ defmodule CodePuppyControl.PythonWorkerIntegrationTest do
 
   describe "error handling" do
     test "handles missing script_path gracefully" do
-      # Temporarily clear the application config
+      # Temporarily clear the application config and env vars
       original_config = Application.get_env(:code_puppy_control, :python_worker_script)
       Application.delete_env(:code_puppy_control, :python_worker_script)
+
+      original_env = System.get_env("PUP_PYTHON_WORKER_SCRIPT")
+      original_legacy = System.get_env("PYTHON_WORKER_SCRIPT")
+      System.delete_env("PUP_PYTHON_WORKER_SCRIPT")
+      System.delete_env("PYTHON_WORKER_SCRIPT")
 
       on_exit(fn ->
         if original_config do
           Application.put_env(:code_puppy_control, :python_worker_script, original_config)
         end
+
+        if original_env, do: System.put_env("PUP_PYTHON_WORKER_SCRIPT", original_env)
+        if original_legacy, do: System.put_env("PYTHON_WORKER_SCRIPT", original_legacy)
       end)
 
-      # Trying to start without script path should raise
-      assert_raise RuntimeError, ~r/Python worker script path not configured/, fn ->
-        WorkerSupervisor.start_worker("no-config-test")
-      end
+      # Trying to start without script path should return a clear error tuple
+      # (previously raised; now returns {:error, {:python_worker_script_not_configured, _}})
+      assert {:error, {:python_worker_script_not_configured, msg}} =
+               WorkerSupervisor.start_worker("no-config-test")
+
+      assert is_binary(msg)
+      assert msg =~ "not configured" or msg =~ "not found"
     end
 
     test "shutdown is idempotent", %{run_id: run_id} do

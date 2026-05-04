@@ -124,34 +124,50 @@ defmodule CodePuppyControl.PythonWorker.Port do
   def init(opts) do
     run_id = Keyword.fetch!(opts, :run_id)
     parent_pid = Keyword.get(opts, :parent, self())
-    script_path = get_script_path(opts)
 
-    Process.monitor(parent_pid)
+    # Resolve script path — return clean error tuple if not configured
+    case resolve_script_path(opts) do
+      {:error, reason} ->
+        {:stop, reason}
 
-    Logger.info("Starting Python worker for run #{run_id}")
+      {:ok, script_path} ->
+        # Resolve python3 executable — return clean error if not on PATH
+        case resolve_python_exe() do
+          {:error, reason} ->
+            {:stop, reason}
 
-    python_exe = System.find_executable("python3") || "python3"
+          {:ok, python_exe} ->
+            Process.monitor(parent_pid)
 
-    port_opts = [
-      :binary,
-      :use_stdio,
-      :exit_status,
-      args: [script_path, "--run-id", run_id]
-    ]
+            Logger.info("Starting Python worker for run #{run_id}")
 
-    port = Port.open({:spawn_executable, python_exe}, port_opts)
+            port_opts = [
+              :binary,
+              :use_stdio,
+              :exit_status,
+              args: [script_path, "--run-id", run_id]
+            ]
 
-    state = %__MODULE__{
-      port: port,
-      run_id: run_id,
-      buffer: "",
-      request_counter: 0,
-      parent_pid: parent_pid
-    }
+            try do
+              port = Port.open({:spawn_executable, python_exe}, port_opts)
 
-    send(self(), :send_initialize)
+              state = %__MODULE__{
+                port: port,
+                run_id: run_id,
+                buffer: "",
+                request_counter: 0,
+                parent_pid: parent_pid
+              }
 
-    {:ok, state}
+              send(self(), :send_initialize)
+
+              {:ok, state}
+            rescue
+              e ->
+                {:stop, {:python_worker_spawn_failed, Exception.message(e)}}
+            end
+        end
+    end
   end
 
   @impl true
@@ -1059,9 +1075,45 @@ defmodule CodePuppyControl.PythonWorker.Port do
     {:ok, event}
   end
 
-  defp get_script_path(opts) do
-    Keyword.get(opts, :script_path) ||
-      Application.get_env(:code_puppy_control, :python_worker_script) ||
-      raise "Python worker script path not configured"
+  # Resolve the Python worker script path from opts, app env, or env vars.
+  # Returns {:ok, path} or {:error, {:python_worker_script_not_configured, msg}}.
+  defp resolve_script_path(opts) do
+    path =
+      Keyword.get(opts, :script_path) ||
+        Application.get_env(:code_puppy_control, :python_worker_script) ||
+        System.get_env("PUP_PYTHON_WORKER_SCRIPT") ||
+        System.get_env("PYTHON_WORKER_SCRIPT")
+
+    case path do
+      nil ->
+        {:error,
+         {:python_worker_script_not_configured,
+          "Python worker script path not configured. " <>
+            "Set PUP_PYTHON_WORKER_SCRIPT or configure :python_worker_script in app env."}}
+
+      "" ->
+        {:error,
+         {:python_worker_script_not_configured,
+          "Python worker script path is empty. " <>
+            "Set PUP_PYTHON_WORKER_SCRIPT or configure :python_worker_script in app env."}}
+
+      path when is_binary(path) ->
+        {:ok, path}
+    end
+  end
+
+  # Resolve the python3 executable on PATH.
+  # Returns {:ok, abs_path} or {:error, {:python_unavailable, msg}}.
+  defp resolve_python_exe do
+    case System.find_executable("python3") do
+      nil ->
+        {:error,
+         {:python_unavailable,
+          "python3 not found on PATH. " <>
+            "Install Python 3 or set PUP_RUNTIME to a non-python mode."}}
+
+      exe when is_binary(exe) ->
+        {:ok, exe}
+    end
   end
 end

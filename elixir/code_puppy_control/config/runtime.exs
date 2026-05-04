@@ -6,7 +6,7 @@ import Config
 # Environment Variables:
 # PUP_SECRET_KEY_BASE - Phoenix endpoint secret (required in prod, auto-generated for Burrito)
 # PUP_DATABASE_PATH - SQLite database path (required in prod, auto-defaulted for Burrito)
-# PUP_PYTHON_WORKER_SCRIPT - Python worker entry point (required in prod)
+# PUP_PYTHON_WORKER_SCRIPT - Python worker entry point (optional; required only when PUP_RUNTIME=python)
 # PUP_HISTORY_LIMIT - Event history size limit (default: 1000)
 # PUP_WEBSOCKET_SECRET - WebSocket auth secret (optional)
 #
@@ -48,7 +48,13 @@ if config_env() == :prod do
     # Apply to respective modules
     config :code_puppy_control, CodePuppyControlWeb.Endpoint, secret_key_base: secret_key_base
     config :code_puppy_control, CodePuppyControl.Repo, database: database_path
-    config :code_puppy_control, :python_worker_script, python_worker_script
+
+    # Python worker script is optional in the default Elixir-first runtime.
+    # Only required when PUP_RUNTIME=python (Python bridge/worker mode).
+    if python_worker_script do
+      config :code_puppy_control, :python_worker_script, python_worker_script
+    end
+
     config :code_puppy_control, :history_limit, history_limit
 
     if websocket_secret do

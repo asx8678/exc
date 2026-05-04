@@ -226,25 +226,41 @@ defmodule CodePuppyControl.Config do
   end
 
   @doc """
-  Return the path to the Python worker script.
-  Required in production. Defaults to a mock path in test.
+  Return the path to the Python worker script, or `nil` if not configured.
+
+  In production, the Python worker script is **optional** for the default
+  Elixir-first runtime. It is only required when `PUP_RUNTIME=python`
+  (Python bridge/worker mode) is selected.
+
+  Resolution order:
+  1. Application env `:python_worker_script`
+  2. `PUP_PYTHON_WORKER_SCRIPT` env var
+  3. Legacy `PYTHON_WORKER_SCRIPT` env var (deprecated, with warning)
+  4. `nil` in prod (if Python bridge is not required)
+
+  In dev/test, defaults to a mock path for backward compatibility.
   """
-  @spec python_worker_script() :: String.t()
+  @spec python_worker_script() :: String.t() | nil
   def python_worker_script do
-    if prod?() do
-      get_required_string(
-        :python_worker_script,
-        "PUP_PYTHON_WORKER_SCRIPT",
-        "PYTHON_WORKER_SCRIPT"
-      )
-    else
-      Application.get_env(:code_puppy_control, :python_worker_script) ||
-        get_string_with_legacy(
-          "PUP_PYTHON_WORKER_SCRIPT",
-          "PYTHON_WORKER_SCRIPT",
-          "/tmp/mock_worker.py"
-        )
+    case Application.get_env(:code_puppy_control, :python_worker_script) do
+      value when is_binary(value) and byte_size(value) > 0 ->
+        value
+
+      _ ->
+        get_string_with_legacy("PUP_PYTHON_WORKER_SCRIPT", "PYTHON_WORKER_SCRIPT", nil)
     end
+  end
+
+  @doc """
+  Returns `true` if the current runtime requires the Python worker.
+
+  This is the case when `PUP_RUNTIME=python` is explicitly set, indicating
+  the Python bridge/worker mode is in use. The default Elixir-first runtime
+  (`:auto` or `:elixir` mode) does not require Python.
+  """
+  @spec python_runtime?() :: boolean()
+  def python_runtime? do
+    CodePuppyControl.RuntimeSelector.mode() == :python
   end
 
   @doc "Return the history limit (default `1000`)."
@@ -287,13 +303,40 @@ defmodule CodePuppyControl.Config do
 
   def cli_help_or_version_flag?(_), do: false
 
-  @doc "Validate all required config. Raises in production if missing."
+  @doc """
+  Validate all required config. Raises in production if missing.
+
+  In the default Elixir-first runtime, `PUP_PYTHON_WORKER_SCRIPT` is
+  optional. It is only required when `PUP_RUNTIME=python` is set.
+  """
   @spec validate!() :: :ok
   def validate! do
     if prod?() do
       _ = secret_key_base()
       _ = database_path()
-      _ = python_worker_script()
+
+      if python_runtime?() do
+        # Python bridge mode requires a worker script
+        case python_worker_script() do
+          nil ->
+            raise """
+            Required environment variable PUP_PYTHON_WORKER_SCRIPT is missing.
+
+            PUP_RUNTIME=python was set, which requires a Python worker script.
+            You can set it via:
+              export PUP_PYTHON_WORKER_SCRIPT="/path/to/worker_script.py"
+
+            Note: The legacy name PYTHON_WORKER_SCRIPT is also supported but deprecated.
+
+            Alternatively, unset PUP_RUNTIME to use the default Elixir-first runtime,
+            which does not require Python.
+            """
+
+          _ ->
+            :ok
+        end
+      end
+
       :ok
     else
       :ok
@@ -306,12 +349,17 @@ defmodule CodePuppyControl.Config do
     if prod?() do
       validate!()
 
-      [
+      base = [
         {CodePuppyControlWeb.Endpoint, [secret_key_base: secret_key_base()]},
         {CodePuppyControl.Repo, [database: database_path()]},
-        {:python_worker_script, python_worker_script()},
         {:history_limit, history_limit()}
       ]
+
+      # Python worker script is optional — include only if configured
+      case python_worker_script() do
+        nil -> base
+        script -> [{:python_worker_script, script} | base]
+      end
     else
       [
         {:python_worker_script, python_worker_script()},
@@ -463,30 +511,6 @@ defmodule CodePuppyControl.Config do
   end
 
   # ── Private helpers ─────────────────────────────────────────────────────
-
-  defp get_required_string(config_key, new_var, legacy_var) do
-    case Application.get_env(:code_puppy_control, config_key) do
-      nil ->
-        value = get_string_with_legacy(new_var, legacy_var, nil)
-
-        if is_nil(value) or value == "" do
-          raise """
-          Required environment variable #{new_var} is missing.
-
-          You can set it via:
-            export #{new_var}="your-value"
-
-          #{if legacy_var != new_var, do: "Note: The legacy name #{legacy_var} is also supported but deprecated.", else: ""}
-          """
-        end
-
-        Application.put_env(:code_puppy_control, config_key, value)
-        value
-
-      value ->
-        value
-    end
-  end
 
   defp get_string_with_legacy(new_var, legacy_var, default) do
     case System.get_env(new_var) do
