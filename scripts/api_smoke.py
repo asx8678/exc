@@ -1,101 +1,70 @@
 #!/usr/bin/env python3
-"""Fast smoke test for the code_puppy FastAPI app."""
+"""Legacy entry point for the removed Python FastAPI smoke test.
+
+The Python FastAPI control plane was retired in favor of the Elixir/Phoenix
+control plane. Keeping this file as an explicit tombstone is safer than leaving
+a broken import behind: direct users get a clear failure and release tooling can
+point at the supported smoke commands.
+"""
+
+from __future__ import annotations
 
 import argparse
 import sys
-import time
+from textwrap import dedent
 
-from code_puppy.api.app import create_app
-from fastapi.testclient import TestClient
+LEGACY_MESSAGE = """
+scripts/api_smoke.py is retired.
 
+The Python FastAPI control plane was removed and replaced by the
+Elixir/Phoenix control plane, so the old in-process FastAPI smoke test no
+longer has a valid app to import.
 
-class SmokeTestResult:
-    def __init__(
-        self,
-        method: str,
-        path: str,
-        status_code: int,
-        elapsed_ms: float,
-        error: str | None = None,
-    ):
-        self.method, self.path = method, path
-        self.status_code, self.elapsed_ms, self.error = status_code, elapsed_ms, error
+Use the supported local smoke commands instead:
 
-    @property
-    def success(self) -> bool:
-        return self.error is None and self.status_code == 200
+  cd elixir/code_puppy_control
+  mix pup_ex.smoke
+  ./scripts/smoke-packaged.sh
+
+Or run the full local release gate from the repository root:
+
+  ./scripts/release-gate.sh
+""".strip()
 
 
-def run_test(client: TestClient, method: str, path: str) -> SmokeTestResult:
-    start = time.perf_counter()
-    try:
-        response = client.request(method, path)
-        elapsed_ms = (time.perf_counter() - start) * 1000
-        return SmokeTestResult(method, path, response.status_code, elapsed_ms)
-    except Exception as e:
-        elapsed_ms = (time.perf_counter() - start) * 1000
-        return SmokeTestResult(method, path, 0, elapsed_ms, error=str(e))
-
-
-def format_result(result: SmokeTestResult) -> str:
-    if result.success:
-        return f"✅ {result.method} {result.path} → {result.status_code} ({result.elapsed_ms:.0f}ms)"
-    if result.error:
-        return f"❌ {result.method} {result.path} → ERROR: {result.error}"
-    return f"❌ {result.method} {result.path} → {result.status_code} ({result.elapsed_ms:.0f}ms)"
-
-
-def get_smoke_endpoints() -> list[tuple[str, str]]:
-    """Return list of (method, path) tuples for smoke testing."""
-    return [
-        ("GET", "/health"),
-        ("GET", "/api/agents/"),
-        ("GET", "/api/commands/"),
-        ("GET", "/api/config/"),
-        ("GET", "/api/config/keys"),
-    ]
-
-
-def main(args: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="FastAPI smoke test")
-    parser.add_argument(
-        "--quiet", "-q", action="store_true", help="Only print failures"
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Legacy notice for the retired Python FastAPI smoke test",
+        epilog="This command exits non-zero unless --help is requested.",
     )
-    parser.add_argument("--endpoint", "-e", help="Test single endpoint (e.g., /health)")
-    parsed = parser.parse_args(args)
+    parser.add_argument(
+        "--quiet",
+        "-q",
+        action="store_true",
+        help="Print a one-line legacy notice before exiting non-zero",
+    )
+    parser.add_argument(
+        "--endpoint",
+        "-e",
+        metavar="PATH",
+        help="Accepted for compatibility; ignored because the FastAPI app is gone",
+    )
+    return parser
 
-    app = create_app()
-    client = TestClient(app)
 
-    if parsed.endpoint:
-        endpoints = [("GET", parsed.endpoint)]
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    parsed = parser.parse_args(argv)
+
+    if parsed.quiet:
+        print(
+            "scripts/api_smoke.py is retired; use mix pup_ex.smoke instead.",
+            file=sys.stderr,
+        )
     else:
-        endpoints = get_smoke_endpoints()
+        print(dedent(LEGACY_MESSAGE), file=sys.stderr)
 
-    results: list[SmokeTestResult] = []
-    failed: list[SmokeTestResult] = []
-
-    for method, path in endpoints:
-        result = run_test(client, method, path)
-        results.append(result)
-        if not result.success:
-            failed.append(result)
-        if not parsed.quiet:
-            print(format_result(result))
-
-    total = len(results)
-    passed = total - len(failed)
-
-    if not parsed.quiet or failed:
-        print(f"\n{passed}/{total} endpoints passed")
-
-    if failed:
-        if parsed.quiet:
-            for result in failed:
-                print(format_result(result))
-        return 1
-
-    return 0
+    return 1
 
 
 if __name__ == "__main__":

@@ -2,8 +2,8 @@
 #
 # Automated Code Review for Test Files
 #
-# Invokes elixir-reviewer (for .exs) and
-# qa-expert agents on test files, producing pass/fail results.
+# Invokes elixir-code-critic (for .exs) and
+# qa-kitten agents on test files, producing pass/fail results.
 #
 # Usage:
 #   ./scripts/review-tests.sh <file_or_dir> [file_or_dir ...]
@@ -17,6 +17,8 @@
 #
 # Environment:
 #   REVIEW_BLOCKING - Set to "1" to treat all findings as blocking (default: advisory)
+#   PUP_REVIEW_ELIXIR_AGENT - Override Elixir reviewer agent (default: elixir-code-critic)
+#   PUP_REVIEW_QA_AGENT - Override QA reviewer agent (default: qa-kitten)
 
 set -euo pipefail
 
@@ -30,6 +32,8 @@ RESET='\033[0m'
 
 # ─── Config ───────────────────────────────────────────────────────────
 BLOCKING="${REVIEW_BLOCKING:-0}"
+ELIXIR_REVIEW_AGENT="${PUP_REVIEW_ELIXIR_AGENT:-elixir-code-critic}"
+QA_REVIEW_AGENT="${PUP_REVIEW_QA_AGENT:-qa-kitten}"
 BLOCKING_ISSUES=0
 ADVISORY_ISSUES=0
 TOTAL_FILES=0
@@ -52,20 +56,22 @@ Examples:
   $(basename "$0") elixir/code_puppy_control/test/bar_test.exs
 
 Environment:
-  REVIEW_BLOCKING=1   Treat findings as blocking (default: advisory)
+  REVIEW_BLOCKING=1          Treat findings as blocking (default: advisory)
+  PUP_REVIEW_ELIXIR_AGENT    Override Elixir reviewer agent (default: ${ELIXIR_REVIEW_AGENT})
+  PUP_REVIEW_QA_AGENT        Override QA reviewer agent (default: ${QA_REVIEW_AGENT})
 HELP
 }
 
 log()  { echo -e "${CYAN}[review]${RESET} $*"; }
 pass() { echo -e "  ${GREEN}✓ PASS${RESET} $*"; }
-warn() { echo -e "  ${YELLOW}⚠ ADVISORY${RESET} $*" >&2; ((ADVISORY_ISSUES++)); }
-fail() { echo -e "  ${RED}✗ BLOCKING${RESET} $*" >&2; ((BLOCKING_ISSUES++)); }
+warn() { echo -e "  ${YELLOW}⚠ ADVISORY${RESET} $*" >&2; ((ADVISORY_ISSUES+=1)); }
+fail() { echo -e "  ${RED}✗ BLOCKING${RESET} $*" >&2; ((BLOCKING_ISSUES+=1)); }
 
 # Determine the appropriate reviewer agent for a file
 reviewer_for() {
   local file="$1"
   case "$file" in
-    *_test.exs|*.exs)  echo "elixir-reviewer" ;;
+    *_test.exs|*.exs)  echo "${ELIXIR_REVIEW_AGENT}" ;;
     *)                  echo "none" ;;
   esac
 }
@@ -125,8 +131,8 @@ TOTAL_FILES=$(echo "$FILE_LIST" | wc -l | tr -d ' ')
 log "Found ${BOLD}${TOTAL_FILES}${RESET} test file(s) to review"
 
 # Create temp dir for results
-RESULTS_DIR=$(mktemp -d /tmp/code-puppy-review.XXXXXX)
-trap 'rm -rf "$RESULTS_DIR"' EXIT
+RESULTS_DIR="$(mktemp -d -t code-puppy-review.XXXXXX 2>/dev/null || mktemp -d "${TMPDIR:-/tmp}/code-puppy-review.XXXXXX")"
+trap 'rm -rf -- "$RESULTS_DIR"' EXIT
 
 # ─── Phase 1: Language-Specific Review ─────────────────────────────────
 echo ""
@@ -196,7 +202,8 @@ done
 echo ""
 log "${BOLD}Phase 2: QA coverage analysis${RESET}"
 
-qa_result="${RESULTS_DIR}/qa-expert.md"
+qa_slug="$(printf '%s' "${QA_REVIEW_AGENT}" | tr -c 'A-Za-z0-9_.-' '_')"
+qa_result="${RESULTS_DIR}/${qa_slug}.md"
 qa_prompt="Analyze test coverage and quality for the following test files:
 
 ${FILE_LIST}
@@ -213,23 +220,23 @@ Provide a summary with:
 - ADVISORY: Minor gaps (nice-to-have coverage)
 - BLOCKING: Critical gaps (untested error paths, missing edge cases)"
 
-log "Running ${BOLD}qa-expert${RESET} on ${TOTAL_FILES} file(s)..."
+log "Running ${BOLD}${QA_REVIEW_AGENT}${RESET} on ${TOTAL_FILES} file(s)..."
 
 if command -v code-puppy >/dev/null 2>&1; then
-  code-puppy --agent "qa-expert" --prompt "$qa_prompt" > "$qa_result" 2>&1 || true
+  code-puppy --agent "${QA_REVIEW_AGENT}" --prompt "$qa_prompt" > "$qa_result" 2>&1 || true
 else
-  echo "[manual review required] Run: code-puppy --agent qa-expert --prompt \"\$qa_prompt\"" > "$qa_result"
+  echo "[manual review required] Run: code-puppy --agent ${QA_REVIEW_AGENT} --prompt \"\$qa_prompt\"" > "$qa_result"
 fi
 
 if [[ -f "$qa_result" ]]; then
   if grep -qiE 'blocking|critical|gap|missing.*coverage|untested' "$qa_result" 2>/dev/null; then
     if [[ "$BLOCKING" == "1" ]]; then
-      fail "qa-expert found blocking coverage issues (see ${qa_result})"
+      fail "${QA_REVIEW_AGENT} found blocking coverage issues (see ${qa_result})"
     else
-      warn "qa-expert found coverage gaps (advisory) (see ${qa_result})"
+      warn "${QA_REVIEW_AGENT} found coverage gaps (advisory) (see ${qa_result})"
     fi
   else
-    pass "qa-expert coverage analysis complete"
+    pass "${QA_REVIEW_AGENT} coverage analysis complete"
   fi
 fi
 

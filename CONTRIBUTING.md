@@ -88,9 +88,8 @@ All new and modified test files must pass automated review before merge. This en
 
 | Language | Agent | Focus |
 |----------|-------|-------|
-| Elixir | `elixir-reviewer` | Anti-patterns, OTP idioms, Python-isms, supervision tree correctness |
-| Python | `python-reviewer` | Idiomatic patterns, type safety, async correctness |
-| Any | `qa-expert` | Coverage gaps, assertion quality, test isolation, risk assessment |
+| Elixir | `elixir-code-critic` | Anti-patterns, OTP idioms, Python-isms, supervision tree correctness |
+| Web / browser QA | `qa-kitten` | Coverage gaps, assertion quality, test isolation, risk assessment |
 
 > **Note:** Review agents use strong models (GPT-5.4, Claude Sonnet) for high-quality analysis.
 
@@ -106,14 +105,14 @@ All new and modified test files must pass automated review before merge. This en
 # Treat findings as blocking (for CI gates)
 
 # Or invoke agents directly for more control
-code-puppy --agent elixir-reviewer --prompt "Review test file: path/to/test.exs"
-code-puppy --agent qa-expert --prompt "Analyze test coverage for: path/to/tests/"
+code-puppy --agent elixir-code-critic --prompt "Review test file: path/to/test.exs"
+code-puppy --agent qa-kitten --prompt "Analyze test coverage for: path/to/tests/"
 ```
 
 #### When Reviews Are Required
 
 - **All new test files** must be reviewed by the appropriate language reviewer
-- **Test suite changes** (adding/removing tests, modifying test infrastructure) require `qa-expert` coverage analysis
+- **Test suite changes** (adding/removing tests, modifying test infrastructure) require `qa-kitten` coverage analysis
 - **Pre-push hook** runs advisory review on `.exs` test files automatically
 - **Local review** — run review scripts locally; CI comments are advisory for now
 
