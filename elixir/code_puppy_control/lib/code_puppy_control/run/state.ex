@@ -222,7 +222,7 @@ defmodule CodePuppyControl.Run.State do
     agent_name = Keyword.get(opts, :agent_name)
     worker_pid = Keyword.get(opts, :worker_pid)
 
-    # Subscribe to PubSub for Python notifications and events
+    # Subscribe to PubSub for executor notifications and events
     Phoenix.PubSub.subscribe(CodePuppyControl.PubSub, "run:#{run_id}")
 
     # Monitor the worker if provided
@@ -343,50 +343,15 @@ defmodule CodePuppyControl.Run.State do
   end
 
   @impl true
-  def handle_info({:python_notification, run_id, message}, state) do
+  def handle_info({:python_notification, _run_id, message}, state) do
     # Handle notifications from Python worker
-    Logger.debug("Received notification for run #{run_id}: #{inspect(message)}")
+    handle_executor_message(message, state)
+  end
 
-    # Record in history
-    entry = %{
-      type: :notification,
-      timestamp: DateTime.utc_now(),
-      data: message
-    }
-
-    new_state = %{state | request_history: [entry | state.request_history]}
-
-    # Handle specific notification types
-    new_state =
-      case message do
-        %{"method" => "run.started", "params" => _} ->
-          %{new_state | status: :running}
-
-        %{"method" => "tool_executed", "params" => params} ->
-          handle_tool_executed(new_state, params)
-
-        %{"method" => "run.completed", "params" => params} ->
-          %{
-            new_state
-            | status: :completed,
-              error: params["error"],
-              completed_at: DateTime.utc_now(),
-              metadata: Map.merge(new_state.metadata, params)
-          }
-
-        %{"method" => "run.failed", "params" => params} ->
-          %{
-            new_state
-            | status: :failed,
-              error: params["error"],
-              completed_at: DateTime.utc_now()
-          }
-
-        _ ->
-          new_state
-      end
-
-    {:noreply, touch(new_state)}
+  @impl true
+  def handle_info({:executor_notification, _run_id, message}, state) do
+    # Handle notifications from Elixir executor (code-puppy-96g)
+    handle_executor_message(message, state)
   end
 
   @impl true
@@ -504,5 +469,50 @@ defmodule CodePuppyControl.Run.State do
     new_metadata = Map.put(state.metadata, :tools_executed, [tool_name | tools])
 
     %{state | metadata: new_metadata}
+  end
+
+  defp handle_executor_message(message, state) do
+    Logger.debug("Received executor notification for run #{state.run_id}: #{inspect(message)}")
+
+    # Record in history
+    entry = %{
+      type: :notification,
+      timestamp: DateTime.utc_now(),
+      data: message
+    }
+
+    new_state = %{state | request_history: [entry | state.request_history]}
+
+    # Handle specific notification types
+    new_state =
+      case message do
+        %{"method" => "run.started", "params" => _} ->
+          %{new_state | status: :running}
+
+        %{"method" => "tool_executed", "params" => params} ->
+          handle_tool_executed(new_state, params)
+
+        %{"method" => "run.completed", "params" => params} ->
+          %{
+            new_state
+            | status: :completed,
+              error: params["error"],
+              completed_at: DateTime.utc_now(),
+              metadata: Map.merge(new_state.metadata, params)
+          }
+
+        %{"method" => "run.failed", "params" => params} ->
+          %{
+            new_state
+            | status: :failed,
+              error: params["error"],
+              completed_at: DateTime.utc_now()
+          }
+
+        _ ->
+          new_state
+      end
+
+    {:noreply, touch(new_state)}
   end
 end

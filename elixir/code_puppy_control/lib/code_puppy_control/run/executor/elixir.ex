@@ -146,7 +146,7 @@ defmodule CodePuppyControl.Run.Executor.Elixir do
     Phoenix.PubSub.broadcast(
       CodePuppyControl.PubSub,
       "run:#{state.run_id}",
-      {:python_notification, state.run_id, %{"method" => "run.started", "params" => %{}}}
+      {:executor_notification, state.run_id, %{"method" => "run.started", "params" => %{}}}
     )
 
     Logger.info("Elixir executor: run #{state.run_id} started")
