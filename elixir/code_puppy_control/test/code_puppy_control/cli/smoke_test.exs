@@ -449,6 +449,49 @@ defmodule CodePuppyControl.CLI.SmokeTest do
   end
 
   # ---------------------------------------------------------------------------
+  # No-Python mode (code-puppy-osy)
+  # ---------------------------------------------------------------------------
+
+  describe "no-python mode" do
+    setup do
+      {:ok, _} = Application.ensure_all_started(:code_puppy_control)
+      :ok
+    end
+
+    test "passes in-process phases with no_python: true" do
+      result = Smoke.run(phases: [:parser, :run_mode, :sandbox, :one_shot], no_python: true)
+
+      assert result.status == :pass, """
+      Smoke.run(no_python: true) did not pass.
+      result: #{inspect(result, pretty: true)}
+      """
+    end
+
+    test "restores PUP_RUNTIME after no_python run" do
+      pre = System.get_env("PUP_RUNTIME")
+      _ = Smoke.run(phases: [:parser], no_python: true)
+      post = System.get_env("PUP_RUNTIME")
+      assert pre == post, "PUP_RUNTIME was not restored after no_python run"
+    end
+
+    test "no_python_packaged_env includes PUP_RUNTIME=elixir" do
+      env = Smoke.no_python_packaged_env()
+      assert List.keyfind(env, "PUP_RUNTIME", 0) == {"PUP_RUNTIME", "elixir"}
+    end
+
+    test "no_python_packaged_env cleans up Python worker script vars" do
+      env = Smoke.no_python_packaged_env()
+      assert List.keyfind(env, "PUP_PYTHON_WORKER_SCRIPT", 0) == {"PUP_PYTHON_WORKER_SCRIPT", ""}
+      assert List.keyfind(env, "PYTHON_WORKER_SCRIPT", 0) == {"PYTHON_WORKER_SCRIPT", ""}
+    end
+
+    test "no_python_packaged_env includes PUP_SMOKE_PROBE" do
+      env = Smoke.no_python_packaged_env()
+      assert List.keyfind(env, "PUP_SMOKE_PROBE", 0) == {"PUP_SMOKE_PROBE", "1"}
+    end
+  end
+
+  # ---------------------------------------------------------------------------
   # Helpers
   # ---------------------------------------------------------------------------
 

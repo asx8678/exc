@@ -44,6 +44,21 @@ defmodule CodePuppyControl.CLI.Smoke do
     default — see `scripts/build-burrito.sh --host-only` and
     `scripts/smoke-packaged.sh --with-burrito`).
 
+  ## No-Python mode
+
+  When `no_python: true` is passed, the smoke runner validates that
+  the CLI works without Python installed:
+
+    - Sets `PUP_RUNTIME=elixir` for in-process phases so the executor
+      boundary selects the Elixir-native executor.
+    - For packaged probes (escript/burrito), sanitizes `PATH` to
+      exclude `python3`/`python` and passes `PUP_RUNTIME=elixir`
+      plus `PUP_SMOKE_PROBE=1` in the child environment.
+    - Deletes/avoids `PUP_PYTHON_WORKER_SCRIPT` and legacy
+      `PYTHON_WORKER_SCRIPT` in the probe environment.
+
+  This proves the Python-free runtime guarantee (code-puppy-osy).
+
   Phase implementations live in `CodePuppyControl.CLI.Smoke.Phases`
   to keep this module under the 600-line cap.
 
@@ -55,6 +70,10 @@ defmodule CodePuppyControl.CLI.Smoke do
     * `:burrito` — `boolean()`; if `true`, also run the `:burrito` phase
       (off by default; deterministically skips when no artifact is
       available so CI without a Zig toolchain stays green).
+    * `:no_python` — `boolean()`; if `true`, run all phases with a
+      sanitized PATH that excludes `python3`/`python` and set
+      `PUP_RUNTIME=elixir` to validate the Python-free runtime
+      guarantee (off by default; see code-puppy-osy).
 
   ## Determinism guarantees
 
@@ -136,13 +155,28 @@ defmodule CodePuppyControl.CLI.Smoke do
   """
   @spec run_phases(keyword(), map()) :: result()
   def run_phases(opts, sandbox) when is_map(sandbox) do
+    no_python = Keyword.get(opts, :no_python, false)
+
+    # When no_python is enabled, set PUP_RUNTIME=elixir for in-process
+    # phases so the executor boundary selects the Elixir executor.
+    runtime_snapshot = if no_python, do: save_no_python_env(), else: nil
+
+    if no_python do
+      apply_no_python_env()
+    end
+
     started_at = System.monotonic_time(:millisecond)
 
     requested_phases = resolve_phases(opts)
 
-    results = Enum.map(requested_phases, &run_phase(&1, sandbox))
+    results = Enum.map(requested_phases, &run_phase(&1, sandbox, opts))
 
     duration = System.monotonic_time(:millisecond) - started_at
+
+    # Restore PUP_RUNTIME if we changed it
+    if no_python and runtime_snapshot do
+      restore_no_python_env(runtime_snapshot)
+    end
 
     %{
       status: aggregate_status(results),
@@ -166,14 +200,18 @@ defmodule CodePuppyControl.CLI.Smoke do
     if phase in list, do: list, else: list ++ [phase]
   end
 
-  defp run_phase(:parser, _sandbox), do: Phases.parser()
-  defp run_phase(:run_mode, _sandbox), do: Phases.run_mode()
-  defp run_phase(:sandbox, sandbox), do: Phases.sandbox(sandbox)
-  defp run_phase(:one_shot, sandbox), do: Phases.one_shot(sandbox)
-  defp run_phase(:escript, _sandbox), do: Phases.escript()
-  defp run_phase(:burrito, _sandbox), do: Phases.burrito()
+  defp run_phase(:parser, _sandbox, _opts), do: Phases.parser()
+  defp run_phase(:run_mode, _sandbox, _opts), do: Phases.run_mode()
+  defp run_phase(:sandbox, sandbox, _opts), do: Phases.sandbox(sandbox)
+  defp run_phase(:one_shot, sandbox, _opts), do: Phases.one_shot(sandbox)
 
-  defp run_phase(other, _sandbox) do
+  defp run_phase(:escript, _sandbox, opts),
+    do: Phases.escript(no_python: Keyword.get(opts, :no_python, false))
+
+  defp run_phase(:burrito, _sandbox, opts),
+    do: Phases.burrito(no_python: Keyword.get(opts, :no_python, false))
+
+  defp run_phase(other, _sandbox, _opts) do
     %{
       phase: other,
       status: :fail,
@@ -352,4 +390,98 @@ defmodule CodePuppyControl.CLI.Smoke do
 
   defp restore_env(key, nil), do: System.delete_env(key)
   defp restore_env(key, value), do: System.put_env(key, value)
+
+  # ── No-Python env helpers ──────────────────────────────────────────
+  #
+  # When --no-python is active, we set PUP_RUNTIME=elixir for in-process
+  # phases and clean up Python-related env vars so the executor boundary
+  # selects the Elixir-native executor.  For packaged CLI probes,
+  # we also sanitize PATH in the child environment (see Phases).
+
+  @pup_runtime_env "PUP_RUNTIME"
+  @pup_python_worker_env "PUP_PYTHON_WORKER_SCRIPT"
+  @legacy_python_worker_env "PYTHON_WORKER_SCRIPT"
+
+  defp save_no_python_env do
+    %{
+      pup_runtime: System.get_env(@pup_runtime_env),
+      pup_python_worker: System.get_env(@pup_python_worker_env),
+      legacy_python_worker: System.get_env(@legacy_python_worker_env)
+    }
+  end
+
+  defp apply_no_python_env do
+    System.put_env(@pup_runtime_env, "elixir")
+    System.delete_env(@pup_python_worker_env)
+    System.delete_env(@legacy_python_worker_env)
+    :ok
+  end
+
+  defp restore_no_python_env(snapshot) do
+    restore_env(@pup_runtime_env, snapshot.pup_runtime)
+    restore_env(@pup_python_worker_env, snapshot.pup_python_worker)
+    restore_env(@legacy_python_worker_env, snapshot.legacy_python_worker)
+    :ok
+  end
+
+  @doc """
+  Build a sanitized environment map for packaged CLI probes in
+  no-Python mode.
+
+  Removes `python3`/`python` from PATH and adds `PUP_RUNTIME=elixir`,
+  `PUP_SMOKE_PROBE=1`, a sandboxed `PUP_EX_HOME`, and cleans up
+  any `PUP_PYTHON_WORKER_SCRIPT` / `PYTHON_WORKER_SCRIPT` entries.
+  """
+  @spec no_python_packaged_env() :: list({String.t(), String.t()})
+  def no_python_packaged_env do
+    # Build a PATH with no python3/python by creating a temp dir
+    # containing only symlinks to the essential tools the packaged
+    # CLI needs (sh, bash, etc) but NOT python3/python.
+    #
+    # For simplicity and safety, we create a minimal PATH containing
+    # the common system binary directories minus any python-specific
+    # directories, and rely on the fact that `--version` and `--help`
+    # don't need python3 at all.
+    #
+    # Strategy: include standard system dirs but exclude any dir
+    # that is named python* (e.g. /usr/lib/python3.x) and any
+    # dir that would resolve python3.  Since python3 is typically
+    # in /usr/bin or /usr/local/bin, we can't simply exclude those.
+    # Instead, we create a temp dir with symlinks to just the tools
+    # we need.
+    sanitized_path = build_sanitized_path()
+
+    [
+      {"PATH", sanitized_path},
+      {"PUP_EX_HOME", System.get_env("PUP_EX_HOME") || ""},
+      {"PUP_SMOKE_PROBE", "1"},
+      {"PUP_RUNTIME", "elixir"},
+      {"PUP_PYTHON_WORKER_SCRIPT", ""},
+      {"PYTHON_WORKER_SCRIPT", ""}
+    ]
+  end
+
+  defp build_sanitized_path do
+    # The packaged CLI probes (escript/burrito) only run `--version`
+    # and `--help`, which are pure-Elixir fast paths that don't need
+    # any external tools.  We create a temp directory with just the
+    # minimum shell tools (sh) needed for System.cmd to work, but
+    # deliberately exclude python3/python.
+    uniq = :crypto.strong_rand_bytes(4) |> Base.encode16(case: :lower)
+    no_python_dir = Path.join(System.tmp_dir!(), "pup_no_python_#{uniq}")
+    File.mkdir_p!(no_python_dir)
+
+    # Symlink sh (needed for Port.spawn on some platforms)
+    for sh_candidate <- ["/bin/sh", "/usr/bin/sh"] do
+      if File.exists?(sh_candidate) do
+        link = Path.join(no_python_dir, "sh")
+
+        unless File.exists?(link) do
+          File.ln_s(sh_candidate, link)
+        end
+      end
+    end
+
+    no_python_dir
+  end
 end

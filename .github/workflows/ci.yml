@@ -133,5 +133,8 @@ jobs:
       - name: Run mix pup_ex.smoke
         run: mix pup_ex.smoke
 
+      - name: Run no-Python smoke (validates Python-free runtime)
+        run: mix pup_ex.smoke --no-python --phase parser --phase run_mode --phase sandbox --phase one_shot
+
       - name: Build escript and run packaged CLI smoke
-        run: ./scripts/smoke-packaged.sh
+        run: ./scripts/smoke-packaged.sh --no-python

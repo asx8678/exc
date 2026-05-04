@@ -23,6 +23,8 @@ defmodule Mix.Tasks.PupEx.Smoke do
       mix pup_ex.smoke --escript      # also probe the built escript
       mix pup_ex.smoke --burrito      # also probe the built Burrito binary
       mix pup_ex.smoke --escript --burrito --json
+      mix pup_ex.smoke --no-python          # validate Python-free runtime
+      mix pup_ex.smoke --no-python --escript # no-Python + escript probe
 
   ## Phases
 
@@ -35,6 +37,17 @@ defmodule Mix.Tasks.PupEx.Smoke do
   - `burrito`   — opt-in via `--burrito`; spawns the host-built
                   Burrito binary with `--version` and `--help`
                   (auto-skips if `burrito_out/<host>` is missing)
+
+  ## No-Python mode
+
+  When `--no-python` is passed, the smoke runner validates the
+  Python-free runtime guarantee: in-process phases run with
+  `PUP_RUNTIME=elixir`, and packaged probes (escript/burrito)
+  are spawned with a sanitized `PATH` that excludes `python3`/
+  `python`.  This proves the packaged CLI starts and shows
+  help/version without Python installed.
+
+  Refs: code-puppy-osy
 
   ## Exit codes
 
@@ -56,7 +69,13 @@ defmodule Mix.Tasks.PupEx.Smoke do
 
   alias CodePuppyControl.CLI.Smoke
 
-  @switches [json: :boolean, phase: :keep, escript: :boolean, burrito: :boolean]
+  @switches [
+    json: :boolean,
+    phase: :keep,
+    escript: :boolean,
+    burrito: :boolean,
+    no_python: :boolean
+  ]
 
   @impl Mix.Task
   def run(argv) do
@@ -146,6 +165,11 @@ defmodule Mix.Tasks.PupEx.Smoke do
         do: Keyword.put(runner_opts, :burrito, true),
         else: runner_opts
 
+    runner_opts =
+      if Keyword.get(opts, :no_python, false),
+        do: Keyword.put(runner_opts, :no_python, true),
+        else: runner_opts
+
     runner_opts
   end
 
@@ -185,7 +209,7 @@ defmodule Mix.Tasks.PupEx.Smoke do
     Mix.shell().info("""
 
     Usage:
-      mix pup_ex.smoke [--json] [--phase NAME ...] [--escript] [--burrito]
+      mix pup_ex.smoke [--json] [--phase NAME ...] [--escript] [--burrito] [--no-python]
 
     Phases (default if none given): #{Enum.map_join(Smoke.default_phases(), ", ", &Atom.to_string/1)}
     All phases:                     #{Enum.map_join(Smoke.all_phases(), ", ", &Atom.to_string/1)}

@@ -27,12 +27,20 @@
 #                        images that should always have a known-good
 #                        Zig pre-installed.
 #
+#   4. --no-python        validate the Python-free runtime guarantee:
+#                        run packaged CLI smoke with a sanitized PATH
+#                        that excludes python3/python.  Proves the
+#                        packaged CLI starts and shows help/version
+#                        without Python installed.
+#
 # Usage:
 #   scripts/smoke-packaged.sh                       # escript-only smoke
 #   scripts/smoke-packaged.sh --json                # JSON report
 #   scripts/smoke-packaged.sh --with-burrito        # add Burrito layer
 #   scripts/smoke-packaged.sh --with-burrito --strict
 #   scripts/smoke-packaged.sh --skip-build          # reuse an already-built ./pup
+#   scripts/smoke-packaged.sh --no-python           # validate no-Python runtime
+#   scripts/smoke-packaged.sh --no-python --with-burrito
 #
 # Exit codes:
 #   0  every selected layer passed (or was deliberately skipped)
@@ -99,6 +107,7 @@ zig_compat_status() {
 WITH_BURRITO=false
 STRICT=false
 SKIP_BUILD=false
+NO_PYTHON=false
 JSON_FLAG=""
 
 while [[ $# -gt 0 ]]; do
@@ -106,6 +115,7 @@ while [[ $# -gt 0 ]]; do
     --with-burrito) WITH_BURRITO=true; shift ;;
     --strict)        STRICT=true; shift ;;
     --skip-build)    SKIP_BUILD=true; shift ;;
+    --no-python)     NO_PYTHON=true; shift ;;
     --json)          JSON_FLAG="--json"; shift ;;
     --help|-h)
       sed -n '1,50p' "$0"
@@ -231,11 +241,19 @@ if [[ "${WITH_BURRITO}" == "true" ]]; then
   esac
 fi
 
+NO_PYTHON_FLAG=""
+if [[ "${NO_PYTHON}" == "true" ]]; then
+  NO_PYTHON_FLAG="--no-python"
+fi
+
 # ── Run the smoke ─────────────────────────────────────────────────────────
-info "running mix pup_ex.smoke --escript ${BURRITO_FLAG} ${JSON_FLAG}"
+info "running mix pup_ex.smoke --escript ${BURRITO_FLAG} ${NO_PYTHON_FLAG} ${JSON_FLAG}"
 SMOKE_ARGS=("pup_ex.smoke" "--escript")
 if [[ -n "${BURRITO_FLAG}" ]]; then
   SMOKE_ARGS+=("${BURRITO_FLAG}")
+fi
+if [[ -n "${NO_PYTHON_FLAG}" ]]; then
+  SMOKE_ARGS+=("${NO_PYTHON_FLAG}")
 fi
 if [[ -n "${JSON_FLAG}" ]]; then
   SMOKE_ARGS+=("${JSON_FLAG}")

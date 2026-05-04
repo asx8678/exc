@@ -12,6 +12,7 @@ defmodule CodePuppyControl.CLI.Smoke.Phases do
 
   alias CodePuppyControl.CLI
   alias CodePuppyControl.CLI.Parser
+  alias CodePuppyControl.CLI.Smoke
   alias CodePuppyControl.CLI.Smoke.BurritoArtifact
   alias CodePuppyControl.CLI.Smoke.MockLLM
   alias CodePuppyControl.Config.Paths
@@ -284,8 +285,10 @@ defmodule CodePuppyControl.CLI.Smoke.Phases do
   # ── Phase: escript (opt-in) ───────────────────────────────────────────
 
   @doc false
-  @spec escript() :: phase_result()
-  def escript do
+  @spec escript(keyword()) :: phase_result()
+  def escript(opts \\ []) do
+    no_python = Keyword.get(opts, :no_python, false)
+
     candidates = [
       Path.join(File.cwd!(), "pup"),
       Path.expand("../../../pup", __DIR__),
@@ -304,7 +307,7 @@ defmodule CodePuppyControl.CLI.Smoke.Phases do
         }
 
       path ->
-        probe_packaged_cli(:escript, path)
+        probe_packaged_cli(:escript, path, no_python: no_python)
     end
   end
 
@@ -317,11 +320,13 @@ defmodule CodePuppyControl.CLI.Smoke.Phases do
   #
   # Refs: code_puppy-d7m
   @doc false
-  @spec burrito() :: phase_result()
-  def burrito do
+  @spec burrito(keyword()) :: phase_result()
+  def burrito(opts \\ []) do
+    no_python = Keyword.get(opts, :no_python, false)
+
     case BurritoArtifact.find_burrito_artifact() do
       {:ok, path} ->
-        probe_packaged_cli(:burrito, path)
+        probe_packaged_cli(:burrito, path, no_python: no_python)
 
       {:skip, reason, metrics} ->
         %{
@@ -365,8 +370,10 @@ defmodule CodePuppyControl.CLI.Smoke.Phases do
   # accidental config touch lands in the smoke sandbox, NEVER
   # `~/.code_puppy_ex/`) and `PUP_SMOKE_PROBE=1` so callees can
   # detect-and-shortcircuit if they ever need to.
-  defp probe_packaged_cli(phase, path) do
-    env = packaged_cli_env()
+  defp probe_packaged_cli(phase, path, opts) do
+    no_python = Keyword.get(opts, :no_python, false)
+
+    env = if no_python, do: Smoke.no_python_packaged_env(), else: packaged_cli_env()
 
     with {:version, {ver_out, 0}} <-
            {:version, System.cmd(path, ["--version"], stderr_to_stdout: true, env: env)},

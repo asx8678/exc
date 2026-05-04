@@ -38,12 +38,17 @@ The default Elixir CLI and REPL paths can start and operate without Python insta
 
 | Path / Feature | Module | Impact |
 |---|---|---|
-| `PythonWorker.Port` | `CodePuppyControl.PythonWorker.Port` | Direct `python3` subprocess; `Port.open` spawn |
-| `Run.Manager.start_run/3` | `CodePuppyControl.Run.Manager` | Calls `PythonWorker.Supervisor.start_worker/2` |
-| `/api/runs/:id/execute` | `RunController` | Routes through `PythonWorker.Port.call/4` |
-| Scheduler/workflow/sub-agent paths using Run.Manager | Various | Depends on Run.Manager → PythonWorker |
+| `PythonWorker.Port` | `CodePuppyControl.PythonWorker.Port` | Direct `python3` subprocess; `Port.open` spawn (only used in bridge mode now) |
+| `/api/runs/:id/execute` | `RunController` | Routes through `PythonWorker.Port.call/4` (still direct — code-puppy-zyh) |
 | Python bridge mode (`PUP_RUNTIME=python`) | `RuntimeSelector` | Routes all capabilities to Python bridge |
 | Legacy Python package (`pup` CLI) | Python codebase | Separate entrypoint |
+
+> **Note (code-puppy-96g):** `Run.Manager.start_run/3` no longer directly
+> calls `PythonWorker.Supervisor.start_worker/2`.  It now routes through
+> `Run.Executor`, which selects the Elixir-native executor by default
+> (no Python required).  Only `PUP_RUNTIME=python` activates the Python
+> executor backend.  `Run.State.cancel/2` and `Run.State` inactivity
+> cleanup also route through the executor boundary.
 
 ---
 
@@ -88,9 +93,9 @@ Updated existing integration test for missing script path (from raise to error t
 
 | ID | Issue | Priority | Notes |
 |---|---|---|---|
-| A | Refactor `Run.Manager` behind Elixir/Python executor boundary | P1 | `start_run/3` directly calls `PythonWorker.Supervisor`; needs abstraction layer that routes to Elixir-native executor when Python is unavailable |
-| B | Refactor `/api/runs/:id/execute` away from direct `PythonWorker.Port` | P1/P2 | Controller routes directly to Port; should go through Run.Manager abstraction |
-| C | Add packaged no-Python smoke to release gate/CI | P1/P2 | Automated test that Burrito binary starts, shows help/version, and runs a basic REPL turn without Python installed |
+| A | Refactor `Run.Manager` behind Elixir/Python executor boundary | ✓ Done (code-puppy-96g) | `start_run/3` routes through `Run.Executor` facade; Elixir executor is default |
+| B | Refactor `/api/runs/:id/execute` away from direct `PythonWorker.Port` | P1/P2 | Controller routes directly to Port; should go through Run.Manager abstraction (code-puppy-zyh) |
+| C | Add packaged no-Python smoke to release gate/CI | ✓ Done (code-puppy-osy) | `mix pup_ex.smoke --no-python` + CI workflow steps added |
 | D | Update README/architecture docs from Python-first to Elixir-first/Python-optional | P2 | Current docs imply Python is always required |
 | E | Remove/guard Python CLI fallback from release overlay wrappers | P2 | Shell wrappers in `rel/` may still try `python3 pup` |
 | F | Resolve Python `pup` entrypoint collision / version stream | P2/P3 | Both Python and Elixir provide a `pup` command; need clear separation or deprecation path |
