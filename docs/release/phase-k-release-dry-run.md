@@ -20,7 +20,7 @@ Phase K (Release hardening and distribution readiness) comprises K.1–K.9:
 | code-puppy-530.8 | K.6 Documentation consistency sweep | ✓ Closed | `6620ef26` |
 | code-puppy-530.7 | K.7 Security and dependency audit | ✓ Closed | `01cb488b` |
 | code-puppy-530.4 | K.8 Runtime / Admin UI / Dogfood QA | ✓ Closed | `94ac1a03` |
-| code-puppy-530.9 | K.9 Final release dry run + sign-off | ◐ This task | — |
+| code-puppy-530.9 | K.9 Final release dry run + sign-off | ✓ Closed | `bd120679` |
 
 ### Commits in Scope (K.1–K.9)
 
@@ -37,6 +37,9 @@ a50fc46f K.6 docs follow-up
 bb82f3a8 K.8 Runtime / Admin UI / Dogfood QA
 94ac1a03 K.8 fix: /admin/pack graceful ClusterDashboard fallback
 3e150e38 bd: correction note
+4921ef83 K.9 Final release dry run + sign-off
+fbcbf9be Fix Owl.IO.select test flake (code-puppy-530.10)
+bd120679 Fix 5 flaky tests; full suite 3× clean (code-puppy-1j1)
 ```
 
 ---
@@ -59,7 +62,7 @@ bb82f3a8 K.8 Runtime / Admin UI / Dogfood QA
 | Python artifact smoke (`scripts/python-package-smoke.sh`) | ✅ PASS | Wheel builds, installs, entry points verified |
 | Elixir format (`mix format --check-formatted`) | ✅ PASS | |
 | Elixir compile (`mix compile --warnings-as-errors`) | ✅ PASS | Parser yecc warnings only (unreachable terminals in .yrl) |
-| Elixir tests (`mix test`) | ⚠️ FLAKY | See §3 |
+| Elixir tests (`mix test`) | ✅ PASS | 3 consecutive clean runs after flake fixes (§3) |
 | Elixir smoke (`mix pup_ex.smoke`) | ✅ PASS | All 4 phases ok (196ms) |
 | Elixir packaged smoke (`./scripts/smoke-packaged.sh`) | ✅ PASS | All 5 phases ok (802ms) |
 
