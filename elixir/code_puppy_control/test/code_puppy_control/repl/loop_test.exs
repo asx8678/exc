@@ -124,14 +124,22 @@ defmodule CodePuppyControl.REPL.LoopTest do
     test "/agent with no arg triggers selector (falls back to current agent in non-TTY)", %{
       state: state
     } do
-      output =
-        ExUnit.CaptureIO.capture_io(fn ->
-          assert {:continue, _new_state} = Loop.handle_input("/agent", state)
-        end)
+      # Force fallback_select to avoid Owl.IO.select which blocks under CaptureIO.
+      # Sending "\n" simulates Enter at the fallback IO.gets prompt (= cancel).
+      prev = Application.get_env(:code_puppy_control, :force_fallback_select, false)
+      Application.put_env(:code_puppy_control, :force_fallback_select, true)
 
-      # Either shows the agent selector, a cancelled message, or falls back
-      # to showing the current agent — all are valid in test env
-      assert output =~ "code-puppy" or output =~ "cancelled" or output =~ "Agent Selector"
+      try do
+        output =
+          ExUnit.CaptureIO.capture_io("\n", fn ->
+            assert {:continue, _new_state} = Loop.handle_input("/agent", state)
+          end)
+
+        # Fallback path with blank input returns :cancelled
+        assert output =~ "cancelled" or output =~ "code-puppy" or output =~ "Agent Selector"
+      after
+        Application.put_env(:code_puppy_control, :force_fallback_select, prev)
+      end
     end
 
     test "/agent <name> switches agent", %{state: state} do
@@ -145,14 +153,23 @@ defmodule CodePuppyControl.REPL.LoopTest do
     end
 
     test "handle_agent_command with empty string invokes selector", %{state: state} do
-      output =
-        ExUnit.CaptureIO.capture_io(fn ->
-          result = Loop.handle_agent_command("", state)
-          assert {:continue, _} = result
-        end)
+      # Force fallback_select to avoid Owl.IO.select which blocks under CaptureIO.
+      # Sending "\n" simulates Enter at the fallback IO.gets prompt (= cancel).
+      prev = Application.get_env(:code_puppy_control, :force_fallback_select, false)
+      Application.put_env(:code_puppy_control, :force_fallback_select, true)
 
-      # In test env, selector will either render or fall back to showing current agent
-      assert is_binary(output)
+      try do
+        output =
+          ExUnit.CaptureIO.capture_io("\n", fn ->
+            result = Loop.handle_agent_command("", state)
+            assert {:continue, _} = result
+          end)
+
+        # Fallback path with blank input returns :cancelled
+        assert is_binary(output)
+      after
+        Application.put_env(:code_puppy_control, :force_fallback_select, prev)
+      end
     end
 
     test "handle_agent_command with name switches directly", %{state: state} do
