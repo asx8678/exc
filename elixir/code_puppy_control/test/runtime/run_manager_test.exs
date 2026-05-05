@@ -666,4 +666,175 @@ defmodule CodePuppyControl.Runtime.RunManagerTest do
       Manager.delete_run(run_id)
     end
   end
+
+  # ---------------------------------------------------------------------------
+  # Run.State terminal-state regression (code-puppy-gd0)
+  # ---------------------------------------------------------------------------
+  # Stale/late executor notifications or run events must not overwrite
+  # terminal states (:completed, :failed, :cancelled).
+
+  describe "Run.State terminal-state guard" do
+    alias CodePuppyControl.Run.State
+
+    setup do
+      saved_runtime = System.get_env(@pup_runtime)
+      System.delete_env(@pup_runtime)
+
+      saved_app =
+        Application.get_env(:code_puppy_control, :run_executor_module)
+
+      Application.delete_env(:code_puppy_control, :run_executor_module)
+
+      on_exit(fn ->
+        case saved_runtime do
+          nil -> System.delete_env(@pup_runtime)
+          v -> System.put_env(@pup_runtime, v)
+        end
+
+        case saved_app do
+          nil -> Application.delete_env(:code_puppy_control, :run_executor_module)
+          v -> Application.put_env(:code_puppy_control, :run_executor_module, v)
+        end
+      end)
+
+      {:ok, run_id} = Manager.start_run("gd0-session", "gd0-agent")
+      Process.sleep(50)
+
+      # Look up the state PID for direct message sends
+      [{state_pid, _}] =
+        Registry.lookup(CodePuppyControl.Run.Registry, {:run_state, run_id})
+
+      %{run_id: run_id, state_pid: state_pid}
+    end
+
+    test "stale executor_notification run.started does not overwrite :completed", %{
+      run_id: run_id,
+      state_pid: state_pid
+    } do
+      State.set_status(run_id, :completed)
+      Process.sleep(20)
+
+      send(
+        state_pid,
+        {:executor_notification, run_id, %{"method" => "run.started", "params" => %{}}}
+      )
+
+      Process.sleep(20)
+
+      assert {:ok, state} = Manager.get_run(run_id)
+      assert state.status == :completed
+    end
+
+    test "stale executor_notification run.started does not overwrite :failed", %{
+      run_id: run_id,
+      state_pid: state_pid
+    } do
+      State.set_status(run_id, :failed, "test_failure")
+      Process.sleep(20)
+
+      send(
+        state_pid,
+        {:executor_notification, run_id, %{"method" => "run.started", "params" => %{}}}
+      )
+
+      Process.sleep(20)
+
+      assert {:ok, state} = Manager.get_run(run_id)
+      assert state.status == :failed
+    end
+
+    test "stale executor_notification run.started does not overwrite :cancelled", %{
+      run_id: run_id,
+      state_pid: state_pid
+    } do
+      State.set_status(run_id, :cancelled, "test_cancel")
+      Process.sleep(20)
+
+      send(
+        state_pid,
+        {:executor_notification, run_id, %{"method" => "run.started", "params" => %{}}}
+      )
+
+      Process.sleep(20)
+
+      assert {:ok, state} = Manager.get_run(run_id)
+      assert state.status == :cancelled
+    end
+
+    test "normal run.started transitions :starting to :running", %{
+      run_id: run_id,
+      state_pid: state_pid
+    } do
+      # Status should be :starting or :running initially
+      assert {:ok, state_before} = Manager.get_run(run_id)
+      assert state_before.status in [:starting, :running]
+      refute state_before.status in [:completed, :failed, :cancelled]
+
+      send(
+        state_pid,
+        {:executor_notification, run_id, %{"method" => "run.started", "params" => %{}}}
+      )
+
+      Process.sleep(20)
+
+      assert {:ok, state_after} = Manager.get_run(run_id)
+      assert state_after.status == :running
+    end
+
+    test "stale run_event status does not overwrite :completed", %{
+      run_id: run_id,
+      state_pid: state_pid
+    } do
+      State.set_status(run_id, :completed)
+      Process.sleep(20)
+
+      send(state_pid, {:run_event, %{"type" => "status", "status" => "running"}})
+      Process.sleep(20)
+
+      assert {:ok, state} = Manager.get_run(run_id)
+      assert state.status == :completed
+    end
+
+    test "stale run_event completed does not overwrite :failed", %{
+      run_id: run_id,
+      state_pid: state_pid
+    } do
+      State.set_status(run_id, :failed, "original_error")
+      Process.sleep(20)
+
+      send(state_pid, {:run_event, %{"type" => "completed"}})
+      Process.sleep(20)
+
+      assert {:ok, state} = Manager.get_run(run_id)
+      assert state.status == :failed
+    end
+
+    test "stale run_event failed does not overwrite :cancelled", %{
+      run_id: run_id,
+      state_pid: state_pid
+    } do
+      State.set_status(run_id, :cancelled, "user_cancelled")
+      Process.sleep(20)
+
+      send(state_pid, {:run_event, %{"type" => "failed", "error" => "late_error"}})
+      Process.sleep(20)
+
+      assert {:ok, state} = Manager.get_run(run_id)
+      assert state.status == :cancelled
+    end
+
+    test "normal run_event transitions :starting to :running", %{
+      run_id: run_id,
+      state_pid: state_pid
+    } do
+      assert {:ok, state_before} = Manager.get_run(run_id)
+      assert state_before.status in [:starting, :running]
+
+      send(state_pid, {:run_event, %{"type" => "status", "status" => "running"}})
+      Process.sleep(20)
+
+      assert {:ok, state_after} = Manager.get_run(run_id)
+      assert state_after.status == :running
+    end
+  end
 end

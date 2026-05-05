@@ -362,27 +362,41 @@ defmodule CodePuppyControl.Run.State do
     new_events = [event | state.events]
 
     # Update status based on event type
+    terminal? = state.status in [:completed, :failed, :cancelled]
+
     new_state =
       case event do
         %{"type" => "status", "status" => status} ->
-          %{state | status: safe_status_atom(status), events: new_events}
+          if terminal? do
+            %{state | events: new_events}
+          else
+            %{state | status: safe_status_atom(status), events: new_events}
+          end
 
         %{"type" => "completed"} ->
-          %{
-            state
-            | status: :completed,
-              completed_at: DateTime.utc_now(),
-              events: new_events
-          }
+          if terminal? do
+            %{state | events: new_events}
+          else
+            %{
+              state
+              | status: :completed,
+                completed_at: DateTime.utc_now(),
+                events: new_events
+            }
+          end
 
         %{"type" => "failed", "error" => error} ->
-          %{
-            state
-            | status: :failed,
-              error: error,
-              completed_at: DateTime.utc_now(),
-              events: new_events
-          }
+          if terminal? do
+            %{state | events: new_events}
+          else
+            %{
+              state
+              | status: :failed,
+                error: error,
+                completed_at: DateTime.utc_now(),
+                events: new_events
+            }
+          end
 
         _ ->
           %{state | events: new_events}
@@ -484,30 +498,44 @@ defmodule CodePuppyControl.Run.State do
     new_state = %{state | request_history: [entry | state.request_history]}
 
     # Handle specific notification types
+    terminal? = state.status in [:completed, :failed, :cancelled]
+
     new_state =
       case message do
         %{"method" => "run.started", "params" => _} ->
-          %{new_state | status: :running}
+          if terminal? do
+            new_state
+          else
+            %{new_state | status: :running}
+          end
 
         %{"method" => "tool_executed", "params" => params} ->
           handle_tool_executed(new_state, params)
 
         %{"method" => "run.completed", "params" => params} ->
-          %{
+          if terminal? do
             new_state
-            | status: :completed,
-              error: params["error"],
-              completed_at: DateTime.utc_now(),
-              metadata: Map.merge(new_state.metadata, params)
-          }
+          else
+            %{
+              new_state
+              | status: :completed,
+                error: params["error"],
+                completed_at: DateTime.utc_now(),
+                metadata: Map.merge(new_state.metadata, params)
+            }
+          end
 
         %{"method" => "run.failed", "params" => params} ->
-          %{
+          if terminal? do
             new_state
-            | status: :failed,
-              error: params["error"],
-              completed_at: DateTime.utc_now()
-          }
+          else
+            %{
+              new_state
+              | status: :failed,
+                error: params["error"],
+                completed_at: DateTime.utc_now()
+            }
+          end
 
         _ ->
           new_state
