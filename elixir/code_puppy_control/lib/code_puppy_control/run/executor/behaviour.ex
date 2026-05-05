@@ -48,4 +48,21 @@ defmodule CodePuppyControl.Run.Executor.Behaviour do
   the executor process and release resources.
   """
   @callback terminate_executor(run_id()) :: :ok | {:error, :not_found}
+
+  @doc """
+  Execute a tool within the context of a run.
+
+  The executor backend dispatches the tool invocation to the
+  appropriate runtime — either the Python worker bridge or the
+  native Elixir `Tool.Runner`.  Returns `{:ok, result}` on success
+  or `{:error, reason}` on failure.
+
+  ## Options
+
+    * `:timeout` — Execution timeout in milliseconds (default: 30 000)
+
+  Refs: code-puppy-zyh
+  """
+  @callback execute_tool(run_id(), String.t(), map(), keyword()) ::
+              {:ok, term()} | {:error, term()}
 end

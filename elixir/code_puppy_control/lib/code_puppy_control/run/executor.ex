@@ -104,6 +104,20 @@ defmodule CodePuppyControl.Run.Executor do
     mod.terminate_executor(run_id)
   end
 
+  @doc """
+  Execute a tool within a run (runtime-selected module).
+
+  Delegates to `executor_module().execute_tool/4`.
+
+  Refs: code-puppy-zyh
+  """
+  @spec execute_tool(String.t(), String.t(), map(), keyword()) ::
+          {:ok, term()} | {:error, term()}
+  def execute_tool(run_id, tool_name, arguments, opts \\ []) do
+    mod = executor_module()
+    mod.execute_tool(run_id, tool_name, arguments, opts)
+  end
+
   # ── Explicit-module variants ──────────────────────────────────────
   #
   # These accept an explicit executor module (typically derived from
@@ -142,5 +156,19 @@ defmodule CodePuppyControl.Run.Executor do
   @spec terminate_executor(String.t(), module()) :: :ok | {:error, :not_found}
   def terminate_executor(run_id, mod) do
     mod.terminate_executor(run_id)
+  end
+
+  @doc """
+  Execute a tool within a run using an explicit module.
+
+  Uses the executor module stored in the run's metadata at start time
+  so that mid-run runtime changes do not redirect tool execution.
+
+  Refs: code-puppy-zyh
+  """
+  @spec execute_tool(String.t(), String.t(), map(), keyword(), module()) ::
+          {:ok, term()} | {:error, term()}
+  def execute_tool(run_id, tool_name, arguments, opts, mod) do
+    mod.execute_tool(run_id, tool_name, arguments, opts)
   end
 end

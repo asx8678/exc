@@ -139,7 +139,13 @@ defmodule CodePuppyControlWeb.RunController do
   @doc """
   POST /api/runs/:id/execute
 
-  Executes a tool via the Python worker.
+  Executes a tool via the runtime-selected executor.
+
+  Routes through `Run.Manager.execute_tool/4`, which dispatches
+  to the executor backend stored in the run's metadata at start
+  time (Elixir-native `Tool.Runner` or Python bridge `Port.call/4`).
+
+  Refs: code-puppy-zyh
   """
   def execute(conn, %{"id" => run_id} = params) do
     tool_name = Map.get(params, "tool_name") || Map.get(params, "tool")
@@ -150,23 +156,8 @@ defmodule CodePuppyControlWeb.RunController do
       |> put_status(:bad_request)
       |> json(%{error: "Missing required field: tool_name"})
     else
-      alias CodePuppyControl.PythonWorker.Port
-      alias CodePuppyControl.Run.State
-
-      # Record the request
-      State.record_request(run_id, %{
-        tool_name: tool_name,
-        arguments: arguments
-      })
-
-      # Execute via Python worker
-      case Port.call(run_id, "tools/call", %{
-             name: tool_name,
-             arguments: arguments
-           }) do
+      case Manager.execute_tool(run_id, tool_name, arguments) do
         {:ok, result} ->
-          State.record_response(run_id, result)
-
           conn
           |> put_status(:ok)
           |> json(%{
@@ -176,9 +167,12 @@ defmodule CodePuppyControlWeb.RunController do
             executed_at: DateTime.utc_now() |> DateTime.to_iso8601()
           })
 
-        {:error, reason} ->
-          State.record_response(run_id, %{error: reason})
+        {:error, :not_found} ->
+          conn
+          |> put_status(:not_found)
+          |> json(%{error: "Run not found"})
 
+        {:error, reason} ->
           conn
           |> put_status(:internal_server_error)
           |> json(%{

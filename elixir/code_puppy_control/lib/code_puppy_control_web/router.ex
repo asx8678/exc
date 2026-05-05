@@ -10,7 +10,7 @@ defmodule CodePuppyControlWeb.Router do
   - `DELETE /api/runs/:id` - Stop and cleanup a run
 
   ### Tool Execution
-  - `POST /api/runs/:id/execute` - Execute a tool via Python worker
+  - `POST /api/runs/:id/execute` - Execute a tool via the runtime-selected executor
   - `GET /api/runs/:id/history` - Get run request/response history
 
   ### Sessions (Wave 2)

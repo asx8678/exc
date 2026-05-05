@@ -103,6 +103,18 @@ defmodule CodePuppyControl.Run.Executor.Elixir do
     end
   end
 
+  @impl CodePuppyControl.Run.Executor.Behaviour
+  @spec execute_tool(String.t(), String.t(), map(), keyword()) ::
+          {:ok, term()} | {:error, term()}
+  def execute_tool(run_id, tool_name, arguments, opts) do
+    timeout = Keyword.get(opts, :timeout)
+
+    context = %{run_id: run_id}
+    context = if timeout, do: Map.put(context, :timeout, timeout), else: context
+
+    CodePuppyControl.Tool.Runner.invoke(tool_name, arguments, context)
+  end
+
   # ===========================================================================
   # GenServer API
   # ===========================================================================

@@ -39,7 +39,7 @@ The default Elixir CLI and REPL paths can start and operate without Python insta
 | Path / Feature | Module | Impact |
 |---|---|---|
 | `PythonWorker.Port` | `CodePuppyControl.PythonWorker.Port` | Direct `python3` subprocess; `Port.open` spawn (only used in bridge mode now) |
-| `/api/runs/:id/execute` | `RunController` | Routes through `PythonWorker.Port.call/4` (still direct — code-puppy-zyh) |
+| `/api/runs/:id/execute` | `RunController` | Routes through `Run.Manager.execute_tool/4` → executor boundary (code-puppy-zyh) |
 | Python bridge mode (`PUP_RUNTIME=python`) | `RuntimeSelector` | Routes all capabilities to Python bridge |
 | Legacy Python package (`pup` CLI) | Python codebase | Separate entrypoint |
 
@@ -94,7 +94,7 @@ Updated existing integration test for missing script path (from raise to error t
 | ID | Issue | Priority | Notes |
 |---|---|---|---|
 | A | Refactor `Run.Manager` behind Elixir/Python executor boundary | ✓ Done (code-puppy-96g) | `start_run/3` routes through `Run.Executor` facade; Elixir executor is default |
-| B | Refactor `/api/runs/:id/execute` away from direct `PythonWorker.Port` | P1/P2 | Controller routes directly to Port; should go through Run.Manager abstraction (code-puppy-zyh) |
+| B | ~~Refactor `/api/runs/:id/execute` away from direct `PythonWorker.Port`~~ | P1/P2 | **Done** — Controller now routes through `Run.Manager.execute_tool/4` → executor boundary (code-puppy-zyh) |
 | C | Add packaged no-Python smoke to release gate/CI | ✓ Done (code-puppy-osy) | `mix pup_ex.smoke --no-python` + CI workflow steps added |
 | D | Update README/architecture docs from Python-first to Elixir-first/Python-optional | P2 | Current docs imply Python is always required |
 | E | Remove/guard Python CLI fallback from release overlay wrappers | P2 | Shell wrappers in `rel/` may still try `python3 pup` |

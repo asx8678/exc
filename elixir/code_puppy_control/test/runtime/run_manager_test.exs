@@ -468,6 +468,12 @@ defmodule CodePuppyControl.Runtime.RunManagerTest do
       :ok
     end
 
+    @impl true
+    def execute_tool(run_id, tool_name, arguments, opts) do
+      send(test_process(), {:executor_a, :execute_tool, run_id, tool_name, arguments, opts})
+      {:ok, %{executed_by: :executor_a, tool_name: tool_name}}
+    end
+
     defp test_process, do: Application.get_env(:code_puppy_control, :executor_test_pid)
   end
 
@@ -496,6 +502,12 @@ defmodule CodePuppyControl.Runtime.RunManagerTest do
     def terminate_executor(run_id) do
       send(test_process(), {:executor_b, :terminate, run_id})
       :ok
+    end
+
+    @impl true
+    def execute_tool(run_id, tool_name, arguments, opts) do
+      send(test_process(), {:executor_b, :execute_tool, run_id, tool_name, arguments, opts})
+      {:ok, %{executed_by: :executor_b, tool_name: tool_name}}
     end
 
     defp test_process, do: Application.get_env(:code_puppy_control, :executor_test_pid)
@@ -563,6 +575,85 @@ defmodule CodePuppyControl.Runtime.RunManagerTest do
 
       assert {:ok, state} = Manager.get_run(run_id)
       assert state.metadata.executor_module == FakeExecutorA
+
+      Manager.delete_run(run_id)
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Manager.execute_tool/4 — executor boundary (code-puppy-zyh)
+  # ---------------------------------------------------------------------------
+
+  describe "Manager.execute_tool/4" do
+    setup do
+      saved_app = Application.get_env(:code_puppy_control, :run_executor_module)
+
+      on_exit(fn ->
+        case saved_app do
+          nil -> Application.delete_env(:code_puppy_control, :run_executor_module)
+          v -> Application.put_env(:code_puppy_control, :run_executor_module, v)
+        end
+
+        Application.delete_env(:code_puppy_control, :executor_test_pid)
+      end)
+
+      :ok
+    end
+
+    test "returns not_found for nonexistent run" do
+      assert {:error, :not_found} =
+               Manager.execute_tool("nonexistent-run-99999", "some_tool", %{})
+    end
+
+    test "uses original executor even when runtime changes" do
+      # Start with FakeExecutorA
+      Application.put_env(:code_puppy_control, :run_executor_module, FakeExecutorA)
+      Application.put_env(:code_puppy_control, :executor_test_pid, self())
+
+      assert {:ok, run_id} = Manager.start_run("exec-boundary-session", "exec-agent")
+
+      # Switch to FakeExecutorB mid-flight
+      Application.put_env(:code_puppy_control, :run_executor_module, FakeExecutorB)
+
+      # execute_tool should still route through FakeExecutorA (the original)
+      assert {:ok, result} = Manager.execute_tool(run_id, "test_tool", %{"key" => "val"})
+
+      assert_received {:executor_a, :execute_tool, ^run_id, "test_tool", %{"key" => "val"}, []}
+      refute_received {:executor_b, :execute_tool, _, _, _, _}
+
+      assert result.executed_by == :executor_a
+
+      Manager.delete_run(run_id)
+    end
+
+    test "records request and response in run state" do
+      Application.put_env(:code_puppy_control, :run_executor_module, FakeExecutorA)
+      Application.put_env(:code_puppy_control, :executor_test_pid, self())
+
+      assert {:ok, run_id} = Manager.start_run("exec-history-session", "exec-agent")
+
+      assert {:ok, _result} = Manager.execute_tool(run_id, "history_tool", %{"x" => 1})
+
+      # Give async casts time to process
+      Process.sleep(50)
+
+      # Request and response should be recorded in state history
+      assert {:ok, state} = Manager.get_run(run_id)
+      assert length(state.request_history) >= 2
+
+      Manager.delete_run(run_id)
+    end
+
+    test "passes timeout option through to executor" do
+      Application.put_env(:code_puppy_control, :run_executor_module, FakeExecutorA)
+      Application.put_env(:code_puppy_control, :executor_test_pid, self())
+
+      assert {:ok, run_id} = Manager.start_run("exec-timeout-session", "exec-agent")
+
+      assert {:ok, _result} =
+               Manager.execute_tool(run_id, "timed_tool", %{}, timeout: 60_000)
+
+      assert_received {:executor_a, :execute_tool, ^run_id, "timed_tool", %{}, timeout: 60_000}
 
       Manager.delete_run(run_id)
     end

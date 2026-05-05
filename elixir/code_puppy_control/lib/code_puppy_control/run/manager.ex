@@ -219,6 +219,60 @@ defmodule CodePuppyControl.Run.Manager do
   end
 
   @doc """
+  Executes a tool within the context of a run.
+
+  Routes through the executor module stored in the run's metadata
+  at start time, so that mid-run runtime changes do not redirect
+  tool execution.  Records request/response in `Run.State`.
+
+  ## Options
+
+    * `:timeout` — Execution timeout in milliseconds (default: 30 000)
+
+  ## Returns
+
+    * `{:ok, result}` — Tool executed successfully
+    * `{:error, :not_found}` — Run doesn't exist
+    * `{:error, reason}` — Tool execution failed
+
+  Refs: code-puppy-zyh
+  """
+  @spec execute_tool(String.t(), String.t(), map(), keyword()) ::
+          {:ok, term()} | {:error, term()}
+  def execute_tool(run_id, tool_name, arguments, opts \\ []) do
+    case get_run(run_id) do
+      {:error, :not_found} ->
+        {:error, :not_found}
+
+      {:ok, state} ->
+        # Use the executor module stored in metadata at start time,
+        # not the current runtime — a mid-flight PUP_RUNTIME change
+        # must not redirect tool execution to the wrong backend.
+        executor_mod = Map.get(state.metadata, :executor_module, Executor.executor_module())
+
+        # Record the request
+        Run.State.record_request(run_id, %{
+          tool_name: tool_name,
+          arguments: arguments
+        })
+
+        # Execute via the explicit-module variant
+        result = Executor.execute_tool(run_id, tool_name, arguments, opts, executor_mod)
+
+        # Record the response
+        case result do
+          {:ok, result_data} ->
+            Run.State.record_response(run_id, result_data)
+
+          {:error, reason} ->
+            Run.State.record_response(run_id, %{error: reason})
+        end
+
+        result
+    end
+  end
+
+  @doc """
   Deletes a run and cleans up associated resources.
   """
   @spec delete_run(String.t()) :: :ok | {:error, :not_found}

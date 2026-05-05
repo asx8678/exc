@@ -57,4 +57,21 @@ defmodule CodePuppyControl.Run.Executor.Python do
   def terminate_executor(run_id) do
     PythonWorker.Supervisor.terminate_worker(run_id)
   end
+
+  @impl true
+  @spec execute_tool(String.t(), String.t(), map(), keyword()) ::
+          {:ok, term()} | {:error, term()}
+  def execute_tool(run_id, tool_name, arguments, opts) do
+    timeout = Keyword.get(opts, :timeout, 30_000)
+
+    PythonWorker.Port.call(
+      run_id,
+      "tools/call",
+      %{
+        name: tool_name,
+        arguments: arguments
+      },
+      timeout
+    )
+  end
 end
