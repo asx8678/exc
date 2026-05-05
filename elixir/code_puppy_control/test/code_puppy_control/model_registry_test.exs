@@ -590,30 +590,277 @@ defmodule CodePuppyControl.ModelRegistryTest do
   # ============================================================================
 
   describe "reload/0 error path" do
-    test "returns {:error, reason} when bundled JSON is missing" do
+    test "returns {:error, reason} when bundled JSON is missing and no overlays" do
       # Save original config
-      original = Application.get_env(:code_puppy_control, :bundled_models_path)
+      original_path = Application.get_env(:code_puppy_control, :bundled_models_path)
+      _original_legacy = Application.get_env(:code_puppy_control, :legacy_home_dir)
+      old_home = System.get_env("PUP_EX_HOME")
+
+      # Use empty tmp dirs so no overlays exist either
+      tmp_elixir =
+        Path.join(System.tmp_dir!(), "mr_err_#{:erlang.unique_integer([:positive])}")
+
+      tmp_legacy =
+        Path.join(System.tmp_dir!(), "mr_err_legacy_#{:erlang.unique_integer([:positive])}")
+
+      File.mkdir_p!(tmp_elixir)
+      File.mkdir_p!(tmp_legacy)
 
       try do
-        # Point to nonexistent file
         Application.put_env(
           :code_puppy_control,
           :bundled_models_path,
           "/tmp/nonexistent_models.json"
         )
 
-        # Reload should fail
+        System.put_env("PUP_EX_HOME", tmp_elixir)
+        Application.put_env(:code_puppy_control, :legacy_home_dir, tmp_legacy)
+
         result = ModelRegistry.reload()
         assert {:error, _reason} = result
       after
         # Restore
-        if original do
-          Application.put_env(:code_puppy_control, :bundled_models_path, original)
-        else
-          Application.delete_env(:code_puppy_control, :bundled_models_path)
-        end
+        if original_path,
+          do: Application.put_env(:code_puppy_control, :bundled_models_path, original_path),
+          else: Application.delete_env(:code_puppy_control, :bundled_models_path)
 
-        # Reload with correct path to restore state
+        Application.delete_env(:code_puppy_control, :legacy_home_dir)
+
+        if old_home,
+          do: System.put_env("PUP_EX_HOME", old_home),
+          else: System.delete_env("PUP_EX_HOME")
+
+        File.rm_rf!(tmp_elixir)
+        File.rm_rf!(tmp_legacy)
+
+        ModelRegistry.reload()
+      end
+    end
+  end
+
+  # ==========================================================================
+  # Legacy Overlay Tests
+  # ==========================================================================
+
+  describe "legacy home overlay loading" do
+    @tag :tmp_dir
+    test "loads overlay from legacy home when base models file is missing", %{tmp_dir: tmp_dir} do
+      # Setup: tmp dir as legacy home with an extra_models.json
+      legacy_home =
+        Path.join(System.tmp_dir!(), "mr_legacy_#{:erlang.unique_integer([:positive])}")
+
+      File.mkdir_p!(legacy_home)
+
+      overlay_content =
+        Jason.encode!(%{
+          "legacy-only-model" => %{
+            "type" => "custom_openai",
+            "provider" => "legacy-test",
+            "name" => "legacy-only",
+            "context_length" => 64_000
+          }
+        })
+
+      File.write!(Path.join(legacy_home, "extra_models.json"), overlay_content)
+
+      original_path = Application.get_env(:code_puppy_control, :bundled_models_path)
+      _original_legacy = Application.get_env(:code_puppy_control, :legacy_home_dir)
+      old_home = System.get_env("PUP_EX_HOME")
+
+      try do
+        # Point bundled models to nonexistent path
+        Application.put_env(
+          :code_puppy_control,
+          :bundled_models_path,
+          "/tmp/nonexistent_models.json"
+        )
+
+        # Use empty Elixir home (no Elixir-home overlays)
+        System.put_env("PUP_EX_HOME", tmp_dir)
+        Application.put_env(:code_puppy_control, :legacy_home_dir, legacy_home)
+
+        assert :ok = ModelRegistry.reload()
+
+        config = ModelRegistry.get_config("legacy-only-model")
+        assert is_map(config)
+        assert config["type"] == "custom_openai"
+        assert config["provider"] == "legacy-test"
+      after
+        if original_path,
+          do: Application.put_env(:code_puppy_control, :bundled_models_path, original_path),
+          else: Application.delete_env(:code_puppy_control, :bundled_models_path)
+
+        Application.delete_env(:code_puppy_control, :legacy_home_dir)
+
+        if old_home,
+          do: System.put_env("PUP_EX_HOME", old_home),
+          else: System.delete_env("PUP_EX_HOME")
+
+        File.rm_rf!(legacy_home)
+        ModelRegistry.reload()
+      end
+    end
+
+    test "Elixir-home overlays win over legacy overlays on key conflict" do
+      legacy_home =
+        Path.join(System.tmp_dir!(), "mr_legacy_conflict_#{:erlang.unique_integer([:positive])}")
+
+      elixir_home =
+        Path.join(System.tmp_dir!(), "mr_elixir_conflict_#{:erlang.unique_integer([:positive])}")
+
+      File.mkdir_p!(legacy_home)
+      File.mkdir_p!(elixir_home)
+
+      legacy_overlay =
+        Jason.encode!(%{
+          "conflict-model" => %{
+            "type" => "openai",
+            "provider" => "legacy",
+            "name" => "legacy-version",
+            "context_length" => 1000
+          }
+        })
+
+      elixir_overlay =
+        Jason.encode!(%{
+          "conflict-model" => %{
+            "type" => "anthropic",
+            "provider" => "elixir",
+            "name" => "elixir-version",
+            "context_length" => 2000
+          }
+        })
+
+      File.write!(Path.join(legacy_home, "extra_models.json"), legacy_overlay)
+      File.write!(Path.join(elixir_home, "extra_models.json"), elixir_overlay)
+
+      _original_legacy = Application.get_env(:code_puppy_control, :legacy_home_dir)
+      old_home = System.get_env("PUP_EX_HOME")
+
+      try do
+        Application.put_env(:code_puppy_control, :legacy_home_dir, legacy_home)
+        System.put_env("PUP_EX_HOME", elixir_home)
+
+        assert :ok = ModelRegistry.reload()
+
+        config = ModelRegistry.get_config("conflict-model")
+        # Elixir-home overlay wins (loaded after legacy)
+        assert config["type"] == "anthropic"
+        assert config["provider"] == "elixir"
+        assert config["context_length"] == 2000
+      after
+        Application.delete_env(:code_puppy_control, :legacy_home_dir)
+
+        if old_home,
+          do: System.put_env("PUP_EX_HOME", old_home),
+          else: System.delete_env("PUP_EX_HOME")
+
+        File.rm_rf!(legacy_home)
+        File.rm_rf!(elixir_home)
+        ModelRegistry.reload()
+      end
+    end
+
+    test "legacy chatgpt and claude overlays load from legacy home" do
+      legacy_home =
+        Path.join(System.tmp_dir!(), "mr_legacy_types_#{:erlang.unique_integer([:positive])}")
+
+      File.mkdir_p!(legacy_home)
+
+      chatgpt_overlay =
+        Jason.encode!(%{
+          "legacy-chatgpt-model" => %{
+            "type" => "chatgpt_oauth",
+            "name" => "legacy-chatgpt",
+            "context_length" => 128_000
+          }
+        })
+
+      claude_overlay =
+        Jason.encode!(%{
+          "legacy-claude-model" => %{
+            "type" => "claude_code",
+            "name" => "legacy-claude",
+            "context_length" => 200_000
+          }
+        })
+
+      File.write!(Path.join(legacy_home, "chatgpt_models.json"), chatgpt_overlay)
+      File.write!(Path.join(legacy_home, "claude_models.json"), claude_overlay)
+
+      _original_legacy = Application.get_env(:code_puppy_control, :legacy_home_dir)
+      old_home = System.get_env("PUP_EX_HOME")
+
+      try do
+        Application.put_env(:code_puppy_control, :legacy_home_dir, legacy_home)
+        # Use empty Elixir home so only legacy overlays load
+        System.put_env("PUP_EX_HOME", legacy_home)
+
+        assert :ok = ModelRegistry.reload()
+
+        assert ModelRegistry.get_config("legacy-chatgpt-model")["type"] == "chatgpt_oauth"
+        assert ModelRegistry.get_config("legacy-claude-model")["type"] == "claude_code"
+      after
+        Application.delete_env(:code_puppy_control, :legacy_home_dir)
+
+        if old_home,
+          do: System.put_env("PUP_EX_HOME", old_home),
+          else: System.delete_env("PUP_EX_HOME")
+
+        File.rm_rf!(legacy_home)
+        ModelRegistry.reload()
+      end
+    end
+
+    test "base models + legacy overlays + Elixir overlays merge correctly" do
+      legacy_home =
+        Path.join(System.tmp_dir!(), "mr_legacy_merge_#{:erlang.unique_integer([:positive])}")
+
+      elixir_home =
+        Path.join(System.tmp_dir!(), "mr_elixir_merge_#{:erlang.unique_integer([:positive])}")
+
+      File.mkdir_p!(legacy_home)
+      File.mkdir_p!(elixir_home)
+
+      # Legacy overlay adds a unique model
+      File.write!(
+        Path.join(legacy_home, "extra_models.json"),
+        Jason.encode!(%{
+          "from-legacy" => %{"type" => "openai", "provider" => "legacy"}
+        })
+      )
+
+      # Elixir overlay adds another unique model
+      File.write!(
+        Path.join(elixir_home, "extra_models.json"),
+        Jason.encode!(%{
+          "from-elixir" => %{"type" => "anthropic", "provider" => "elixir"}
+        })
+      )
+
+      _original_legacy = Application.get_env(:code_puppy_control, :legacy_home_dir)
+      old_home = System.get_env("PUP_EX_HOME")
+
+      try do
+        Application.put_env(:code_puppy_control, :legacy_home_dir, legacy_home)
+        System.put_env("PUP_EX_HOME", elixir_home)
+
+        assert :ok = ModelRegistry.reload()
+
+        # Both overlays present alongside bundled models
+        assert ModelRegistry.get_config("from-legacy") != nil
+        assert ModelRegistry.get_config("from-elixir") != nil
+        # Bundled models still present
+        assert ModelRegistry.get_config("wafer-glm-5.1") != nil
+      after
+        Application.delete_env(:code_puppy_control, :legacy_home_dir)
+
+        if old_home,
+          do: System.put_env("PUP_EX_HOME", old_home),
+          else: System.delete_env("PUP_EX_HOME")
+
+        File.rm_rf!(legacy_home)
+        File.rm_rf!(elixir_home)
         ModelRegistry.reload()
       end
     end

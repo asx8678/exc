@@ -149,6 +149,123 @@ defmodule CodePuppyControl.ModelFactory.CredentialsTest do
 
       System.delete_env("MY_SPECIAL_KEY")
     end
+
+    test "custom_openai with $WAFER_API_KEY validates with WAFER_API_KEY only" do
+      System.delete_env("OPENAI_API_KEY")
+      System.delete_env("WAFER_API_KEY")
+
+      model_config = %{
+        "type" => "custom_openai",
+        "custom_endpoint" => %{"api_key" => "$WAFER_API_KEY"}
+      }
+
+      # Missing both → should report WAFER_API_KEY, not OPENAI_API_KEY
+      assert {:missing, ["WAFER_API_KEY"]} =
+               Credentials.validate("custom_openai", model_config)
+
+      # Set WAFER_API_KEY → should validate even without OPENAI_API_KEY
+      System.put_env("WAFER_API_KEY", "sk-wafer-test")
+
+      assert :ok = Credentials.validate("custom_openai", model_config)
+
+      System.delete_env("WAFER_API_KEY")
+    end
+
+    test "custom_openai with ${WAFER_API_KEY} (braced syntax) validates correctly" do
+      System.delete_env("OPENAI_API_KEY")
+      System.delete_env("WAFER_API_KEY")
+
+      model_config = %{
+        "type" => "custom_openai",
+        "custom_endpoint" => %{"api_key" => "${WAFER_API_KEY}"}
+      }
+
+      assert {:missing, ["WAFER_API_KEY"]} =
+               Credentials.validate("custom_openai", model_config)
+
+      System.put_env("WAFER_API_KEY", "sk-wafer-test")
+      assert :ok = Credentials.validate("custom_openai", model_config)
+
+      System.delete_env("WAFER_API_KEY")
+    end
+
+    test "custom_openai with literal api_key validates without OPENAI_API_KEY" do
+      System.delete_env("OPENAI_API_KEY")
+
+      model_config = %{
+        "type" => "custom_openai",
+        "custom_endpoint" => %{"api_key" => "sk-literal-key-value"}
+      }
+
+      # Literal key → no env var required at all
+      assert :ok = Credentials.validate("custom_openai", model_config)
+    end
+
+    test "api_key_env still highest priority even with custom_endpoint" do
+      System.delete_env("OPENAI_API_KEY")
+      System.delete_env("WAFER_API_KEY")
+      System.delete_env("MY_CUSTOM_ENV")
+
+      model_config = %{
+        "type" => "custom_openai",
+        "api_key_env" => "MY_CUSTOM_ENV",
+        "custom_endpoint" => %{"api_key" => "$WAFER_API_KEY"}
+      }
+
+      # api_key_env takes precedence over custom_endpoint.api_key
+      assert {:missing, ["MY_CUSTOM_ENV"]} =
+               Credentials.validate("custom_openai", model_config)
+
+      System.put_env("MY_CUSTOM_ENV", "sk-custom")
+      assert :ok = Credentials.validate("custom_openai", model_config)
+
+      System.delete_env("MY_CUSTOM_ENV")
+    end
+
+    test "validate uses env_or_store resolution (credential store fallback)" do
+      # This test verifies that validate/2 uses env_or_store/1 instead of
+      # just System.get_env/1, so the credential store counts as "present".
+      tmp =
+        Path.join(
+          System.tmp_dir!(),
+          "mf_validate_store_#{:erlang.unique_integer([:positive, :monotonic])}"
+        )
+
+      File.mkdir_p!(tmp)
+      store_dir = Path.join(tmp, "credentials")
+      secret_path = Path.join(tmp, ".machine_secret")
+
+      prev_ex_home = System.get_env("PUP_EX_HOME")
+      prev_secret = System.get_env("PUP_MACHINE_SECRET_PATH")
+
+      try do
+        System.put_env("PUP_EX_HOME", tmp)
+        System.put_env("PUP_MACHINE_SECRET_PATH", secret_path)
+        System.delete_env("OPENAI_API_KEY")
+
+        # Store key in credential store (not env)
+        :ok =
+          CodePuppyControl.Credentials.set("OPENAI_API_KEY", "sk-from-store",
+            store_dir: store_dir
+          )
+
+        # Validate should find it via credential store fallback
+        assert :ok = Credentials.validate("openai", %{})
+      after
+        case prev_ex_home do
+          nil -> System.delete_env("PUP_EX_HOME")
+          v -> System.put_env("PUP_EX_HOME", v)
+        end
+
+        case prev_secret do
+          nil -> System.delete_env("PUP_MACHINE_SECRET_PATH")
+          v -> System.put_env("PUP_MACHINE_SECRET_PATH", v)
+        end
+
+        System.delete_env("OPENAI_API_KEY")
+        File.rm_rf(tmp)
+      end
+    end
   end
 
   describe "resolve_headers/1" do
@@ -514,6 +631,258 @@ defmodule CodePuppyControl.ModelFactory.CredentialsTest do
 
       result = Credentials.validate("chatgpt_oauth", %{})
       assert {:missing, ["CHATGPT_OAUTH_TOKEN"]} = result
+    end
+  end
+
+  # ==========================================================================
+  # Legacy puppy.cfg Fallback Tests
+  # ==========================================================================
+
+  describe "env_or_store/1 with legacy puppy.cfg fallback" do
+    setup do
+      # Create a temp "legacy home" with a puppy.cfg
+      legacy_home =
+        Path.join(
+          System.tmp_dir!(),
+          "mf_legacy_cfg_#{:erlang.unique_integer([:positive, :monotonic])}"
+        )
+
+      File.mkdir_p!(legacy_home)
+
+      # Also redirect Elixir home to avoid touching real store
+      ex_home =
+        Path.join(
+          System.tmp_dir!(),
+          "mf_legacy_ex_#{:erlang.unique_integer([:positive, :monotonic])}"
+        )
+
+      File.mkdir_p!(ex_home)
+      secret_path = Path.join(ex_home, ".machine_secret")
+
+      prev_ex_home = System.get_env("PUP_EX_HOME")
+      prev_secret = System.get_env("PUP_MACHINE_SECRET_PATH")
+      prev_legacy = Application.get_env(:code_puppy_control, :legacy_home_dir)
+
+      System.put_env("PUP_EX_HOME", ex_home)
+      System.put_env("PUP_MACHINE_SECRET_PATH", secret_path)
+      Application.put_env(:code_puppy_control, :legacy_home_dir, legacy_home)
+
+      # Unique key names to avoid env collisions
+      prefix = "CP_LEG_#{:erlang.unique_integer([:positive])}"
+      literal_key = "#{prefix}_LITERAL"
+      envref_key = "#{prefix}_ENVREF"
+      lowercase_key = "#{prefix}_LOWER"
+      bang_key = "#{prefix}_BANG"
+
+      for k <- [literal_key, envref_key, lowercase_key, bang_key] do
+        System.delete_env(k)
+      end
+
+      on_exit(fn ->
+        case prev_ex_home do
+          nil -> System.delete_env("PUP_EX_HOME")
+          v -> System.put_env("PUP_EX_HOME", v)
+        end
+
+        case prev_secret do
+          nil -> System.delete_env("PUP_MACHINE_SECRET_PATH")
+          v -> System.put_env("PUP_MACHINE_SECRET_PATH", v)
+        end
+
+        case prev_legacy do
+          nil -> Application.delete_env(:code_puppy_control, :legacy_home_dir)
+          v -> Application.put_env(:code_puppy_control, :legacy_home_dir, v)
+        end
+
+        for k <- [literal_key, envref_key, lowercase_key, bang_key] do
+          System.delete_env(k)
+        end
+
+        File.rm_rf(legacy_home)
+        File.rm_rf(ex_home)
+      end)
+
+      {:ok,
+       legacy_home: legacy_home,
+       literal_key: literal_key,
+       envref_key: envref_key,
+       lowercase_key: lowercase_key,
+       bang_key: bang_key}
+    end
+
+    test "resolves literal value from legacy puppy.cfg", context do
+      cfg_content = "#{context.literal_key}=some-literal-api-key-value\n"
+      File.write!(Path.join(context.legacy_home, "puppy.cfg"), cfg_content)
+
+      # No env var set, no credential store entry → falls through to legacy cfg
+      result = Credentials.env_or_store(context.literal_key)
+      assert result == "some-literal-api-key-value"
+    end
+
+    test "resolves lowercase key from legacy puppy.cfg when exact key absent", context do
+      # Write puppy.cfg with lowercase key name
+      cfg_content = "#{String.downcase(context.lowercase_key)}=lowercase-value\n"
+      File.write!(Path.join(context.legacy_home, "puppy.cfg"), cfg_content)
+
+      # Look up using the UPPERCASE key name → should find lowercase variant
+      result = Credentials.env_or_store(context.lowercase_key)
+      assert result == "lowercase-value"
+    end
+
+    test "resolves bare env-var name from legacy cfg to actual env var", context do
+      # Write puppy.cfg where the value IS an env var name
+      cfg_content = "#{context.envref_key}=#{context.envref_key}\n"
+      File.write!(Path.join(context.legacy_home, "puppy.cfg"), cfg_content)
+
+      # Set the env var that the value references
+      System.put_env(context.envref_key, "resolved-from-env")
+
+      result = Credentials.env_or_store(context.envref_key)
+      # Should resolve the bare env-var name to the actual env var value
+      assert result == "resolved-from-env"
+
+      System.delete_env(context.envref_key)
+    end
+
+    test "treats bare env-var name as literal when env var not set", context do
+      cfg_content = "#{context.envref_key}=#{context.envref_key}\n"
+      File.write!(Path.join(context.legacy_home, "puppy.cfg"), cfg_content)
+
+      # Don't set the env var → falls back to literal string
+      System.delete_env(context.envref_key)
+
+      result = Credentials.env_or_store(context.envref_key)
+      # Value is the string itself (the env var name), used as literal
+      assert result == context.envref_key
+    end
+
+    test "refuses to execute shell commands (!-prefixed values)", context do
+      cfg_content = "#{context.bang_key}=!rm -rf /\n"
+      File.write!(Path.join(context.legacy_home, "puppy.cfg"), cfg_content)
+
+      # Should return nil and log a warning, not execute
+      result = Credentials.env_or_store(context.bang_key)
+      assert result == nil
+    end
+
+    test "returns nil when legacy puppy.cfg does not exist", context do
+      # No puppy.cfg written → nil
+      result = Credentials.env_or_store(context.literal_key)
+      assert result == nil
+    end
+
+    test "env var wins over legacy cfg", context do
+      cfg_content = "#{context.literal_key}=cfg-value\n"
+      File.write!(Path.join(context.legacy_home, "puppy.cfg"), cfg_content)
+
+      System.put_env(context.literal_key, "env-wins")
+
+      assert Credentials.env_or_store(context.literal_key) == "env-wins"
+
+      System.delete_env(context.literal_key)
+    end
+
+    test "credential store wins over legacy cfg", context do
+      cfg_content = "#{context.literal_key}=cfg-value\n"
+      File.write!(Path.join(context.legacy_home, "puppy.cfg"), cfg_content)
+
+      store_dir = Path.join(System.get_env("PUP_EX_HOME"), "credentials")
+
+      :ok =
+        CodePuppyControl.Credentials.set(context.literal_key, "store-value", store_dir: store_dir)
+
+      assert Credentials.env_or_store(context.literal_key) == "store-value"
+    end
+  end
+
+  describe "resolve_custom_endpoint/1 with legacy puppy.cfg fallback" do
+    setup do
+      legacy_home =
+        Path.join(
+          System.tmp_dir!(),
+          "mf_legacy_ep_#{:erlang.unique_integer([:positive, :monotonic])}"
+        )
+
+      File.mkdir_p!(legacy_home)
+
+      ex_home =
+        Path.join(
+          System.tmp_dir!(),
+          "mf_legacy_ep_ex_#{:erlang.unique_integer([:positive, :monotonic])}"
+        )
+
+      File.mkdir_p!(ex_home)
+      secret_path = Path.join(ex_home, ".machine_secret")
+
+      prev_ex_home = System.get_env("PUP_EX_HOME")
+      prev_secret = System.get_env("PUP_MACHINE_SECRET_PATH")
+      prev_legacy = Application.get_env(:code_puppy_control, :legacy_home_dir)
+
+      System.put_env("PUP_EX_HOME", ex_home)
+      System.put_env("PUP_MACHINE_SECRET_PATH", secret_path)
+      Application.put_env(:code_puppy_control, :legacy_home_dir, legacy_home)
+
+      # Unique test key
+      prefix = "CP_EP_LEG_#{:erlang.unique_integer([:positive])}"
+      ep_key = "#{prefix}_API_KEY"
+      System.delete_env(ep_key)
+
+      on_exit(fn ->
+        case prev_ex_home do
+          nil -> System.delete_env("PUP_EX_HOME")
+          v -> System.put_env("PUP_EX_HOME", v)
+        end
+
+        case prev_secret do
+          nil -> System.delete_env("PUP_MACHINE_SECRET_PATH")
+          v -> System.put_env("PUP_MACHINE_SECRET_PATH", v)
+        end
+
+        case prev_legacy do
+          nil -> Application.delete_env(:code_puppy_control, :legacy_home_dir)
+          v -> Application.put_env(:code_puppy_control, :legacy_home_dir, v)
+        end
+
+        System.delete_env(ep_key)
+        File.rm_rf(legacy_home)
+        File.rm_rf(ex_home)
+      end)
+
+      {:ok, legacy_home: legacy_home, ep_key: ep_key}
+    end
+
+    test "resolves $VAR from legacy puppy.cfg via env_or_store fallback", context do
+      # Write key to legacy puppy.cfg with lowercase name
+      cfg_content =
+        "#{String.downcase(context.ep_key)}=legacy-endpoint-key\n"
+
+      File.write!(Path.join(context.legacy_home, "puppy.cfg"), cfg_content)
+
+      config = %{
+        "url" => "https://custom.example.com",
+        "api_key" => "$#{context.ep_key}"
+      }
+
+      # env var not set, store empty → falls through to legacy cfg
+      assert {:ok, {_url, _headers, api_key}} = Credentials.resolve_custom_endpoint(config)
+      assert api_key == "legacy-endpoint-key"
+    end
+
+    test "validate/2 uses legacy puppy.cfg for custom endpoint var", context do
+      cfg_content =
+        "#{String.downcase(context.ep_key)}=legacy-validation-key\n"
+
+      File.write!(Path.join(context.legacy_home, "puppy.cfg"), cfg_content)
+
+      model_config = %{
+        "type" => "custom_openai",
+        "custom_endpoint" => %{"api_key" => "$#{context.ep_key}"}
+      }
+
+      System.delete_env("OPENAI_API_KEY")
+
+      # Should validate because the legacy cfg provides the credential
+      assert :ok = Credentials.validate("custom_openai", model_config)
     end
   end
 end

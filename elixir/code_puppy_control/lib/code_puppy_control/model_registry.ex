@@ -14,10 +14,14 @@ defmodule CodePuppyControl.ModelRegistry do
     race conditions.
   - **Config sources**:
     - Bundled: `priv/models.json` (shipped with the application)
-    - Overlays (optional, in user's home directory):
-      - `~/.code_puppy/extra_models.json`
-      - `~/.code_puppy/chatgpt_models.json`
-      - `~/.code_puppy/claude_models.json`
+    - Overlays (optional, read from both legacy and Elixir homes):
+      - Legacy home (read-only, via `Isolation.read_only_legacy/1`):
+        - `~/.code_puppy/extra_models.json`
+        - `~/.code_puppy/chatgpt_models.json`
+        - `~/.code_puppy/claude_models.json`
+      - Elixir home (`~/.code_puppy_ex/`):
+        - `extra_models.json`, `chatgpt_models.json`, `claude_models.json`
+      Precedence: base → legacy overlays → Elixir-home overlays (later wins).
 
   ## Model Type Registry
 
@@ -73,6 +77,7 @@ defmodule CodePuppyControl.ModelRegistry do
 
   require Logger
 
+  alias CodePuppyControl.Config.Isolation
   alias CodePuppyControl.Config.Paths
 
   @table :model_configs
@@ -335,19 +340,33 @@ defmodule CodePuppyControl.ModelRegistry do
   end
 
   defp load_all_configs do
-    with {:ok, base_config} <- load_bundled_models(),
-         overlay_configs <- load_overlay_files(),
-         merged <- merge_configs(base_config, overlay_configs) do
-      {:ok, merged}
-    else
-      error -> error
+    base_result = load_bundled_models()
+    overlay_configs = load_overlay_files()
+
+    case base_result do
+      {:ok, base_config} ->
+        {:ok, merge_configs(base_config, overlay_configs)}
+
+      {:error, _reason} ->
+        if overlay_configs != [] do
+          # Base missing but overlays exist — proceed with empty base
+          Logger.warning(
+            "ModelRegistry: bundled models file unavailable, " <>
+              "proceeding with #{length(overlay_configs)} overlay(s) as base"
+          )
+
+          {:ok, merge_configs(%{}, overlay_configs)}
+        else
+          # No base AND no overlays — preserve existing error
+          base_result
+        end
     end
   end
 
   defp load_bundled_models do
     models_path = bundled_models_path()
 
-    case File.read(models_path) do
+    case safe_read_file(models_path) do
       {:ok, content} ->
         case Jason.decode(content) do
           {:ok, config} -> {:ok, config}
@@ -384,16 +403,55 @@ defmodule CodePuppyControl.ModelRegistry do
     end
   end
 
+  # Legacy home override for testing. Returns the configured override
+  # or the real legacy home from Paths. Avoids touching real ~/.code_puppy
+  # in tests.
+  @spec legacy_home_dir() :: String.t()
+  defp legacy_home_dir do
+    Application.get_env(:code_puppy_control, :legacy_home_dir) ||
+      Paths.legacy_home_dir()
+  end
+
+  # Load overlay files from BOTH legacy home (read-only) and Elixir home.
+  # Order: legacy overlays first, then Elixir-home overlays, so that
+  # Elixir-home overlays win on key conflicts (later wins).
+  # Within each home: extra -> chatgpt -> claude (preserving existing order).
   defp load_overlay_files do
-    overlay_specs = [
+    legacy_home = legacy_home_dir()
+
+    legacy_specs = [
+      {Path.join(legacy_home, "extra_models.json"), "legacy extra models"},
+      {Path.join(legacy_home, "chatgpt_models.json"), "legacy ChatGPT OAuth models"},
+      {Path.join(legacy_home, "claude_models.json"), "legacy Claude Code OAuth models"}
+    ]
+
+    elixir_specs = [
       {Paths.extra_models_file(), "extra models"},
       {Paths.chatgpt_models_file(), "ChatGPT OAuth models"},
       {Paths.claude_models_file(), "Claude Code OAuth models"}
     ]
 
+    # Legacy first, then Elixir home — later overlays win on merge
+    read_overlay_files(legacy_specs) ++ read_overlay_files(elixir_specs)
+  end
+
+  # Read a file, routing through Isolation.read_only_legacy/1 when the
+  # path is under the real legacy home (~/.code_puppy). For paths outside
+  # the legacy home (e.g. test override dirs), uses File.read/1 directly.
+  # This satisfies ADR-003 compliance while preserving test overrides via
+  # Application.get_env(:code_puppy_control, :legacy_home_dir).
+  defp safe_read_file(path) do
+    if Paths.in_legacy_home?(path) do
+      Isolation.read_only_legacy(path)
+    else
+      File.read(path)
+    end
+  end
+
+  defp read_overlay_files(overlay_specs) do
     overlay_specs
     |> Enum.reduce([], fn {path, label}, acc ->
-      case File.read(path) do
+      case safe_read_file(path) do
         {:ok, content} ->
           case Jason.decode(content) do
             {:ok, config} when is_map(config) ->
