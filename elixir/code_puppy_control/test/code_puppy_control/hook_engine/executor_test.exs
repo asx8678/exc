@@ -247,20 +247,39 @@ defmodule CodePuppyControl.HookEngine.ExecutorTest do
 
   describe "temp file security" do
     test "stdin temp files are created in private directory" do
+      # Count codepuppy-hooks-* dirs before execution.
+      # Uses before/after count comparison (same pattern as the other
+      # cleanup tests) so that stale dirs from previous runs or
+      # concurrent async tests don't cause false negatives.
+      before_count =
+        case File.ls(System.tmp_dir!()) do
+          {:ok, files} ->
+            Enum.count(files, &String.starts_with?(&1, "codepuppy-hooks-"))
+
+          _ ->
+            0
+        end
+
       hook = HookConfig.new(matcher: "*", type: :command, command: "echo secure")
       event_data = EventData.new(event_type: "PreToolUse", tool_name: "Bash")
 
       result = Executor.execute_hook(hook, event_data)
 
       assert result.exit_code == 0
-      # After execution, no hook temp files should remain in /tmp
-      # (cleaned up by the after block)
-      tmp_files =
-        File.ls!(System.tmp_dir!())
-        |> Enum.filter(&String.starts_with?(&1, "codepuppy-hooks-"))
 
-      # Should be empty (all cleaned up)
-      assert tmp_files == []
+      after_count =
+        case File.ls(System.tmp_dir!()) do
+          {:ok, files} ->
+            Enum.count(files, &String.starts_with?(&1, "codepuppy-hooks-"))
+
+          _ ->
+            0
+        end
+
+      # Execution must not leak temp directories — the after block
+      # in do_execute_command cleans up via File.rm_rf/1.
+      assert after_count == before_count,
+             "expected no new codepuppy-hooks-* dirs; before=#{before_count} after=#{after_count}"
     end
 
     test "temp directory has restrictive permissions" do

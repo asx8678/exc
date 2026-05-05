@@ -222,9 +222,14 @@ defmodule CodePuppyControl.CLI.SmokeTest do
 
       case phase.status do
         :skip ->
-          assert phase.detail =~ "burrito_out" or phase.detail =~ "code_puppy_control_",
-                 "skip reason should reference burrito_out or the artifact prefix; " <>
-                   "got: #{phase.detail}"
+          # All three probe_burrito_dir/2 skip paths must reference
+          # either the directory, the artifact prefix, or the target
+          # detection failure — plus a remediation hint.
+          assert phase.detail =~ "burrito_out" or
+                   phase.detail =~ "code_puppy_control_" or
+                   phase.detail =~ "host-compatible",
+                 "skip reason should reference burrito_out, the artifact prefix, " <>
+                   "or host-compatible target detection; got: #{phase.detail}"
 
           assert phase.detail =~ "build host-only",
                  "skip reason should give a remediation hint; got: #{phase.detail}"

@@ -108,6 +108,13 @@ defmodule CodePuppyControl.Runtime.RateLimiterTest do
       RateLimiter.set_limits("clear-model", rpm: 60, tpm: 200_000)
       RateLimiter.record_response("clear-model", 429, [])
 
+      # Flush the GenServer mailbox before calling clear/0.
+      # record_response/3 for 429s sends an async cast — if clear/0
+      # runs before the GenServer processes the cast, the cast handler
+      # will re-insert :open state into ETS after clear wipes it.
+      # A synchronous ping forces the cast to be processed first.
+      :pong = RateLimiter.ping()
+
       RateLimiter.clear()
 
       # After clear, circuit should not be open
