@@ -108,6 +108,32 @@ defmodule CodePuppyControl.TestSupport.Reset do
     end
 
     defp terminate_run_children do
+      # Terminate executor processes first (they reference Run.State PIDs)
+      terminate_executor_children()
+
+      # Then terminate run state processes
+      terminate_run_state_children()
+    end
+
+    defp terminate_executor_children do
+      case Process.whereis(CodePuppyControl.Run.Executor.Supervisor) do
+        nil ->
+          :ok
+
+        _pid ->
+          children = DynamicSupervisor.which_children(CodePuppyControl.Run.Executor.Supervisor)
+
+          Enum.each(children, fn
+            {:undefined, pid, :worker, _} when is_pid(pid) ->
+              DynamicSupervisor.terminate_child(CodePuppyControl.Run.Executor.Supervisor, pid)
+
+            _ ->
+              :ok
+          end)
+      end
+    end
+
+    defp terminate_run_state_children do
       case Process.whereis(CodePuppyControl.Run.Supervisor) do
         nil ->
           :ok

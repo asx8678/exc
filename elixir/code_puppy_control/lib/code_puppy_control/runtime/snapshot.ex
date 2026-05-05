@@ -112,6 +112,7 @@ defmodule CodePuppyControl.Runtime.Snapshot do
       mcp_servers: sup_entry(CodePuppyControl.MCP.Supervisor, Limits.max_mcp_servers()),
       mcp_clients: sup_entry(CodePuppyControl.MCP.ClientSupervisor, Limits.max_mcp_clients()),
       runs: sup_entry(CodePuppyControl.Run.Supervisor, Limits.max_runs()),
+      executors: sup_entry(CodePuppyControl.Run.Executor.Supervisor, Limits.max_runs()),
       agent_states: sup_entry(CodePuppyControl.Agent.State.Supervisor, Limits.max_agent_states())
     }
   end

@@ -28,7 +28,8 @@ defmodule CodePuppyControl.Application do
   11a. CodePuppyControl.ModelsDevParser.Registry - Models.dev API registry
   12. CodePuppyControl.Run.Registry - Process registry for run tracking
   13. CodePuppyControl.Tool.Registry - ETS-backed tool registry
-  14. CodePuppyControl.Run.Supervisor - DynamicSupervisor for run processes
+  14. CodePuppyControl.Run.Supervisor - DynamicSupervisor for run state processes
+  14b. CodePuppyControl.Run.Executor.Supervisor - DynamicSupervisor for Elixir executor processes (code-puppy-6sj)
   15. CodePuppyControl.PythonWorker.Supervisor - DynamicSupervisor for Python workers
   16. CodePuppyControl.MCP.Registry - Process registry for MCP servers
   17. CodePuppyControl.MCP.Supervisor - DynamicSupervisor for MCP servers
@@ -131,6 +132,10 @@ defmodule CodePuppyControl.Application do
       # Staged changes sandbox for diff-preview system
       CodePuppyControl.Tools.StagedChanges,
       {CodePuppyControl.Run.Supervisor, []},
+      # Executor supervisor — separated from Run.Supervisor so each logical
+      # run consumes one slot in each supervisor (State + Executor) instead of
+      # two slots in one supervisor.  (code-puppy-6sj)
+      {CodePuppyControl.Run.Executor.Supervisor, []},
       CodePuppyControl.Agent.State.Supervisor,
       CodePuppyControl.PythonWorker.Supervisor,
       # MCP Server supervision

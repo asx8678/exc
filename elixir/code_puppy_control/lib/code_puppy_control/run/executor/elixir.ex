@@ -18,7 +18,7 @@ defmodule CodePuppyControl.Run.Executor.Elixir do
   `{:run_executor, run_id}` in `CodePuppyControl.Run.Registry`
   for lookup and monitoring.
 
-  Refs: code-puppy-96g
+  Refs: code-puppy-96g, code-puppy-6sj
   """
 
   @behaviour CodePuppyControl.Run.Executor.Behaviour
@@ -52,7 +52,7 @@ defmodule CodePuppyControl.Run.Executor.Elixir do
       shutdown: 5000
     }
 
-    case DynamicSupervisor.start_child(CodePuppyControl.Run.Supervisor, child_spec) do
+    case DynamicSupervisor.start_child(CodePuppyControl.Run.Executor.Supervisor, child_spec) do
       {:ok, pid} ->
         Logger.info("Started Elixir executor for run #{run_id} (pid: #{inspect(pid)})")
         {:ok, pid}
@@ -96,7 +96,7 @@ defmodule CodePuppyControl.Run.Executor.Elixir do
   def terminate_executor(run_id) do
     case RunRegistry.lookup({:run_executor, run_id}) do
       [{pid, _}] ->
-        DynamicSupervisor.terminate_child(CodePuppyControl.Run.Supervisor, pid)
+        DynamicSupervisor.terminate_child(CodePuppyControl.Run.Executor.Supervisor, pid)
 
       [] ->
         {:error, :not_found}

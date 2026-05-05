@@ -21,6 +21,7 @@ defmodule CodePuppyControl.Runtime.RunManagerTest do
   use ExUnit.Case, async: false
 
   alias CodePuppyControl.Run.{Manager, State, Supervisor, Executor}
+  alias CodePuppyControl.Run.Executor.Supervisor, as: ExecutorSupervisor
 
   # Env vars we mutate; must be async: false
   @pup_runtime "PUP_RUNTIME"
@@ -466,8 +467,9 @@ defmodule CodePuppyControl.Runtime.RunManagerTest do
     def terminate_executor(run_id) do
       send(test_process(), {:executor_a, :terminate, run_id})
       # Must also terminate the real Elixir executor process started by
-      # start_executor/2, otherwise the child leaks under Run.Supervisor
-      # and exhausts max_children (code-puppy-4yx).
+      # start_executor/2, otherwise the child leaks under
+      # Run.Executor.Supervisor and exhausts max_children (code-puppy-4yx,
+      # code-puppy-6sj).
       CodePuppyControl.Run.Executor.Elixir.terminate_executor(run_id)
       :ok
     end
@@ -506,8 +508,9 @@ defmodule CodePuppyControl.Runtime.RunManagerTest do
     def terminate_executor(run_id) do
       send(test_process(), {:executor_b, :terminate, run_id})
       # Must also terminate the real Elixir executor process started by
-      # start_executor/2, otherwise the child leaks under Run.Supervisor
-      # and exhausts max_children (code-puppy-4yx).
+      # start_executor/2, otherwise the child leaks under
+      # Run.Executor.Supervisor and exhausts max_children (code-puppy-4yx,
+      # code-puppy-6sj).
       CodePuppyControl.Run.Executor.Elixir.terminate_executor(run_id)
       :ok
     end
@@ -839,6 +842,91 @@ defmodule CodePuppyControl.Runtime.RunManagerTest do
 
       assert {:ok, state_after} = Manager.get_run(run_id)
       assert state_after.status == :running
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Executor supervisor split: capacity semantics (code-puppy-6sj)
+  # ---------------------------------------------------------------------------
+  # Before this fix, each Elixir run consumed 2 children under
+  # Run.Supervisor (State + Executor), so PUP_MAX_RUNS=N allowed only
+  # floor(N/2) logical runs. After the fix, executor GenServers live
+  # under Run.Executor.Supervisor, so each logical run consumes exactly
+  # 1 slot in each supervisor.
+
+  describe "Run.Executor.Supervisor executor_count/0" do
+    test "returns a non-negative integer" do
+      count = ExecutorSupervisor.executor_count()
+      assert is_integer(count) and count >= 0
+    end
+  end
+
+  describe "Elixir run increments both supervisors by 1" do
+    setup do
+      saved_runtime = System.get_env(@pup_runtime)
+      System.delete_env(@pup_runtime)
+
+      saved_app =
+        Application.get_env(:code_puppy_control, :run_executor_module)
+
+      Application.delete_env(:code_puppy_control, :run_executor_module)
+
+      on_exit(fn ->
+        case saved_runtime do
+          nil -> System.delete_env(@pup_runtime)
+          v -> System.put_env(@pup_runtime, v)
+        end
+
+        case saved_app do
+          nil -> Application.delete_env(:code_puppy_control, :run_executor_module)
+          v -> Application.put_env(:code_puppy_control, :run_executor_module, v)
+        end
+      end)
+
+      :ok
+    end
+
+    test "Manager.start_run/3 increments Run.Supervisor.run_count/0 and Executor.Supervisor.executor_count/0 by 1" do
+      runs_before = Supervisor.run_count()
+      execs_before = ExecutorSupervisor.executor_count()
+
+      assert {:ok, run_id} = Manager.start_run("cap-session", "cap-agent")
+      Process.sleep(50)
+
+      assert Supervisor.run_count() == runs_before + 1
+      assert ExecutorSupervisor.executor_count() == execs_before + 1
+
+      Manager.delete_run(run_id)
+    end
+
+    test "Manager.delete_run/1 decrements both supervisor counts" do
+      assert {:ok, run_id} = Manager.start_run("cap-del-session", "cap-del-agent")
+      Process.sleep(50)
+
+      runs_after_start = Supervisor.run_count()
+      execs_after_start = ExecutorSupervisor.executor_count()
+
+      assert :ok = Manager.delete_run(run_id)
+      Process.sleep(50)
+
+      assert Supervisor.run_count() == runs_after_start - 1
+      assert ExecutorSupervisor.executor_count() == execs_after_start - 1
+    end
+  end
+
+  describe "Run.Executor.Supervisor max_children is wired to max_runs" do
+    test "executor supervisor max_children equals Limits.max_runs" do
+      expected = CodePuppyControl.Runtime.Limits.max_runs()
+
+      actual =
+        case :sys.get_state(ExecutorSupervisor) do
+          %DynamicSupervisor{max_children: n} when is_integer(n) -> n
+          %DynamicSupervisor{max_children: :infinity} -> 1_000_000
+          other -> raise "Unexpected supervisor state: #{inspect(other)}"
+        end
+
+      assert actual == expected,
+             "Executor supervisor max_children (#{actual}) should equal Limits.max_runs() (#{expected})"
     end
   end
 end
