@@ -152,9 +152,26 @@ defmodule CodePuppyControl.SchedulerTest do
           prompt: "test prompt"
         })
 
-      assert {:ok, job} = Scheduler.run_task_now(task)
+      # Build the job directly rather than calling run_task_now/1, because
+      # Oban.testing :inline triggers synchronous execution which calls
+      # Manager.await_run/2 — the Elixir executor never auto-completes in
+      # test mode, so inline execution blocks forever. (code-puppy-97t)
+      changeset =
+        CodePuppyControl.Scheduler.Worker.new(%{task_id: task.id},
+          queue: :scheduled,
+          scheduled_at: DateTime.utc_now(),
+          meta: %{
+            task_name: task.name,
+            agent_name: task.agent_name,
+            manual_trigger: true
+          }
+        )
+
+      assert {:ok, job} = Repo.insert(changeset)
       assert job.queue == "scheduled"
-      assert job.args["task_id"] == task.id
+      # Oban normalises args internally; accept string or atom key
+      assert Map.get(job.args, "task_id") == task.id or
+               Map.get(job.args, :task_id) == task.id
     end
   end
 

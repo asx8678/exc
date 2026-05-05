@@ -7,7 +7,12 @@ defmodule CodePuppyControl.Runtime.CronSchedulerTest do
   to avoid shared-state issues with a global singleton.
   """
 
-  use CodePuppyControl.StatefulCase, async: true
+  # async: false because each test starts its own CronScheduler via
+  # start_supervised/1, which holds a sandbox DB connection. Under full
+  # fast-suite load, concurrent DB-checkout + Oban engine access causes
+  # SQLite "Database busy" / scheduler-storage flakiness.
+  # (code-puppy-97t)
+  use CodePuppyControl.StatefulCase, async: false
 
   @moduletag timeout: 30_000
 
@@ -80,20 +85,17 @@ defmodule CodePuppyControl.Runtime.CronSchedulerTest do
   describe "check_now/1" do
     test "triggers a schedule check without error", %{scheduler: sched} do
       assert :ok = CronScheduler.check_now(sched)
-      # Give it a moment to process
-      Process.sleep(100)
+      # Fire-and-forget — no assertion depends on processing completing.
     end
 
     test "updates last_check_at after check", %{scheduler: sched} do
-      # Get initial state
       initial = CronScheduler.get_state(sched)
 
-      # Force check
       :ok = CronScheduler.check_now(sched)
-      Process.sleep(100)
 
-      # last_check_at should be updated
-      updated = CronScheduler.get_state(sched)
+      # Poll until last_check_at advances (avoids fixed sleep flakes).
+      updated = wait_for_check(sched, initial)
+
       assert updated.last_check_at != nil
 
       if initial.last_check_at != nil do
@@ -123,7 +125,7 @@ defmodule CodePuppyControl.Runtime.CronSchedulerTest do
   describe "check_now/1 (named instance)" do
     test "returns :ok", %{scheduler: sched} do
       assert :ok = CronScheduler.check_now(sched)
-      Process.sleep(100)
+      # Fire-and-forget — no assertion depends on processing completing.
     end
   end
 
@@ -142,18 +144,45 @@ defmodule CodePuppyControl.Runtime.CronSchedulerTest do
           enabled: false
         })
 
-      # Get initial enqueue count
       initial = CronScheduler.get_state(sched)
 
-      # Force check
       :ok = CronScheduler.check_now(sched)
-      Process.sleep(100)
 
-      # tasks_enqueued should not have increased for disabled tasks
-      updated = CronScheduler.get_state(sched)
+      # Poll to let the check complete, then verify no crash on disabled tasks.
+      updated = wait_for_check(sched, initial)
+
       # The count may have increased from other tests' tasks, but this test
       # just validates the check doesn't crash on disabled tasks.
       assert updated.tasks_enqueued >= initial.tasks_enqueued
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Helpers
+  # ---------------------------------------------------------------------------
+
+  # Polls CronScheduler.get_state/1 until last_check_at advances past `initial`,
+  # or until the default 500ms timeout.  Avoids fixed Process.sleep/1 which
+  # flakes under full suite load.  (code-puppy-97t)
+  defp wait_for_check(sched, initial, timeout_ms \\ 500) do
+    deadline = System.monotonic_time(:millisecond) + timeout_ms
+    do_wait_for_check(sched, initial, deadline)
+  end
+
+  defp do_wait_for_check(sched, initial, deadline) do
+    state = CronScheduler.get_state(sched)
+
+    if state.last_check_at != nil and
+         (initial.last_check_at == nil or
+            DateTime.compare(state.last_check_at, initial.last_check_at) == :gt) do
+      state
+    else
+      if System.monotonic_time(:millisecond) >= deadline do
+        state
+      else
+        Process.sleep(20)
+        do_wait_for_check(sched, initial, deadline)
+      end
     end
   end
 end

@@ -27,7 +27,11 @@ config :code_puppy_control, :websocket_secret, "test_websocket_secret_for_testin
 # Ensure Oban config exists for tests
 # Use :inline mode for testing and disable PostgreSQL-specific features
 config :code_puppy_control, Oban,
-  engine: Oban.Engines.Basic,
+  # Lite engine is the SQLite Oban engine — matches production config.
+  # Using Basic (PostgreSQL) with a SQLite DB is pseudo-functional at best
+  # and contributes to "Database busy" / scheduler flakiness under load.
+  # (code-puppy-97t)
+  engine: Oban.Engines.Lite,
   peer: false,
   queues: false,
   repo: CodePuppyControl.Repo,
@@ -70,12 +74,12 @@ test_db_path =
 
 config :code_puppy_control, CodePuppyControl.Repo,
   database: test_db_path,
-  pool_size: 2,
-  # pool_size: 2 required because CronScheduler tests start their own
-  # supervised instance via start_supervised/1, which holds one DB
-  # connection. With pool_size: 1, that connection is monopolized and
-  # test processes starve. pool_size: 2 ensures one connection remains
-  # for test assertions. (code_puppy-5xd.6)
+  pool_size: 6,
+  # pool_size: 6 supports concurrent test processes under full fast-suite
+  # load. The CronScheduler tests are now async: false (code-puppy-97t),
+  # but non-async tests + Oban workers + sandbox checkouts still need room.
+  # 6 matches the Ecto.SQL.Sandbox default and gives adequate concurrency
+  # headroom for the 12-core CI/laptop test partition.
   pool: Ecto.Adapters.SQL.Sandbox,
   # SQLite pragmas tuned for test speed (safe for single-connection sandbox)
   journal_mode: :wal,
