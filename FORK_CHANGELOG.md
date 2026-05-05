@@ -5,6 +5,17 @@ relative to the upstream [Code Puppy](https://github.com/mpfaffenberger/code_pup
 
 For per-commit detail, see `git log`.
 
+## Release History
+
+### codepp 0.0.456 (2026-05-05) — Python/PyPI compatibility stream
+
+- **Phase 1 `pup` alias deprecation**: opt-in warning via
+  `PUP_PUP_ALIAS_DEPRECATED=1` when the CLI is invoked as `pup` or
+  `pup.exe`. The `pup` entry point is NOT removed; migration guidance
+  recommends `code-puppy` for Python and explicit `./pup` / native binary
+  for Elixir. See `docs/release/python-pup-alias-deprecation-plan.md`.
+- Release notes: `docs/release/codepp-0.0.456.md`
+
 ## Key Fork Differences
 
 ### Architecture & Runtime

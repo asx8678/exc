@@ -1,7 +1,7 @@
 # Python `pup` Alias Deprecation Plan
 
 **Issue:** code-puppy-259
-**Status:** Phase 1 implemented (opt-in warning)
+**Status:** Phase 1 shipped in codepp 0.0.456 (opt-in warning)
 **Last Updated:** 2026-05-05
 
 ---
@@ -21,10 +21,11 @@ The Elixir-native runtime also produces a `pup` escript and `code_puppy_control_
 
 ---
 
-## Phase 1 — Opt-In Warning (Current)
+## Phase 1 — Opt-In Warning (Shipped in codepp 0.0.456)
 
 **Trigger:** `PUP_PUP_ALIAS_DEPRECATED=1` environment variable set.
 **Default:** Off (no warning unless user opts in).
+**Shipped:** codepp 0.0.456 (2026-05-05)
 
 ### Behaviour
 
