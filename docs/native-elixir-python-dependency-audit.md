@@ -204,7 +204,7 @@ These enable Python→Elixir RPC when the Python CLI is running in bridge mode. 
 
 Grouped logically — **not** one per grep hit. These are the actionable outcomes.
 
-### 6.1 Gate/Retire PythonWorker from Native Docs and Config (P2)
+### 6.1 Gate/Retire PythonWorker from Native Docs and Config (P2) — ✅ code-puppy-dh5
 
 **Rationale:** The `PythonWorker.Port` and `PythonWorker.Supervisor` Elixir modules (1,253 lines) are only needed for bridge mode. Their presence in `runtime.exs`, `health_controller.ex`, and `bench.ex` should be conditional or clearly documented as "bridge-mode only."
 
@@ -212,6 +212,8 @@ Grouped logically — **not** one per grep hit. These are the actionable outcome
 - Add `@moduledoc` annotation: "Only active when `PUP_RUNTIME=python`"
 - Ensure `health_controller.ex` bridge health check is gated
 - Validate bench task doesn't require Python worker in default runs
+
+**Status:** Completed in code-puppy-dh5. All PythonWorker modules now carry bridge-mode-only `@moduledoc` annotations. Health controller, bench task, runtime snapshot, application.ex, stdio_service docs, and ELIXIR_STANDALONE_TRANSPORT.md all updated. No behavior changes — docs/comments/status-labeling only.
 
 ### 6.2 Decide `PUP_NO_PYTHON=1`: Implement or Document-and-Close (P3)
 
@@ -265,7 +267,7 @@ Grouped logically — **not** one per grep hit. These are the actionable outcome
 2. **Docs:** Reorder install/docs to prefer Burrito native binary (issue 6.4 above)
 3. **Docs:** Present Elixir plugins as default, Python as compat bridge (issue 6.5 above)
 4. **Decide:** Close `code-puppy-o4m` as `PUP_RUNTIME=elixir` is sufficient (issue 6.2 above)
-5. **Docs:** Gate PythonWorker references in architecture docs as "bridge-mode only"
+5. **Docs:** Gate PythonWorker references in architecture docs as "bridge-mode only" — ✅ code-puppy-dh5
 
 ### Medium-term (Python becomes explicitly opt-in)
 

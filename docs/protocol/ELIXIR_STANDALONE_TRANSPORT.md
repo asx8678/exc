@@ -2,6 +2,9 @@
 
 This document describes the standalone stdio JSON-RPC transport for Elixir file operations, which provides an alternative to the bridge mode (PythonWorker.Port) for simple use cases.
 
+> **Note:** PythonWorker.Port is only available under explicit `PUP_RUNTIME=python` / `--bridge-mode`.
+> The default native Burrito runtime does not use PythonWorker.
+
 ## Overview
 
 The standalone transport allows Elixir file operations (`list_files`, `read_file`, `grep`, etc.) to be accessed via a simple stdio-based JSON-RPC protocol, without requiring the full Phoenix/Web application stack.
@@ -43,12 +46,12 @@ The standalone transport allows Elixir file operations (`list_files`, `read_file
 - You need integration with non-Python languages (any language that can spawn processes)
 - Testing and development scenarios
 
-### Use Bridge Mode (PythonWorker.Port) When:
-- Running within the full CodePuppy application
-- You need PubSub event distribution for real-time updates
-- You want Oban job processing and database persistence
-- You need full OTP supervision and fault tolerance
-- Production deployments with Web UI integration
+### Use Bridge Mode (PythonWorker.Port) When — **only under `PUP_RUNTIME=python`**:
+- Running legacy Python bridge flows within the full CodePuppy application
+- You need PubSub event distribution for real-time updates (bridge mode)
+- You want Oban job processing and database persistence (bridge mode)
+- You need full OTP supervision and fault tolerance (bridge mode)
+- Production deployments with Web UI integration via legacy bridge
 
 ## Protocol Specification
 

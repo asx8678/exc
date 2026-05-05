@@ -66,11 +66,11 @@ defmodule Mix.Tasks.CodePuppy.StdioService do
   - Environments without the full Phoenix application
   - Integration with non-Python languages
 
-  Use the bridge mode (PythonWorker.Port) for:
-  - Production with PubSub event distribution
-  - Web UI integration
-  - Complex run management with Oban jobs
-  - Full OTP supervision
+  Use the bridge mode (PythonWorker.Port) for — **only under `PUP_RUNTIME=python`**:
+  - Production with PubSub event distribution (legacy bridge flows)
+  - Web UI integration (legacy bridge flows)
+  - Complex run management with Oban jobs (legacy bridge flows)
+  - Full OTP supervision (legacy bridge flows)
 
   ## Exit Codes
 

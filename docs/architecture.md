@@ -68,7 +68,7 @@ Python is **optional** and used only for legacy/PyPI compatibility, Python plugi
 │   ┌─────────────────────────────────────────────────────────────────┐     │
 │   │  PYTHON BRIDGE (Optional / Legacy)                              │     │
 │   │  PythonWorker.Port — JSON-RPC 2.0 over stdio                   │     │
-│   │  Only activated when PUP_RUNTIME=python                        │     │
+│   │  Bridge-mode only (PUP_RUNTIME=python / --bridge-mode)        │     │
 │   └─────────────────────────────────────────────────────────────────┘     │
 │                                                                           │
 └─────────────────────────────────────────────────────────────────────────────┘

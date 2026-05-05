@@ -30,7 +30,7 @@ defmodule CodePuppyControl.Application do
   13. CodePuppyControl.Tool.Registry - ETS-backed tool registry
   14. CodePuppyControl.Run.Supervisor - DynamicSupervisor for run state processes
   14b. CodePuppyControl.Run.Executor.Supervisor - DynamicSupervisor for Elixir executor processes (code-puppy-6sj)
-  15. CodePuppyControl.PythonWorker.Supervisor - DynamicSupervisor for Python workers
+  15. CodePuppyControl.PythonWorker.Supervisor - DynamicSupervisor for Python bridge workers (bridge-mode only; idle under default native runtime)
   16. CodePuppyControl.MCP.Registry - Process registry for MCP servers
   17. CodePuppyControl.MCP.Supervisor - DynamicSupervisor for MCP servers
   18. CodePuppyControl.Concurrency.Supervisor - Concurrency limiter (ETS-backed)

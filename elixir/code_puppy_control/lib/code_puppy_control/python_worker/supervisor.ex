@@ -2,6 +2,12 @@ defmodule CodePuppyControl.PythonWorker.Supervisor do
   @moduledoc """
   DynamicSupervisor for Python worker processes.
 
+  > **Bridge-mode only.** This supervisor is only meaningful under explicit
+  > `PUP_RUNTIME=python` / `--bridge-mode` / legacy PyPI compatibility
+  > workflows. The default native Burrito runtime (`PUP_RUNTIME=auto`
+  > or `:elixir`) never starts PythonWorker children; this supervisor
+  > remains idle at zero workers.
+
   Each run gets its own Python worker process via `start_worker/2`.
   Workers are started with `:temporary` restart strategy to avoid
   restart loops when Python scripts fail.

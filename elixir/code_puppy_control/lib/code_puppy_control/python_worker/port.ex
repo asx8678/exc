@@ -2,12 +2,21 @@ defmodule CodePuppyControl.PythonWorker.Port do
   @moduledoc """
   GenServer that owns a Python Port for JSON-RPC communication.
 
+  > **Bridge-mode only.** This module is only activated under explicit
+  > `PUP_RUNTIME=python` / `--bridge-mode` / legacy PyPI compatibility
+  > workflows. The default native Burrito runtime (`PUP_RUNTIME=auto`
+  > or `:elixir`) never starts PythonWorker processes.
+
   This process:
   1. Spawns a Python worker via Port
   2. Sends JSON-RPC commands using Content-Length framing
   3. Receives notifications and responses
   4. Monitors the Python process for exit
   5. Handles restart via DynamicSupervisor
+
+  When `python3` is not available on the system, `init/1` returns
+  `{:stop, {:python_unavailable, _}}` gracefully rather than crashing
+  the owning supervisor.
 
   ## Framing
 

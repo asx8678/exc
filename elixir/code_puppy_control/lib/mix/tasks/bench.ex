@@ -2,6 +2,12 @@ defmodule Mix.Tasks.Bench do
   @moduledoc """
   Benchmark Python worker management in the CodePuppy control plane.
 
+  > **Bridge-mode compat only.** This task benchmarks the Python bridge
+  > (`PythonWorker.Port`), which is only active under `PUP_RUNTIME=python`
+  > / `--bridge-mode`. The default native Burrito runtime does not use
+  > PythonWorker. Native Elixir performance is measured via standard
+  > `mix test` and `Benchee` benchmarks, not this task.
+
   This task measures:
   1. Worker spawn latency (time to initialize)
   2. Request/response latency (echo round-trip)
@@ -32,7 +38,7 @@ defmodule Mix.Tasks.Bench do
   alias CodePuppyControl.PythonWorker.Supervisor, as: WorkerSupervisor
   alias CodePuppyControl.PythonWorker.Port
 
-  @shortdoc "Benchmark Python worker management"
+  @shortdoc "Benchmark Python bridge worker (compat/bridge-mode only)"
 
   # Default iteration counts
   @default_spawn_iterations 10
