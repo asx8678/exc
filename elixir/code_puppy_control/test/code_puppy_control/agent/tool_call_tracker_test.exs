@@ -79,6 +79,40 @@ defmodule CodePuppyControl.Agent.ToolCallTrackerTest do
       assert MapSet.new(["tc_atom"]) == result.return_ids
     end
 
+    test "handles atom-keyed assistant messages with tool_calls" do
+      # Agent.Loop.finalize_turn produces atom-keyed assistant messages.
+      # Regression: code-puppy-v2o.1 — collect_ids missed these, causing
+      # prune_interrupted to treat in-progress tool calls as interrupted.
+      messages = [
+        %{
+          role: "assistant",
+          content: nil,
+          tool_calls: [%{id: "tc_a1", name: :read, arguments: %{}}]
+        }
+      ]
+
+      result = ToolCallTracker.collect_ids(messages)
+      assert MapSet.new(["tc_a1"]) == result.call_ids
+      assert MapSet.size(result.return_ids) == 0
+    end
+
+    test "mixed atom/string-keyed messages collect all IDs" do
+      messages = [
+        %{
+          role: "assistant",
+          content: nil,
+          tool_calls: [%{id: "tc_atom", name: :r, arguments: %{}}]
+        },
+        %{"role" => "assistant", "tool_calls" => [%{id: "tc_str", name: "w", arguments: %{}}]},
+        %{role: "tool", tool_call_id: "tc_atom", content: "ok"},
+        %{"role" => "tool", "tool_call_id" => "tc_str", "content" => "ok"}
+      ]
+
+      result = ToolCallTracker.collect_ids(messages)
+      assert MapSet.new(["tc_atom", "tc_str"]) == result.call_ids
+      assert MapSet.new(["tc_atom", "tc_str"]) == result.return_ids
+    end
+
     test "handles parts-style messages" do
       messages = [
         %{

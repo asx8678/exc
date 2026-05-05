@@ -86,16 +86,15 @@ defmodule CodePuppyControl.Agent.ToolCallTracker do
 
   defp collect_ids_from_message(%{"tool_calls" => tool_calls} = _msg, acc)
        when is_list(tool_calls) and tool_calls != [] do
-    # Assistant message with tool_calls
-    ids =
-      Enum.map(tool_calls, fn
-        %{id: id} when is_binary(id) -> id
-        %{"id" => id} when is_binary(id) -> id
-        _ -> nil
-      end)
-      |> Enum.reject(&is_nil/1)
+    # String-keyed assistant message with tool_calls
+    collect_tool_call_ids(tool_calls, acc)
+  end
 
-    %{acc | call_ids: Enum.reduce(ids, acc.call_ids, &MapSet.put(&2, &1))}
+  defp collect_ids_from_message(%{tool_calls: tool_calls} = _msg, acc)
+       when is_list(tool_calls) and tool_calls != [] do
+    # Atom-keyed assistant message with tool_calls
+    # (produced by Agent.Loop.finalize_turn)
+    collect_tool_call_ids(tool_calls, acc)
   end
 
   defp collect_ids_from_message(%{"role" => "tool", "tool_call_id" => id}, acc)
@@ -117,6 +116,20 @@ defmodule CodePuppyControl.Agent.ToolCallTracker do
   end
 
   defp collect_ids_from_message(_msg, acc), do: acc
+
+  # Shared helper: collect tool call IDs from a tool_calls list,
+  # handling both atom-keyed (%{id: ...}) and string-keyed (%{"id" => ...}) shapes.
+  defp collect_tool_call_ids(tool_calls, acc) do
+    ids =
+      Enum.map(tool_calls, fn
+        %{id: id} when is_binary(id) -> id
+        %{"id" => id} when is_binary(id) -> id
+        _ -> nil
+      end)
+      |> Enum.reject(&is_nil/1)
+
+    %{acc | call_ids: Enum.reduce(ids, acc.call_ids, &MapSet.put(&2, &1))}
+  end
 
   defp collect_ids_from_part(part, acc) do
     kind = part_kind(part)

@@ -522,6 +522,14 @@ defmodule CodePuppyControl.Agent.Loop do
   end
 
   defp finalize_turn(state, turn, turn_number) do
+    # Prune any interrupted tool calls from PRIOR turns before building
+    # the current turn's messages. Must happen before appending the
+    # assistant(tool_calls) message, otherwise the new tool calls
+    # appear as interrupted (they have no matching result yet) and
+    # get pruned — losing both the assistant tool-call message and
+    # the tool result that follows.
+    base_messages = ToolCallTracker.prune_interrupted(state.messages)
+
     # Build the assistant message for this turn.
     #
     # Provider APIs require that tool-result messages are preceded by an
@@ -540,17 +548,14 @@ defmodule CodePuppyControl.Agent.Loop do
             tool_calls: turn.pending_tool_calls
           }
 
-          state.messages ++ [assistant_msg]
+          base_messages ++ [assistant_msg]
 
         turn.accumulated_text != "" ->
-          state.messages ++ [%{role: "assistant", content: turn.accumulated_text}]
+          base_messages ++ [%{role: "assistant", content: turn.accumulated_text}]
 
         true ->
-          state.messages
+          base_messages
       end
-
-    # Prune any interrupted tool calls before dispatch
-    messages = ToolCallTracker.prune_interrupted(messages)
 
     # Dispatch tool calls and collect results
     messages = ToolDispatch.dispatch_tool_calls(state, turn, messages)

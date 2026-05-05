@@ -259,20 +259,27 @@ defmodule CodePuppyControl.NativeParitySmokeTest do
       assert NativeSmokeTool.invoked?(),
              "NativeSmokeTool should have been invoked through Tool.Runner → Registry path"
 
-      # Loop completed a full tool-call cycle: 2 turns (tool dispatch + text reply)
-      state_view = Loop.get_state(pid)
-
-      assert state_view.turn_number == 2,
-             "Expected 2 turns (tool + text), got #{state_view.turn_number}"
-
-      assert state_view.completed == true,
-             "Expected loop completed, got completed=#{state_view.completed}"
-
-      # Final messages include at least user + assistant response
+      # Verify message history retains all messages across tool-call + text turns.
+      # Shape: [user, assistant(tool_calls), tool(result), assistant(text)]
       messages = Loop.get_messages(pid)
 
-      assert length(messages) >= 2,
-             "Expected >=2 messages, got #{length(messages)}"
+      assert length(messages) == 4,
+             "Expected 4 messages (user + assistant(tool_calls) + tool_result + assistant(text)), " <>
+               "got #{length(messages)}: #{inspect(Enum.map(messages, &(&1[:role] || &1["role"])))}"
+
+      [user_msg, asst_tc_msg, tool_msg, asst_text_msg] = messages
+
+      assert user_msg[:role] == "user"
+      assert asst_tc_msg[:role] == "assistant"
+
+      assert is_list(asst_tc_msg[:tool_calls]) and length(asst_tc_msg[:tool_calls]) == 1,
+             "assistant message should have 1 tool_call"
+
+      assert tool_msg[:role] == "tool"
+      assert tool_msg[:tool_call_id] == "tc-smoke-1"
+
+      assert asst_text_msg[:role] == "assistant"
+      assert asst_text_msg[:content] == "Tool executed natively!"
 
       GenServer.stop(pid)
     end

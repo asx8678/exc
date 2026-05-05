@@ -35,14 +35,23 @@ defmodule CodePuppyControl.Agent.LoopTest do
 
     def start_link do
       # Use start instead of start_link to avoid linking issues
-      case Agent.start(fn -> %{} end, name: __MODULE__) do
+      case Agent.start(fn -> %{response: nil, sequence: [], call_count: 0} end, name: __MODULE__) do
         {:ok, pid} -> {:ok, pid}
         {:error, {:already_started, pid}} -> {:ok, pid}
       end
     end
 
     def set_response(response) do
-      Agent.update(__MODULE__, fn _ -> %{response: response} end)
+      Agent.update(__MODULE__, fn _ -> %{response: response, sequence: [], call_count: 0} end)
+    end
+
+    @doc """
+    Set a sequence of responses to return on successive calls.
+    Each call to stream_chat/4 pops the next response from the sequence.
+    If the sequence is exhausted, falls back to the static :response.
+    """
+    def set_sequence(responses) when is_list(responses) do
+      Agent.update(__MODULE__, fn _ -> %{response: nil, sequence: responses, call_count: 0} end)
     end
 
     def stop do
@@ -54,8 +63,19 @@ defmodule CodePuppyControl.Agent.LoopTest do
     end
 
     @impl true
-    def stream_chat(_messages, _tools, _opts, callback_fn) do
-      response = Agent.get(__MODULE__, fn state -> state.response end)
+    def stream_chat(messages, tools, opts, callback_fn) do
+      state = Agent.get(__MODULE__, & &1)
+
+      {response, new_state} =
+        case state do
+          %{sequence: [resp | rest], call_count: count} ->
+            {resp, %{state | sequence: rest, call_count: count + 1}}
+
+          %{sequence: [], response: resp} ->
+            {resp, state}
+        end
+
+      Agent.update(__MODULE__, fn _ -> new_state end)
 
       case response do
         %{text: text} when is_binary(text) ->
@@ -397,6 +417,126 @@ defmodule CodePuppyControl.Agent.LoopTest do
       # When LLM emits tool calls with no text, content should be nil
       assert assistant_msg[:content] == nil
       assert is_list(assistant_msg[:tool_calls])
+
+      GenServer.stop(pid)
+    end
+  end
+
+  # ===========================================================================
+  # Multi-turn message retention: code-puppy-v2o.1 regression
+  # ===========================================================================
+  #
+  # After a tool-call turn followed by a text-only turn, state.messages MUST
+  # contain the full conversation shape:
+  #
+  #   [user, assistant(tool_calls), tool(result), assistant(text)]
+  #
+  # The bug manifested as messages being lost between turns, leaving only
+  # [user, assistant(text)] in the final history.
+
+  describe "multi-turn message retention (tool-call + text)" do
+    test "retains assistant(tool_calls) and tool_result messages across turns" do
+      # Use a stateful mock that returns tool-call on turn 1, text on turn 2
+      MockLLM.set_sequence([
+        %{
+          text: nil,
+          tool_calls: [%{id: "tc-multi-1", name: :echo_tool, arguments: %{"input" => "hello"}}]
+        },
+        %{text: "Tool completed successfully.", tool_calls: []}
+      ])
+
+      {:ok, pid} =
+        Loop.start_link(TestAgent, [%{role: "user", content: "run tool"}],
+          llm_module: MockLLM,
+          run_id: "test-multi-turn-retention",
+          max_turns: 10,
+          compaction_enabled: false
+        )
+
+      :ok = Loop.run_until_done(pid, 10_000)
+
+      messages = Loop.get_messages(pid)
+
+      # Expected shape: [user, assistant(tool_calls), tool(result), assistant(text)]
+      assert length(messages) == 4,
+             "Expected 4 messages after tool+text turns, got #{length(messages)}: #{inspect(messages)}"
+
+      # [0] user message preserved
+      user_msg = Enum.at(messages, 0)
+      assert user_msg[:role] == "user"
+      assert user_msg[:content] == "run tool"
+
+      # [1] assistant message with tool_calls preserved
+      assistant_tc_msg = Enum.at(messages, 1)
+      assert assistant_tc_msg[:role] == "assistant"
+      assert is_list(assistant_tc_msg[:tool_calls])
+      assert length(assistant_tc_msg[:tool_calls]) == 1
+
+      [tc] = assistant_tc_msg[:tool_calls]
+      assert tc.id == "tc-multi-1"
+      assert tc.name == :echo_tool
+
+      # [2] tool result message preserved
+      tool_result_msg = Enum.at(messages, 2)
+      assert tool_result_msg[:role] == "tool"
+      assert tool_result_msg[:tool_call_id] == "tc-multi-1"
+
+      # [3] final assistant text message
+      assistant_text_msg = Enum.at(messages, 3)
+      assert assistant_text_msg[:role] == "assistant"
+      assert assistant_text_msg[:content] == "Tool completed successfully."
+
+      GenServer.stop(pid)
+    end
+
+    test "retains multiple tool-call+result pairs across turns" do
+      # Two tool calls on turn 1, text on turn 2
+      MockLLM.set_sequence([
+        %{
+          text: "Using both tools.",
+          tool_calls: [
+            %{id: "tc-pair-1", name: :echo_tool, arguments: %{"input" => "first"}},
+            %{id: "tc-pair-2", name: :echo_tool, arguments: %{"input" => "second"}}
+          ]
+        },
+        %{text: "Both tools done.", tool_calls: []}
+      ])
+
+      {:ok, pid} =
+        Loop.start_link(TestAgent, [%{role: "user", content: "run two tools"}],
+          llm_module: MockLLM,
+          run_id: "test-multi-tool-retention",
+          max_turns: 10,
+          compaction_enabled: false
+        )
+
+      :ok = Loop.run_until_done(pid, 10_000)
+
+      messages = Loop.get_messages(pid)
+
+      # Expected: [user, assistant(text+tool_calls), tool(result1), tool(result2), assistant(text)]
+      assert length(messages) == 5,
+             "Expected 5 messages, got #{length(messages)}: #{inspect(messages)}"
+
+      # Verify assistant with tool_calls
+      asst = Enum.at(messages, 1)
+      assert asst[:role] == "assistant"
+      assert asst[:content] == "Using both tools."
+      assert length(asst[:tool_calls]) == 2
+
+      # Verify both tool results present
+      tr1 = Enum.at(messages, 2)
+      assert tr1[:role] == "tool"
+      assert tr1[:tool_call_id] == "tc-pair-1"
+
+      tr2 = Enum.at(messages, 3)
+      assert tr2[:role] == "tool"
+      assert tr2[:tool_call_id] == "tc-pair-2"
+
+      # Final text response
+      final = Enum.at(messages, 4)
+      assert final[:role] == "assistant"
+      assert final[:content] == "Both tools done."
 
       GenServer.stop(pid)
     end
