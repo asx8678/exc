@@ -11,6 +11,8 @@ defmodule CodePuppyControl.Runtime.PropertyTest do
   use ExUnit.Case, async: false
   use ExUnitProperties
 
+  @moduletag :property
+
   alias CodePuppyControl.Scheduler.Task
   alias CodePuppyControl.RateLimiter.{Bucket, Adaptive}
 

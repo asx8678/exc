@@ -15,6 +15,8 @@ defmodule CodePuppyControl.Config.EnvResolutionPropertyTest do
   use ExUnit.Case, async: false
   use ExUnitProperties
 
+  @moduletag :property
+
   alias CodePuppyControl.Config.Loader
 
   @tmp_dir System.tmp_dir!()

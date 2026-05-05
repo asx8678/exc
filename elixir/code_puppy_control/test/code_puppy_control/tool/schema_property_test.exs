@@ -17,6 +17,8 @@ defmodule CodePuppyControl.Tool.SchemaPropertyTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
+  @moduletag :property
+
   alias CodePuppyControl.Tool.Schema
 
   defp non_integer_string_generator do

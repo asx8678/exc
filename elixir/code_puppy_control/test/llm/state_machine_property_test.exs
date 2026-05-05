@@ -21,6 +21,8 @@ defmodule CodePuppyControl.LLM.StateMachinePropertyTest do
   use ExUnit.Case, async: false
   use ExUnitProperties
 
+  @moduletag :property
+
   alias CodePuppyControl.RoundRobinModel
   alias CodePuppyControl.ModelAvailability
 

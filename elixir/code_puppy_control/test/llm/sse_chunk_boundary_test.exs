@@ -13,6 +13,8 @@ defmodule CodePuppyControl.LLM.SSEChunkBoundaryTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
+  @moduletag :property
+
   alias CodePuppyControl.LLM.Providers.OpenAI
   alias CodePuppyControl.LLM.Providers.Anthropic
   alias CodePuppyControl.Test.MockLLMHTTP

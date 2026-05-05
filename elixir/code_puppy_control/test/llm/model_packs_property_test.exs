@@ -15,6 +15,8 @@ defmodule CodePuppyControl.LLM.ModelPacksPropertyTest do
   use ExUnit.Case, async: false
   use ExUnitProperties
 
+  @moduletag :property
+
   alias CodePuppyControl.ModelPacks
   alias CodePuppyControl.ModelPacks.{ModelPack, RoleConfig}
 

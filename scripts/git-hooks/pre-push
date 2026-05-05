@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 # pre-push — tracked native hook
 # Elixir: compile + fast tests | Python: ruff + smoke import
-# Last sync: 2025-05-12
+# Last sync: 2026-05-05
+#
+# Fast-test excludes: :slow, :integration, :property
+#   - :property covers StreamData/ExUnitProperties generative tests (100
+#     samples each) which are too slow for pre-push feedback but remain
+#     part of the full `mix test` suite.  (code-puppy-63y)
 #
 # Uses NUL-delimited git output + bash arrays to avoid unsafe filename handling.
 # Handles new branches (0000… remote sha) by computing range via merge-base.
@@ -171,7 +176,7 @@ if [[ ${#elixir_files[@]} -gt 0 ]]; then
 
     echo '--- elixir-test-fast ---'
     info 'Elixir fast tests ...'
-    if ! (cd "$elixir_dir" && mix test --exclude slow --exclude integration --max-failures 5); then
+    if ! (cd "$elixir_dir" && mix test --exclude slow --exclude integration --exclude property --max-failures 5); then
       warn 'Elixir fast tests failed'
       failed=1
     else

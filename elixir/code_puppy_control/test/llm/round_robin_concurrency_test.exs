@@ -17,6 +17,8 @@ defmodule CodePuppyControl.LLM.RoundRobinConcurrencyTest do
   use ExUnit.Case, async: false
   use ExUnitProperties
 
+  @moduletag :property
+
   alias CodePuppyControl.RoundRobinModel
 
   # Number of concurrent worker tasks

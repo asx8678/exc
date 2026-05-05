@@ -55,7 +55,15 @@ CodePuppyControl.Parsing.Parsers.register_all()
 #     mix test --only packaged_cli
 #     scripts/smoke-packaged.sh        # builds + runs the full packaged smoke
 #
-# Refs: code_puppy-d7m
+# `:property` tests (StreamData/ExUnitProperties) are NOT excluded from the
+# default `mix test` run — they form part of the full suite.  The pre-push
+# hook excludes them via `--exclude property` to keep the fast suite
+# predictable.  Run property tests explicitly via:
+#
+#     mix test --only property
+#     mix test --include property   # when combined with other excludes
+#
+# Refs: code-puppy-63y, code_puppy-d7m
 exclude_tags =
   if System.get_env("RUN_EVALS") == "1" do
     [:integration, :e2e, :skip, :triage_pending, :packaged_cli, :phase_c_e2e]

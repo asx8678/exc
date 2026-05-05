@@ -88,7 +88,14 @@ defmodule CodePuppyControl.MixProject do
     # on the code path during `mix release` step execution (the
     # &Burrito.wrap/1 step needs the module loaded). It has no `mod`
     # callback so it won't auto-start.
-    included = [:erlexec, :burrito] ++ db_included
+    #
+    # stream_data (ExUnitProperties / StreamData) is listed as
+    # included_applications in the test env so its beam files are on the
+    # code path during incremental recompilation. Without this, Elixir
+    # 1.19's tracing compiler may not find ExUnitProperties when
+    # recompiling test files that `use ExUnitProperties`. (code-puppy-63y)
+    stream_data_included = if Mix.env() == :test, do: [:stream_data], else: []
+    included = [:erlexec, :burrito] ++ db_included ++ stream_data_included
 
     [
       mod: {CodePuppyControl.Application, []},

@@ -12,6 +12,8 @@ defmodule CodePuppyControl.Stream.EventPropertyTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
+  @moduletag :property
+
   alias CodePuppyControl.Stream.Event
   alias CodePuppyControl.Stream.Event.{TextStart, TextDelta, TextEnd}
   alias CodePuppyControl.Stream.Event.{ToolCallStart, ToolCallArgsDelta, ToolCallEnd}
