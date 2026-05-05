@@ -685,7 +685,18 @@ defmodule CodePuppyControl.Runtime.RunManagerTest do
 
       Application.delete_env(:code_puppy_control, :run_executor_module)
 
+      # Start the run BEFORE registering on_exit so run_id is captured
+      {:ok, run_id} = Manager.start_run("gd0-session", "gd0-agent")
+      Process.sleep(50)
+
+      # Look up the state PID for direct message sends
+      [{state_pid, _}] =
+        Registry.lookup(CodePuppyControl.Run.Registry, {:run_state, run_id})
+
       on_exit(fn ->
+        # Always clean up the run, even on assertion failure
+        Manager.delete_run(run_id)
+
         case saved_runtime do
           nil -> System.delete_env(@pup_runtime)
           v -> System.put_env(@pup_runtime, v)
@@ -696,13 +707,6 @@ defmodule CodePuppyControl.Runtime.RunManagerTest do
           v -> Application.put_env(:code_puppy_control, :run_executor_module, v)
         end
       end)
-
-      {:ok, run_id} = Manager.start_run("gd0-session", "gd0-agent")
-      Process.sleep(50)
-
-      # Look up the state PID for direct message sends
-      [{state_pid, _}] =
-        Registry.lookup(CodePuppyControl.Run.Registry, {:run_state, run_id})
 
       %{run_id: run_id, state_pid: state_pid}
     end
