@@ -169,7 +169,7 @@ These enable Python→Elixir RPC when the Python CLI is running in bridge mode. 
 
 | File / Module | Lines | Category | Notes |
 |---------------|-------|----------|-------|
-| `code_puppy/plugins/fast_puppy/register_callbacks.py` | 23 | dead/stale | Stub that says "acceleration removed"; Elixir `fast_puppy.ex` is the canonical version |
+| ~~`code_puppy/plugins/fast_puppy/register_callbacks.py`~~ | 23 | ~~dead/stale~~ → **deleted** | Deleted (code-puppy-3e5); Elixir `fast_puppy.ex` is canonical |
 | `code_puppy/runtime_selector.py` | N/A | **never created** | Planned in `code-puppy-bwt.2` but never implemented — Elixir-only |
 | `code_puppy/feature_flags.py` | N/A | **never created** | Planned in `code-puppy-djs.4.6` but never implemented — Elixir-only |
 | `docs/python_dependency_graph.json` | — | stale | Generated from Python tree; low value post-cutover |
@@ -221,11 +221,11 @@ Grouped logically — **not** one per grep hit. These are the actionable outcome
 
 **Actions:** Update `code-puppy-o4m` with this audit's finding: recommend **document-and-close** since `PUP_RUNTIME=elixir` is the canonical no-Python flag.
 
-### 6.3 Port/Delete Stale `fast_puppy` Python Stub (P4)
+### 6.3 Port/Delete Stale `fast_puppy` Python Stub (P4) — ✅ code-puppy-3e5
 
-**Rationale:** `code_puppy/plugins/fast_puppy/register_callbacks.py` (23 lines) is a dead stub. Elixir `fast_puppy.ex` is canonical.
+**Rationale:** `code_puppy/plugins/fast_puppy/register_callbacks.py` (23 lines) was a dead stub. Elixir `fast_puppy.ex` is canonical.
 
-**Actions:** Delete Python `fast_puppy` plugin dir. Verify no imports reference it.
+**Actions:** ~~Delete Python `fast_puppy` plugin dir. Verify no imports reference it.~~ ✅ Done — directory deleted, no import references found, Elixir `fast_puppy.ex` `@moduledoc` updated.
 
 ### 6.4 Update README and Install Docs to Prefer Burrito Native (P2) — ✅ code-puppy-2j6
 
@@ -272,7 +272,7 @@ Grouped logically — **not** one per grep hit. These are the actionable outcome
 ### Medium-term (Python becomes explicitly opt-in)
 
 6. **PyPI deprecation:** Execute `python-pup-alias-deprecation-plan.md` phases 2–3
-7. **Delete:** Remove `fast_puppy` Python stub (issue 6.3 above)
+7. ~~**Delete:** Remove `fast_puppy` Python stub~~ ✅ (issue 6.3 above — code-puppy-3e5)
 8. **Add:** Native workflow parity smoke test (issue 6.6 above)
 9. **Gate:** PythonWorker.Supervisor only starts under explicit `PUP_RUNTIME=python`
 

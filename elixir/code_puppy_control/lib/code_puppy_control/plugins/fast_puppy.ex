@@ -5,7 +5,7 @@ defmodule CodePuppyControl.Plugins.FastPuppy do
   Native acceleration layer removed. This plugin is now a minimal
   stub that only reports that the acceleration layer has been removed.
 
-  Ported from Python: code_puppy/plugins/fast_puppy/register_callbacks.py
+  Historically ported from Python (Python stub deleted — code-puppy-3e5).
   """
 
   use CodePuppyControl.Plugins.PluginBehaviour
