@@ -43,7 +43,6 @@ auto-discovers `register_callbacks.ex` (preferred, compiles to BEAM) and
 > **Security note:** user plugins in `~/.code_puppy_ex/plugins/` execute arbitrary
 > Elixir code with full system privileges — same trust model as Python plugins.
 > Only load plugins from sources you trust. See
-See
 [docs/PYTHON_PLUGIN_COMPATIBILITY.md](docs/PYTHON_PLUGIN_COMPATIBILITY.md) for full details.
 ### Python Plugins (Compatibility / Bridge Mode Only)
 
