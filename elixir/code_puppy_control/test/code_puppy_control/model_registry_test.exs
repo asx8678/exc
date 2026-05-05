@@ -639,6 +639,298 @@ defmodule CodePuppyControl.ModelRegistryTest do
   end
 
   # ==========================================================================
+  # models.json Loading Tests (legacy + Elixir home)
+  # ==========================================================================
+
+  describe "models.json loading from legacy and Elixir homes" do
+    test "loads models.json from legacy home via Application env override" do
+      legacy_home =
+        Path.join(System.tmp_dir!(), "mr_legacy_mdl_#{:erlang.unique_integer([:positive])}")
+
+      File.mkdir_p!(legacy_home)
+
+      models_content =
+        Jason.encode!(%{
+          "legacy-main-model" => %{
+            "type" => "openai",
+            "provider" => "legacy-main",
+            "name" => "legacy-main-v1",
+            "context_length" => 128_000
+          }
+        })
+
+      File.write!(Path.join(legacy_home, "models.json"), models_content)
+
+      _original_legacy = Application.get_env(:code_puppy_control, :legacy_home_dir)
+      old_home = System.get_env("PUP_EX_HOME")
+
+      # Use an empty Elixir home so only the legacy models.json loads
+      elixir_home =
+        Path.join(System.tmp_dir!(), "mr_elixir_mdl_empty_#{:erlang.unique_integer([:positive])}")
+
+      File.mkdir_p!(elixir_home)
+
+      try do
+        Application.put_env(:code_puppy_control, :legacy_home_dir, legacy_home)
+        System.put_env("PUP_EX_HOME", elixir_home)
+
+        assert :ok = ModelRegistry.reload()
+
+        config = ModelRegistry.get_config("legacy-main-model")
+        assert is_map(config)
+        assert config["type"] == "openai"
+        assert config["provider"] == "legacy-main"
+      after
+        Application.delete_env(:code_puppy_control, :legacy_home_dir)
+
+        if old_home,
+          do: System.put_env("PUP_EX_HOME", old_home),
+          else: System.delete_env("PUP_EX_HOME")
+
+        File.rm_rf!(legacy_home)
+        File.rm_rf!(elixir_home)
+        ModelRegistry.reload()
+      end
+    end
+
+    test "loads models.json from Elixir home via PUP_EX_HOME" do
+      elixir_home =
+        Path.join(System.tmp_dir!(), "mr_elixir_mdl_#{:erlang.unique_integer([:positive])}")
+
+      File.mkdir_p!(elixir_home)
+
+      models_content =
+        Jason.encode!(%{
+          "elixir-main-model" => %{
+            "type" => "anthropic",
+            "provider" => "elixir-main",
+            "name" => "elixir-main-v1",
+            "context_length" => 200_000
+          }
+        })
+
+      File.write!(Path.join(elixir_home, "models.json"), models_content)
+
+      old_home = System.get_env("PUP_EX_HOME")
+
+      try do
+        System.put_env("PUP_EX_HOME", elixir_home)
+
+        assert :ok = ModelRegistry.reload()
+
+        config = ModelRegistry.get_config("elixir-main-model")
+        assert is_map(config)
+        assert config["type"] == "anthropic"
+        assert config["provider"] == "elixir-main"
+      after
+        if old_home,
+          do: System.put_env("PUP_EX_HOME", old_home),
+          else: System.delete_env("PUP_EX_HOME")
+
+        File.rm_rf!(elixir_home)
+        ModelRegistry.reload()
+      end
+    end
+
+    test "Elixir home models.json wins over legacy home models.json on conflicts" do
+      legacy_home =
+        Path.join(System.tmp_dir!(), "mr_legacy_mdl_c_#{:erlang.unique_integer([:positive])}")
+
+      elixir_home =
+        Path.join(System.tmp_dir!(), "mr_elixir_mdl_c_#{:erlang.unique_integer([:positive])}")
+
+      File.mkdir_p!(legacy_home)
+      File.mkdir_p!(elixir_home)
+
+      legacy_models =
+        Jason.encode!(%{
+          "shared-model" => %{
+            "type" => "openai",
+            "provider" => "legacy",
+            "name" => "legacy-version",
+            "context_length" => 64_000
+          }
+        })
+
+      elixir_models =
+        Jason.encode!(%{
+          "shared-model" => %{
+            "type" => "anthropic",
+            "provider" => "elixir",
+            "name" => "elixir-version",
+            "context_length" => 200_000
+          }
+        })
+
+      File.write!(Path.join(legacy_home, "models.json"), legacy_models)
+      File.write!(Path.join(elixir_home, "models.json"), elixir_models)
+
+      _original_legacy = Application.get_env(:code_puppy_control, :legacy_home_dir)
+      old_home = System.get_env("PUP_EX_HOME")
+
+      try do
+        Application.put_env(:code_puppy_control, :legacy_home_dir, legacy_home)
+        System.put_env("PUP_EX_HOME", elixir_home)
+
+        assert :ok = ModelRegistry.reload()
+
+        config = ModelRegistry.get_config("shared-model")
+        # Elixir-home models.json wins (loaded after legacy)
+        assert config["type"] == "anthropic"
+        assert config["provider"] == "elixir"
+        assert config["context_length"] == 200_000
+      after
+        Application.delete_env(:code_puppy_control, :legacy_home_dir)
+
+        if old_home,
+          do: System.put_env("PUP_EX_HOME", old_home),
+          else: System.delete_env("PUP_EX_HOME")
+
+        File.rm_rf!(legacy_home)
+        File.rm_rf!(elixir_home)
+        ModelRegistry.reload()
+      end
+    end
+
+    test "full precedence: bundled → legacy models → legacy extra → Elixir models → Elixir extra" do
+      legacy_home =
+        Path.join(System.tmp_dir!(), "mr_legacy_prec_#{:erlang.unique_integer([:positive])}")
+
+      elixir_home =
+        Path.join(System.tmp_dir!(), "mr_elixir_prec_#{:erlang.unique_integer([:positive])}")
+
+      File.mkdir_p!(legacy_home)
+      File.mkdir_p!(elixir_home)
+
+      # Legacy models.json defines a model that overrides a bundled model
+      File.write!(
+        Path.join(legacy_home, "models.json"),
+        Jason.encode!(%{
+          "wafer-glm-5.1" => %{
+            "type" => "custom_openai",
+            "provider" => "legacy-override",
+            "name" => "GLM-5.1-legacy"
+          },
+          "legacy-unique" => %{"type" => "openai", "provider" => "legacy"}
+        })
+      )
+
+      # Legacy extra_models.json overrides the legacy models.json value
+      File.write!(
+        Path.join(legacy_home, "extra_models.json"),
+        Jason.encode!(%{
+          "wafer-glm-5.1" => %{
+            "type" => "custom_openai",
+            "provider" => "legacy-extra-override",
+            "name" => "GLM-5.1-legacy-extra"
+          }
+        })
+      )
+
+      # Elixir models.json overrides all legacy
+      File.write!(
+        Path.join(elixir_home, "models.json"),
+        Jason.encode!(%{
+          "wafer-glm-5.1" => %{
+            "type" => "custom_openai",
+            "provider" => "elixir-override",
+            "name" => "GLM-5.1-elixir"
+          },
+          "elixir-unique" => %{"type" => "anthropic", "provider" => "elixir"}
+        })
+      )
+
+      # Elixir extra_models.json overrides Elixir models.json
+      File.write!(
+        Path.join(elixir_home, "extra_models.json"),
+        Jason.encode!(%{
+          "wafer-glm-5.1" => %{
+            "type" => "custom_openai",
+            "provider" => "elixir-extra-override",
+            "name" => "GLM-5.1-elixir-extra"
+          }
+        })
+      )
+
+      _original_legacy = Application.get_env(:code_puppy_control, :legacy_home_dir)
+      old_home = System.get_env("PUP_EX_HOME")
+
+      try do
+        Application.put_env(:code_puppy_control, :legacy_home_dir, legacy_home)
+        System.put_env("PUP_EX_HOME", elixir_home)
+
+        assert :ok = ModelRegistry.reload()
+
+        # Elixir extra_models.json wins (highest precedence)
+        config = ModelRegistry.get_config("wafer-glm-5.1")
+        assert config["provider"] == "elixir-extra-override"
+        assert config["name"] == "GLM-5.1-elixir-extra"
+
+        # Both legacy and Elixir unique models are present
+        assert ModelRegistry.get_config("legacy-unique") != nil
+        assert ModelRegistry.get_config("elixir-unique") != nil
+      after
+        Application.delete_env(:code_puppy_control, :legacy_home_dir)
+
+        if old_home,
+          do: System.put_env("PUP_EX_HOME", old_home),
+          else: System.delete_env("PUP_EX_HOME")
+
+        File.rm_rf!(legacy_home)
+        File.rm_rf!(elixir_home)
+        ModelRegistry.reload()
+      end
+    end
+
+    test "legacy models.json via override dir bypasses Isolation guard (expected — not real ~/.code_puppy)" do
+      # When the path is under real ~/.code_puppy, safe_read_file routes
+      # through Isolation.read_only_legacy/1. This test uses a test override
+      # dir (NOT under real ~/.code_puppy) which correctly goes through
+      # File.read/1 — verifying the override mechanism works for tests.
+      legacy_home =
+        Path.join(System.tmp_dir!(), "mr_legacy_iso_#{:erlang.unique_integer([:positive])}")
+
+      File.mkdir_p!(legacy_home)
+
+      File.write!(
+        Path.join(legacy_home, "models.json"),
+        Jason.encode!(%{
+          "iso-test-model" => %{"type" => "openai", "provider" => "iso-test"}
+        })
+      )
+
+      _original_legacy = Application.get_env(:code_puppy_control, :legacy_home_dir)
+      old_home = System.get_env("PUP_EX_HOME")
+
+      elixir_home =
+        Path.join(System.tmp_dir!(), "mr_elixir_iso_#{:erlang.unique_integer([:positive])}")
+
+      File.mkdir_p!(elixir_home)
+
+      try do
+        Application.put_env(:code_puppy_control, :legacy_home_dir, legacy_home)
+        System.put_env("PUP_EX_HOME", elixir_home)
+
+        assert :ok = ModelRegistry.reload()
+
+        config = ModelRegistry.get_config("iso-test-model")
+        assert is_map(config)
+        assert config["provider"] == "iso-test"
+      after
+        Application.delete_env(:code_puppy_control, :legacy_home_dir)
+
+        if old_home,
+          do: System.put_env("PUP_EX_HOME", old_home),
+          else: System.delete_env("PUP_EX_HOME")
+
+        File.rm_rf!(legacy_home)
+        File.rm_rf!(elixir_home)
+        ModelRegistry.reload()
+      end
+    end
+  end
+
+  # ==========================================================================
   # Legacy Overlay Tests
   # ==========================================================================
 

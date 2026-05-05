@@ -16,12 +16,18 @@ defmodule CodePuppyControl.ModelRegistry do
     - Bundled: `priv/models.json` (shipped with the application)
     - Overlays (optional, read from both legacy and Elixir homes):
       - Legacy home (read-only, via `Isolation.read_only_legacy/1`):
+        - `~/.code_puppy/models.json`
         - `~/.code_puppy/extra_models.json`
         - `~/.code_puppy/chatgpt_models.json`
         - `~/.code_puppy/claude_models.json`
-      - Elixir home (`~/.code_puppy_ex/`):
+      - Elixir home (`~/.code_puppy_ex/`, via `Paths.models_file/0` and siblings):
+        - `models.json`
         - `extra_models.json`, `chatgpt_models.json`, `claude_models.json`
-      Precedence: base → legacy overlays → Elixir-home overlays (later wins).
+      Precedence: base → legacy `models.json` → legacy `extra_models.json` →
+      legacy `chatgpt_models.json` → legacy `claude_models.json` →
+      Elixir `models.json` → Elixir `extra_models.json` →
+      Elixir `chatgpt_models.json` → Elixir `claude_models.json`
+      (later wins on conflicts).
 
   ## Model Type Registry
 
@@ -415,17 +421,21 @@ defmodule CodePuppyControl.ModelRegistry do
   # Load overlay files from BOTH legacy home (read-only) and Elixir home.
   # Order: legacy overlays first, then Elixir-home overlays, so that
   # Elixir-home overlays win on key conflicts (later wins).
-  # Within each home: extra -> chatgpt -> claude (preserving existing order).
+  # Within each home: models → extra → chatgpt → claude (models.json first).
+  # Full precedence: bundled → legacy models → legacy extra → legacy chatgpt →
+  # legacy claude → Elixir models → Elixir extra → Elixir chatgpt → Elixir claude.
   defp load_overlay_files do
     legacy_home = legacy_home_dir()
 
     legacy_specs = [
+      {Path.join(legacy_home, "models.json"), "legacy models"},
       {Path.join(legacy_home, "extra_models.json"), "legacy extra models"},
       {Path.join(legacy_home, "chatgpt_models.json"), "legacy ChatGPT OAuth models"},
       {Path.join(legacy_home, "claude_models.json"), "legacy Claude Code OAuth models"}
     ]
 
     elixir_specs = [
+      {Paths.models_file(), "models"},
       {Paths.extra_models_file(), "extra models"},
       {Paths.chatgpt_models_file(), "ChatGPT OAuth models"},
       {Paths.claude_models_file(), "Claude Code OAuth models"}
