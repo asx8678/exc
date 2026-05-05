@@ -69,8 +69,9 @@ dbos = [
 # Canonical Python/PyPI command for the `codepp` distribution.
 code-puppy = "code_puppy.main:main_entry"
 # Legacy Python alias retained for backwards compatibility. This intentionally
-# collides with the Elixir escript name (`mix escript.build` -> `./pup`);
-# keep it until a release/deprecation plan removes or renames the alias.
+# collides with the Elixir escript name (`mix escript.build` -> `./pup`).
+# Deprecation in progress: see docs/release/python-pup-alias-deprecation-plan.md
+# Phase 1 (opt-in warning via PUP_PUP_ALIAS_DEPRECATED=1) is active.
 pup = "code_puppy.main:main_entry"
 gac = "code_puppy.plugins.git_auto_commit.cli:main"
 

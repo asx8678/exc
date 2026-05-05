@@ -98,7 +98,7 @@ Updated existing integration test for missing script path (from raise to error t
 | C | Add packaged no-Python smoke to release gate/CI | ✓ Done (code-puppy-osy) | `mix pup_ex.smoke --no-python` + CI workflow steps added |
 | D | Update README/architecture docs to Elixir-first/Python-optional | ✓ Done (code-puppy-2ip) | Root docs, architecture docs, acceleration docs, and bridge env semantics updated |
 | E | Remove/guard Python CLI fallback from release overlay wrappers | ✓ Done / guarded (code-puppy-yl5) | `rel/overlays/bin/{pup,code-puppy,gac}` prefer Elixir and only delegate to legacy Python when `PUP_ALLOW_LEGACY_PYTHON_CLI=1` |
-| F | Resolve Python `pup` entrypoint collision / version stream | ✓ Documented separation path (code-puppy-1iz) | Python/PyPI stream is `codepp` `0.0.x` with canonical `code-puppy` and legacy `pup`; Elixir-native stream is `code_puppy_control` `0.1.x` with `./pup` escript / `code_puppy_control_*` Burrito outputs; optional future deprecation is tracked in `code-puppy-259` |
+| F | Resolve Python `pup` entrypoint collision / version stream | ✓ Documented separation path (code-puppy-1iz); deprecation plan created (code-puppy-259) | Python/PyPI stream is `codepp` `0.0.x` with canonical `code-puppy` and legacy `pup`; Elixir-native stream is `code_puppy_control` `0.1.x` with `./pup` escript / `code_puppy_control_*` Burrito outputs. Phased deprecation plan: `docs/release/python-pup-alias-deprecation-plan.md`. Phase 1 opt-in warning (`PUP_PUP_ALIAS_DEPRECATED=1`) is active. |
 
 ---
 

@@ -15,7 +15,10 @@ For per-commit detail, see `git log`.
 - **Python compatibility path**: The Python package/CLI remains available for
   legacy PyPI usage, Python plugins/agents, and troubleshooting. The Elixir
   escript (`pup`) and Python console script (`code-puppy`, plus the legacy
-  Python `pup` alias in the `codepp` wheel) coexist. Use
+  Python `pup` alias in the `codepp` wheel) coexist. The Python `pup` alias
+  is being deprecated — see
+  `docs/release/python-pup-alias-deprecation-plan.md` for the phased plan
+  and opt-in warning (`PUP_PUP_ALIAS_DEPRECATED=1`). Use
   `uvx --from codepp code-puppy` or a known Python venv's `code-puppy` to force
   the Python/PyPI path and an explicit Elixir binary path (`./pup` or packaged
   native artifact) when `PATH` ambiguity matters. `--bridge-mode` or
@@ -27,7 +30,7 @@ For per-commit detail, see `git log`.
 
 - Published to PyPI as **`codepp`** (the `code-puppy` name on PyPI belongs to
   upstream). Installed Python entry points remain `code-puppy`, legacy alias
-  `pup`, and `gac` for compatibility with existing workflows. The Python `0.0.x`
+  `pup` (being deprecated — see deprecation plan), and `gac` for compatibility with existing workflows. The Python `0.0.x`
   version stream is independent from the Elixir-native `0.1.x` stream in
   `elixir/code_puppy_control/mix.exs`.
 - Requires **Python 3.14+** when using the Python package/CLI, Python bridge, or

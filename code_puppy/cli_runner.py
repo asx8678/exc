@@ -18,6 +18,8 @@ Bootstrap strategy:
 
 import os
 import sys
+import warnings
+from pathlib import Path, PureWindowsPath
 
 # -----------------------------------------------------------------------------
 # Lazy import registry: attribute -> import spec
@@ -68,6 +70,48 @@ def __dir__() -> list[str]:
 
 
 # -----------------------------------------------------------------------------
+# Legacy `pup` alias deprecation (Phase 1: opt-in via PUP_PUP_ALIAS_DEPRECATED=1)
+# See docs/release/python-pup-alias-deprecation-plan.md for full plan.
+# -----------------------------------------------------------------------------
+
+_LEGACY_PUP_BASENAMES = frozenset({"pup", "pup.exe"})
+
+
+def _warn_if_legacy_pup_alias() -> None:
+    """Emit deprecation warning if invoked via the legacy `pup` alias.
+
+    Phase 1: opt-in only. The warning fires when BOTH conditions hold:
+    1. PUP_PUP_ALIAS_DEPRECATED is set to a truthy value ("1", "true", "yes")
+    2. sys.argv[0] basename matches a known legacy alias (``pup`` or ``pup.exe``)
+
+    The warning is emitted before --help/--version handling so that
+    `pup --help` also surfaces the deprecation notice.
+    """
+    env_val = os.environ.get("PUP_PUP_ALIAS_DEPRECATED", "")
+    if env_val.lower() not in ("1", "true", "yes"):
+        return
+
+    argv0 = sys.argv[0]
+    # Use PureWindowsPath when backslashes are present (handles Windows paths
+    # on POSIX hosts); otherwise use the native Path for POSIX-style paths.
+    if "\\" in argv0:
+        invoked_as = PureWindowsPath(argv0).name
+    else:
+        invoked_as = Path(argv0).name
+    if invoked_as not in _LEGACY_PUP_BASENAMES:
+        return
+
+    msg = (
+        "Deprecation: invoked as 'pup' (legacy Python/PyPI alias). "
+        "Prefer 'code-puppy' for Python/PyPI, or an explicit Elixir "
+        "path (./pup or packaged native binary) for Elixir-native. "
+        "See docs/release/python-pup-alias-deprecation-plan.md"
+    )
+    print(f"WARNING: {msg}", file=sys.stderr)
+    warnings.warn(msg, DeprecationWarning, stacklevel=2)
+
+
+# -----------------------------------------------------------------------------
 # Synchronous entry point (installed as the ``code-puppy`` CLI command)
 # -----------------------------------------------------------------------------
 
@@ -78,6 +122,10 @@ def main_entry() -> int | None:
     Fast path: --help and --version are handled with minimal imports.
     Full path: All other invocations load the full runtime.
     """
+    # Phase 1 opt-in deprecation warning for the legacy `pup` alias.
+    # See docs/release/python-pup-alias-deprecation-plan.md for the full plan.
+    _warn_if_legacy_pup_alias()
+
     # Fast path: handle --help and --version without heavy imports
     # Only check the first positional argument (sys.argv[1]) to avoid
     # misinterpreting --help/--version when used as argument values

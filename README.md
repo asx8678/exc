@@ -89,14 +89,14 @@ uvx --from codepp code-puppy -i
 
 > **CLI name collision during migration:** both runtimes can provide a command named `pup`.
 > - **Elixir-native:** `mix escript.build` creates `elixir/code_puppy_control/pup` (`./pup --version` reports the Elixir `0.1.x` stream from `mix.exs`). Burrito release artifacts use the `code_puppy_control` release name plus platform suffixes.
-> - **Python/PyPI compatibility:** `codepp` installs canonical `code-puppy` plus a legacy `pup` alias (`code-puppy --version` and Python `pup --version` report the `0.0.x` stream from `pyproject.toml`).
+> - **Python/PyPI compatibility:** `codepp` installs canonical `code-puppy` plus a legacy `pup` alias (`code-puppy --version` and Python `pup --version` report the `0.0.x` stream from `pyproject.toml`). The Python `pup` alias is being deprecated — see [the deprecation plan](docs/release/python-pup-alias-deprecation-plan.md) for timeline and opt-in warning details.
 > - If both are on `PATH`, shell order decides. Prefer `uvx --from codepp code-puppy` or a known Python venv's `code-puppy` for Python flows, and an explicit Elixir path (`./pup` or the packaged native binary) for Elixir flows. No `pup-ex` executable is generated today; `pup_ex` names Mix tasks only.
 
 ## Installation
 
 ### UV / PyPI (Legacy Python Compatibility)
 
-The PyPI package is kept for compatibility and for users who specifically need the Python CLI or bridge. It can still connect to the Elixir runtime when available, but the Elixir-native `pup` path is the default direction. In the Python/PyPI package, the canonical command is `code-puppy`; the Python `pup` command is a legacy alias retained for backwards compatibility during the migration.
+The PyPI package is kept for compatibility and for users who specifically need the Python CLI or bridge. It can still connect to the Elixir runtime when available, but the Elixir-native `pup` path is the default direction. In the Python/PyPI package, the canonical command is `code-puppy`; the Python `pup` command is a legacy alias being deprecated (see the [deprecation plan](docs/release/python-pup-alias-deprecation-plan.md) for details and timeline).
 
 #### macOS / Linux
 
