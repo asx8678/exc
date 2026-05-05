@@ -248,6 +248,118 @@ defmodule CodePuppyControlWeb.RunControllerTest do
   end
 
   # ---------------------------------------------------------------------------
+  # Elixir-native execute path — real Tool.Runner, no Python (code-puppy-zyh)
+  # ---------------------------------------------------------------------------
+
+  describe "POST /api/runs/:id/execute via real Elixir executor" do
+    # Deterministic test tool registered directly with Tool.Registry.
+    # Proves that the default/Elixir execute path dispatches through
+    # Tool.Runner without any Python subprocess.
+
+    defmodule DeterministicTestTool do
+      @moduledoc """
+      Minimal deterministic tool for Elixir-native execute regression.
+      Registered/unregistered per-test via Tool.Registry.
+      """
+
+      use CodePuppyControl.Tool
+
+      @impl true
+      def name, do: :deterministic_test_tool
+
+      @impl true
+      def description, do: "Deterministic test tool for controller regression"
+
+      @impl true
+      def parameters do
+        %{
+          "type" => "object",
+          "properties" => %{
+            "value" => %{"type" => "string", "description" => "Value to echo"}
+          },
+          "required" => []
+        }
+      end
+
+      @impl true
+      def invoke(args, _context) do
+        {:ok, %{echo: Map.get(args, "value", "default"), tool: :deterministic_test_tool}}
+      end
+    end
+
+    setup do
+      saved_runtime = System.get_env(@pup_runtime)
+      System.delete_env(@pup_runtime)
+
+      saved_app =
+        Application.get_env(:code_puppy_control, :run_executor_module)
+
+      Application.delete_env(:code_puppy_control, :run_executor_module)
+
+      # Ensure no Python worker script env leaks
+      saved_pws = System.get_env("PUP_PYTHON_WORKER_SCRIPT")
+      saved_lws = System.get_env("PYTHON_WORKER_SCRIPT")
+      System.delete_env("PUP_PYTHON_WORKER_SCRIPT")
+      System.delete_env("PYTHON_WORKER_SCRIPT")
+
+      # Register the deterministic tool
+      :ok = CodePuppyControl.Tool.Registry.register(DeterministicTestTool)
+
+      on_exit(fn ->
+        case saved_runtime do
+          nil -> System.delete_env(@pup_runtime)
+          v -> System.put_env(@pup_runtime, v)
+        end
+
+        case saved_app do
+          nil -> Application.delete_env(:code_puppy_control, :run_executor_module)
+          v -> Application.put_env(:code_puppy_control, :run_executor_module, v)
+        end
+
+        if saved_pws, do: System.put_env("PUP_PYTHON_WORKER_SCRIPT", saved_pws)
+        if saved_lws, do: System.put_env("PYTHON_WORKER_SCRIPT", saved_lws)
+
+        CodePuppyControl.Tool.Registry.unregister(:deterministic_test_tool)
+      end)
+
+      :ok
+    end
+
+    test "executes a deterministic tool through Tool.Runner without Python" do
+      # Default executor is Elixir — no :run_executor_module override, no PUP_RUNTIME
+      assert {:ok, run_id} = Manager.start_run("elixir-native-session", "elixir-agent")
+
+      conn =
+        build_conn()
+        |> post_json("/api/runs/#{run_id}/execute", %{
+          "tool_name" => "deterministic_test_tool",
+          "arguments" => %{"value" => "hello"}
+        })
+
+      body = json_response(conn, 200)
+      assert body["run_id"] == run_id
+      assert body["tool_name"] == "deterministic_test_tool"
+      assert body["executed_at"]
+
+      # Result came through Tool.Runner → DeterministicTestTool.invoke/2
+      # NOT through PythonWorker.Port
+      assert is_map(body["result"])
+      assert body["result"]["echo"] == "hello"
+      assert body["result"]["tool"] == "deterministic_test_tool"
+
+      Manager.delete_run(run_id)
+    end
+
+    test "stores executor_module as Elixir in run metadata" do
+      assert {:ok, run_id} = Manager.start_run("elixir-meta-session", "elixir-agent")
+      assert {:ok, state} = Manager.get_run(run_id)
+      assert state.metadata.executor_module == CodePuppyControl.Run.Executor.Elixir
+
+      Manager.delete_run(run_id)
+    end
+  end
+
+  # ---------------------------------------------------------------------------
   # Grep-based regression: RunController must not reference PythonWorker.Port
   # ---------------------------------------------------------------------------
 

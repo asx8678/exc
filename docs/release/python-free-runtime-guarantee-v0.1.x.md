@@ -33,13 +33,13 @@ The default Elixir CLI and REPL paths can start and operate without Python insta
 | TUI (chat, config, help screens) | Owl-based terminal UI |
 | Scheduler (cron, tasks) | Oban-backed |
 | MCP client/server | JSON-RPC over stdio/TLS |
+| `/api/runs/:id/execute` | Routes through `Run.Manager.execute_tool/4` → executor boundary; Elixir-native `Tool.Runner` by default, Python `Port.call/4` only when `PUP_RUNTIME=python` (code-puppy-zyh) |
 
 ## What Remains Python-Required
 
 | Path / Feature | Module | Impact |
 |---|---|---|
 | `PythonWorker.Port` | `CodePuppyControl.PythonWorker.Port` | Direct `python3` subprocess; `Port.open` spawn (only used in bridge mode now) |
-| `/api/runs/:id/execute` | `RunController` | Routes through `Run.Manager.execute_tool/4` → executor boundary (code-puppy-zyh) |
 | Python bridge mode (`PUP_RUNTIME=python`) | `RuntimeSelector` | Routes all capabilities to Python bridge |
 | Legacy Python package (`pup` CLI) | Python codebase | Separate entrypoint |
 

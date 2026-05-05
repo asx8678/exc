@@ -152,7 +152,7 @@ defmodule CodePuppyControl.Run.State do
   @doc """
   Records a response received from the Python worker.
   """
-  @spec record_response(String.t(), map()) :: :ok
+  @spec record_response(String.t(), term()) :: :ok
   def record_response(run_id, response) do
     GenServer.cast(via_tuple(run_id), {:record_response, response})
   end
