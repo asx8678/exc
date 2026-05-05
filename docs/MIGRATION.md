@@ -43,7 +43,7 @@ reconfigure everything from scratch.
 /migrate --confirm --force
 ```
 
-### From the Elixir CLI (`pup-ex`)
+### From the Elixir project (`pup_ex` Mix task)
 
 ```bash
 # Dry-run
@@ -57,7 +57,9 @@ mix pup_ex.import --confirm --force
 ```
 
 > **Note:** Both commands use the same ADR-003 allowlist. The Python-side
-> tool is useful when the Elixir runtime is not yet installed.
+> tool is useful when the Elixir runtime is not yet installed. There is no
+> `pup-ex` executable; `pup_ex` is the Mix task namespace, while the Elixir
+> daily-driver CLI is built as `./pup` or packaged as `code_puppy_control_*`.
 
 ### Environment Variables
 
@@ -145,4 +147,4 @@ home remains intact throughout.
 
 - [ADR-003: Dual-Home Config Isolation](adr/ADR-003-dual-home-config-isolation.md)
 - [ADR-004: Python-to-Elixir Migration Strategy](adr/ADR-004-python-to-elixir-migration-strategy.md)
-- [pup-ex doctor](ELIXIR_CLI_QUICKSTART.md) — Health check for Elixir home setup
+- [Elixir CLI quickstart](ELIXIR_CLI_QUICKSTART.md) — `mix pup_ex.doctor` health check and Elixir home setup

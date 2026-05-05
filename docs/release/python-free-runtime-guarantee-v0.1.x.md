@@ -23,7 +23,7 @@ The default Elixir CLI and REPL paths can start and operate without Python insta
 | Model registry, model settings | Config reads/writes via INI parser |
 | LLM provider calls (Anthropic, OpenAI, etc.) | HTTP streaming, SSE chunk handling |
 | File operations (list, read, grep) | Pure Elixir `FileOps` module |
-| Parsing / indexer (Elixir, Erllang, Python, JS, TS, Rust) | Pure Elixir leex/yecc parsers under `Parsing.Parser` |
+| Parsing / indexer (Elixir, Erlang, Python, JS, TS, Rust) | Pure Elixir leex/yecc parsers under `Parsing.Parser` |
 | Session storage / autosave | Ecto/SQLite, `Sessions` module |
 | Event bus, event store | GenServer + ETS |
 | Admin UI (dashboard, sessions, packs) | Phoenix LiveView — except run endpoints |
@@ -96,9 +96,9 @@ Updated existing integration test for missing script path (from raise to error t
 | A | Refactor `Run.Manager` behind Elixir/Python executor boundary | ✓ Done (code-puppy-96g) | `start_run/3` routes through `Run.Executor` facade; Elixir executor is default |
 | B | ~~Refactor `/api/runs/:id/execute` away from direct `PythonWorker.Port`~~ | P1/P2 | **Done** — Controller now routes through `Run.Manager.execute_tool/4` → executor boundary (code-puppy-zyh) |
 | C | Add packaged no-Python smoke to release gate/CI | ✓ Done (code-puppy-osy) | `mix pup_ex.smoke --no-python` + CI workflow steps added |
-| D | Update README/architecture docs from Python-first to Elixir-first/Python-optional | P2 | Current docs imply Python is always required |
-| E | Remove/guard Python CLI fallback from release overlay wrappers | P2 | Shell wrappers in `rel/` may still try `python3 pup` |
-| F | Resolve Python `pup` entrypoint collision / version stream | P2/P3 | Both Python and Elixir provide a `pup` command; need clear separation or deprecation path |
+| D | Update README/architecture docs to Elixir-first/Python-optional | ✓ Done (code-puppy-2ip) | Root docs, architecture docs, acceleration docs, and bridge env semantics updated |
+| E | Remove/guard Python CLI fallback from release overlay wrappers | ✓ Done / guarded (code-puppy-yl5) | `rel/overlays/bin/{pup,code-puppy,gac}` prefer Elixir and only delegate to legacy Python when `PUP_ALLOW_LEGACY_PYTHON_CLI=1` |
+| F | Resolve Python `pup` entrypoint collision / version stream | ✓ Documented separation path (code-puppy-1iz) | Python/PyPI stream is `codepp` `0.0.x` with canonical `code-puppy` and legacy `pup`; Elixir-native stream is `code_puppy_control` `0.1.x` with `./pup` escript / `code_puppy_control_*` Burrito outputs; optional future deprecation is tracked in `code-puppy-259` |
 
 ---
 

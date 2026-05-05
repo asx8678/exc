@@ -2,24 +2,26 @@
 
 **Thank you for your interest in contributing!** This document outlines the guidelines for participating in this project.
 
-## 🧊 Python Freeze Policy (during Elixir migration)
+## 🧊 Python Compatibility Freeze Policy
 
-> **TL;DR**: The Python codebase is **FROZEN** during the Python→Elixir migration. 
-> Only critical bug fixes, deprecation warnings, and docs updates are allowed.
+> **TL;DR**: The Python codebase is **compatibility/legacy** during the
+> Elixir-first runtime era. Only critical bug fixes, deprecation warnings,
+> release hardening, tests for existing behavior, and docs updates are allowed.
 
 ### Rationale
 
-Code Puppy is actively migrating from Python to Elixir (the `pup-ex` rewrite). During this transition:
-- The Elixir codebase (`elixir/code_puppy_control/`) is where **new development happens** 
-- The Python codebase (`code_puppy/`) is in **maintenance mode only** 
-- Dual-maintenance would fragment effort and delay the migration
+Code Puppy now treats the Elixir `pup` CLI and `CodePuppyControl` runtime as the default daily-driver path:
+- The Elixir codebase (`elixir/code_puppy_control/`) is where **new runtime development happens**.
+- The Python codebase (`code_puppy/`) is maintained for PyPI compatibility, Python plugins/agents, and explicit bridge mode (`PUP_RUNTIME=python` / `--bridge-mode`).
+- `pup_ex` is a Mix task namespace; there is no separate `pup-ex` executable. Avoid new docs or UX that imply otherwise.
+- Dual-maintenance would fragment effort and reintroduce stale Python-led runtime assumptions.
 
 ### What's Allowed ✅
 
 | Type | Examples |
 |----------|----------|
 |**_Critical bug fixes_** | Crashes, data loss, security vulnerabilities |
-|**_Deprecation warnings_** | Guiding users toward `pup-ex` equivalents |
+|**_Deprecation warnings_** | Guiding users toward the Elixir `pup` / `CodePuppyControl` equivalents |
 |**_Documentation updates_** | README fixes, migration guides, API docs |
 |**_CI/infrastructure_** | Changes that don't touch `code_puppy/**/*.py` |
 |**_Release hardening_** | Tests, packaging metadata (`pyproject.toml`, `.python-version`), release scripts (`scripts/`), CI workflows, and docs — when linked to an issue |
@@ -52,7 +54,7 @@ If a critical production fix is needed:
 
 ### Timeline
 
-This freeze remains in effect until the Elixir migration reaches parity. The freeze will be lifted incrementally as components are fully migrated.
+This freeze remains in effect while the Python package is a compatibility stream. It can be relaxed only through an explicit release plan that preserves PyPI users and bridge-mode workflows.
 
 ---
 
@@ -79,7 +81,7 @@ Include the **bd issue ID** (e.g. `code_puppy-djs.7`) in the commit message body
 
 ### Code Review
 
-All changes require review. The Python freeze policy (above) will be strictly enforced during the migration period.
+All changes require review. The Python compatibility freeze policy (above) is strictly enforced for `code_puppy/**/*.py` changes.
 
 Note: reviewer enforcement only — no CI gate.
 
@@ -180,9 +182,9 @@ mix test --only e2e           # End-to-end tests
 
 **Rule:** Agents default to `mix test.changed` during development. Full suite runs on issue/epic close.
 
-## Phase H: Runtime Routing Infrastructure
+## Runtime Routing Infrastructure
 
-Code Puppy now has a **dual-runtime routing layer** for the Python-to-Elixir migration:
+Code Puppy has a runtime selector for the Elixir-first default path plus explicit Python bridge compatibility:
 
 ### Feature Flags (`FeatureFlags`)
 
@@ -212,7 +214,7 @@ Determines which runtime handles a request based on `PUP_RUNTIME` env + feature 
 |---------------|----------|
 | `python` | Always delegate to Python bridge |
 | `elixir` | Always handle in Elixir |
-| `auto` (default) | Route per-capability via FeatureFlags |
+| `auto` (default) | Elixir-first default; route known capabilities through FeatureFlags/Rollout as configured |
 
 ```elixir
 CodePuppyControl.RuntimeSelector.select("elixir.tools")  # => :elixir or :python

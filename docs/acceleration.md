@@ -1,178 +1,114 @@
-# Native Acceleration (Fast Puppy)
+# Runtime Selection & Acceleration
 
-Code Puppy uses a **pure Elixir + Python architecture** for high-performance operations.
+Code Puppy no longer has a separate "native acceleration" layer bolted onto a
+legacy Python-led CLI. The current daily-driver runtime is **Elixir-native**:
+`CodePuppyControl` owns core execution on the BEAM, and Python is optional.
 
-## Architecture Overview (Pure Elixir)
+## Current Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                    Python Code Puppy                             │
-├─────────────────────────────────────────────────────────────────┤
-│  NativeBackend (unified interface)                              │
-├─────────────────────────────────────────────────────────────────┤
-│                    Backend Routing                               │
-├───────────────┬─────────────────────────────────────────────────┤
-│  Elixir       │  Python (Fallback)                               │
-│  ┌─────────┐  │  ┌─────────────────────┐                        │
-│  │File Ops │  │  │list_files           │                        │
-│  │Repo Idx │  │  │grep                 │                        │
-│  │Parse    │  │  │read_file            │                        │
-│  │Message  │  │  │message operations   │                        │
-│  │Core     │  │  └─────────────────────┘                        │
-│  └─────────┘  │                                                  │
-└───────────────┴──────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                    Elixir-native `pup` CLI                    │
+│              Burrito binary or `mix escript.build`            │
+├──────────────────────────────────────────────────────────────┤
+│  CodePuppyControl                                             │
+│  • CLI / REPL / TUI coordination                              │
+│  • Agent execution and session state                          │
+│  • LLM providers and streaming                                │
+│  • File operations, repository indexing, parsing              │
+│  • Plugin callbacks, policy, scheduler, MCP                   │
+└──────────────────────────────┬───────────────────────────────┘
+                               │ optional, explicit only
+┌──────────────────────────────▼───────────────────────────────┐
+│                  Python compatibility bridge                  │
+│        `PUP_RUNTIME=python` or `--bridge-mode` only            │
+└──────────────────────────────────────────────────────────────┘
 ```
 
-## Backend Assignment
+## Capability Ownership
 
-| Capability | Primary Backend | Fallback | Purpose |
-|------------|-----------------|----------|---------|
-| `message_core` | **Elixir** | Python | Message serialization, pruning, hashing |
-| `file_ops` | **Elixir** | Python | Batch file ops (`list_files`, `grep`, `read_file`) |
-| `repo_index` | **Elixir** | Python | Repository indexing |
-| `parse` | **Elixir** | Python | Tree-sitter parsing, symbols, diagnostics |
+| Capability | Current owner | Python requirement |
+|---|---|---|
+| Message processing / pruning | Elixir (`MessageCore`) | None |
+| File operations (`list_files`, `grep`, `read_file`) | Elixir (`FileOps`) | None |
+| Repository indexing | Elixir | None |
+| Parsing / symbol extraction | Elixir (`CodePuppyControl.Parsing.Parser`) | None |
+| Agent execution / LLM streaming | Elixir runtime | None on the default path |
+| Legacy Python agents/plugins | Python bridge | Explicit bridge mode only |
+| Legacy PyPI CLI (`code-puppy`) | Python package | Python compatibility path only |
 
-## Backend Profiles
+## Runtime Selection
 
-The runtime supports two backend profiles:
+The Elixir runtime selector is controlled by `PUP_RUNTIME`:
+
+| Value | Meaning |
+|---|---|
+| unset / `auto` | Default Elixir-first mode. Unknown/new capabilities stay in Elixir. |
+| `elixir` | Force Elixir handling. |
+| `python` | Explicitly delegate to the Python bridge. Requires a Python worker configuration. |
+
+`--bridge-mode` on the Elixir CLI is equivalent to forcing
+`PUP_RUNTIME=python` for that session.
+
+`PUP_PYTHON_WORKER_SCRIPT` is **not** part of normal setup. It is required only
+when you intentionally run the explicit Python bridge path (`PUP_RUNTIME=python`
+or `--bridge-mode`) and the worker cannot otherwise be discovered/configured.
+
+## Python Bridge Integration Pattern
+
+Python compatibility code that needs to call into Elixir should go through the
+bridge plugin:
 
 ```python
-from code_puppy.native_backend import NativeBackend
+from code_puppy.plugins.elixir_bridge import is_connected, call_method
 
-# Elixir-first routing (default) - all operations route through Elixir
-NativeBackend.set_backend_preference("elixir_first")
-
-# Python-only (no native acceleration)
-NativeBackend.set_backend_preference("python_only")
+if is_connected():
+    result = call_method("code_context.explore_file", {"file_path": path})
+else:
+    result = {"error": "Elixir bridge is not connected"}
 ```
 
+Rules for new integrations:
 
-## Why This Architecture?
+1. Do **not** add a new backend facade or acceleration module.
+2. Do **not** reintroduce profile switching for core capabilities.
+3. Treat parsing as Elixir-owned; Python may provide narrowly scoped UI
+   heuristics only when explicitly documented as a compatibility aid.
+4. Fail gracefully when bridge mode is requested but the Python worker is not
+   configured.
 
-| Backend | Best For | Rationale |
-|---------|----------|-----------|
-| **Elixir** | All runtime operations | Distributed coordination, fault tolerance, BEAM VM concurrency |
-| **Python** | Agent orchestration, CLI, TUI | Rich ecosystem for LLM integration, rapid development |
+## Fast Puppy Status
 
-**Benefits of pure Elixir + Python:**
-- **Simpler builds**: No Rust toolchain required
-- **Faster CI**: Python-only builds, no native compilation
-- **Easier onboarding**: Just Python + Elixir knowledge required
-- **Consistent performance**: Single optimized backend (Elixir BEAM/OTP)
+"Fast Puppy" is now a historical name. Any remaining `/fast_puppy` command is a
+status stub for users coming from older releases; it is not the control surface
+for routing, profiles, or capability enablement.
 
-## Unified Bridge API
+Use these current controls instead:
 
-The `NativeBackend` class provides a single interface:
+| Need | Current control |
+|---|---|
+| Default daily driver | Run the Elixir `pup` binary/escript |
+| Force Elixir | `PUP_RUNTIME=elixir` |
+| Explicit Python bridge | `PUP_RUNTIME=python` or `--bridge-mode` |
+| Build no-Python confidence | `mix pup_ex.smoke --no-python` |
+| Packaged self-contained runtime | Burrito `code_puppy_control_*` binary |
 
-```python
-from code_puppy.native_backend import NativeBackend
-
-# Check backend status
-status = NativeBackend.get_status()
-
-# File operations (route through Elixir)
-result = NativeBackend.list_files("src/", recursive=True)
-result = NativeBackend.grep("def ", directory="src/")
-
-# Message processing (Elixir MessageCore)
-result = NativeBackend.serialize_messages(messages)
-
-# Parsing (Elixir native)
-ast = NativeBackend.parse_file("main.py", language="python")
-```
-
-## Feature Flags
-
-Environment variables to control acceleration:
-
-| Variable | Effect |
-|----------|--------|
-| `PUP_DISABLE_ELIXIR` | Disable Elixir routing (use Python fallbacks) |
-| `PUP_DISABLE_ACCELERATION` | Disable all native acceleration (pure Python mode) |
-
-
-## Fallback Chain
-
-Each operation follows this priority:
-
-1. **Try Elixir** (if `elixir_first` profile and available)
-2. **Python implementation** (always available)
-3. **Graceful degradation** (return empty/error result)
-
-> **Note:** The Rust step has been removed as Rust has been completely eliminated from the architecture.
-
-## Building
-
-### Elixir Components
-
-The Elixir control plane provides all native acceleration:
+## Validation Commands
 
 ```bash
-# Start the Elixir control plane
-cd code_puppy_control/
-mix deps.get
-iex -S mix
+cd elixir/code_puppy_control
+mix pup_ex.smoke --no-python
+MIX_ENV=prod mix escript.build
+./pup --version
 ```
 
-No additional build steps required — the Python layer communicates with Elixir via JSON-RPC over stdio.
+For Burrito packaging:
 
-## Performance Notes
-
-| Operation | Speedup | Backend |
-|-----------|---------|---------|
-| Message processing | 10-30x | Elixir |
-| File operations | 5-20x | Elixir |
-| Parsing | 10-50x | Elixir |
-
-## Migration Notes
-
-- Rust has been completely eliminated from the architecture
-- Parse operations route through `NativeBackend` with Elixir-first routing
-- File operations route through Elixir
-
-## Future Considerations
-
-- Python 3.14 free-threading: Full support for no-GIL operation
-- Elixir BEAM/OTP provides distributed, fault-tolerant operation
-- Future backends evaluated based on FFI sensitivity and ecosystem maturity
-
-## Capability Routing Table
-
-NativeBackend routes operations to the optimal backend based on the active profile. Use `NativeBackend.get_capability_routing(capability)` to introspect at runtime.
-
-### Routing by Profile
-
-| Capability | `elixir_first` (default) | `python_only` |
-|------------|-------------------------|---------------|
-| **message_core** | Elixir → Python | Python |
-| **file_ops** | Elixir → Python | Python |
-| **repo_index** | Elixir → Python | Python |
-| **parse** | Elixir → Python | Python |
-
-### Fallback Behavior
-
-- Elixir is tried first; Python fallback is always available
-- Python fallback is always available (never fails to import)
-- All native operations now route through Elixir (Rust eliminated)
-
-### Runtime Introspection
-
-```python
-from code_puppy.native_backend import NativeBackend
-
-# Get routing plan for a capability
-routing = NativeBackend.get_capability_routing("parse")
-print(routing["will_use"])     # "elixir" or "python_fallback"
-print(routing["backends"])     # [("elixir", True), ("python", True), ...]
-print(routing["preference"])   # "elixir_first"
-
-# Get full status
-for cap, info in NativeBackend.get_status().items():
-    print(f"{cap}: {info.status} (configured={info.configured})")
-
-# Check specific availability
-NativeBackend.is_available(NativeBackend.Capabilities.PARSE)  # bool
-NativeBackend.is_active(NativeBackend.Capabilities.PARSE)     # bool (available AND enabled)
+```bash
+cd elixir/code_puppy_control
+scripts/build-burrito.sh --host-only
 ```
 
-A CI lint guard (`tests/test_no_direct_bridge_imports.py`) enforces this.
+The default path should not require `python`, `python3`, or a Python worker
+script. If a default-path command asks for `PUP_PYTHON_WORKER_SCRIPT`, that is a
+bug in the Elixir-first runtime contract.

@@ -272,7 +272,9 @@ This usually means the BEAM application failed to start. Check:
 
 ## Relationship to Mix Release Overlays
 
-The `rel/overlays/bin/code-puppy` and `rel/overlays/bin/gac` shell wrappers are used **only** by `mix release` output (the traditional Mix release workflow). They require Elixir/Erlang installed on the target machine.
+The `rel/overlays/bin/pup`, `rel/overlays/bin/code-puppy`, and `rel/overlays/bin/gac` shell wrappers are used **only** by `mix release` output (the traditional Mix release workflow). They require Elixir/Erlang installed on the target machine.
+
+Those wrappers prefer the Elixir release escript. Legacy Python CLI fallback is disabled by default and is available only as an explicit debug/rollback opt-in with `PUP_ALLOW_LEGACY_PYTHON_CLI=1`.
 
 Burrito binaries are self-contained and do **not** use these overlays. Both workflows coexist:
 

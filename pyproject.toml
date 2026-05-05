@@ -4,6 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "codepp"
+# Python/PyPI compatibility version stream. The Elixir-native CLI has its own
+# release stream in elixir/code_puppy_control/mix.exs; do not assume these match.
 version = "0.0.455"
 description = "Code generation agent"
 readme = "README.md"
@@ -64,7 +66,11 @@ dbos = [
 ]
 
 [project.scripts]
+# Canonical Python/PyPI command for the `codepp` distribution.
 code-puppy = "code_puppy.main:main_entry"
+# Legacy Python alias retained for backwards compatibility. This intentionally
+# collides with the Elixir escript name (`mix escript.build` -> `./pup`);
+# keep it until a release/deprecation plan removes or renames the alias.
 pup = "code_puppy.main:main_entry"
 gac = "code_puppy.plugins.git_auto_commit.cli:main"
 

@@ -1,12 +1,21 @@
 # Feature-Flag System — `code_puppy-djs.4` Specification
 
 **Date:** 2026-05-01
-**Status:** DRAFT
+**Status:** Historical / superseded implementation-era spec
 **Coordinator:** planning-agent-74f842 (Hybrid Option A)
 **Primary Specialist:** elixir-programmer-2d6ffe
 **Depends-on:** ADR-004 (§ "Feature Flag System"), `code_puppy-djs.1` (Phase H audit)
 **Blocks:** `code_puppy-bwt` (runtime selector), `code_puppy-djs.6` (gradual rollout controller)
 **Implementation ref:** `feature/code-puppy-djs-4-feature-flags` (round 1), `feature/code-puppy-djs-4-6-python-mirror` (round 2.A), `feature/code-puppy-djs-4-7-feature-flags-command` (round 2.B)
+
+> **Current status note (2026-05-05):** This spec records Phase H rollout
+> semantics, including conservative defaults that favored Python while Elixir
+> capabilities were being proven. The current product posture is Elixir-native
+> by default: `PUP_RUNTIME` unset/`auto` is Elixir-first for the daily-driver
+> CLI and unknown capabilities, while `PUP_RUNTIME=python` / `--bridge-mode`
+> explicitly opts into the legacy Python bridge. Keep this document for audit
+> history; do not treat its default-to-Python rollout language as current
+> architecture guidance.
 
 ---
 

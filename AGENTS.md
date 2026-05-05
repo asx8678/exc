@@ -1,7 +1,10 @@
 # Contributing to Code Puppy
 
-> **Golden rule:** nearly all new functionality should be a **plugin** under `code_puppy/plugins/`
-> that hooks into core via `code_puppy/callbacks.py`. Don't edit `code_puppy/command_line/`.
+> **Golden rule:** nearly all new functionality should be a **plugin**. Prefer
+> Elixir plugins under `elixir/code_puppy_control/lib/code_puppy_control/plugins/`
+> for the default runtime; use `code_puppy/plugins/` only for legacy Python/PyPI
+> compatibility. Don't edit `code_puppy/command_line/` unless you're deliberately
+> touching the legacy Python CLI.
 
 ## How Plugins Work
 
@@ -22,38 +25,34 @@ That's it. The plugin loader auto-discovers `register_callbacks.py` in subdirs.
 > They are imported and executed during plugin discovery with the same local privileges as Code Puppy itself.
 > There is currently no isolated safe mode for user plugins, so do not install untrusted plugins.
 
-## Native Acceleration Stack (Fast Puppy)
+## Runtime Integration & Python Bridge
 
-Code Puppy has a **runtime backend selector** called `fast_puppy` that routes performance-critical operations to the optimal native backend:
+Code Puppy's default runtime is now **Elixir-native** (`CodePuppyControl`). The old native-acceleration/profile layer is gone; do not add replacement backend facades or profile-switching shims.
 
-| Capability | Elixir Service | Purpose |
-|------------|----------------|---------|
-| `file_ops` | `file_service` | Batch file ops (`list_files`, `grep`, `read_file`) |
-| `repo_index` | `repo_index` | Repository indexing |
-| `parse` | `CodePuppyControl.Parsing.Parser` | Pure-Elixir parsers (elixir, erlang, python, javascript, typescript, tsx, rust) |
+| Capability | Current owner | Notes |
+|------------|---------------|-------|
+| `file_ops` | `CodePuppyControl.FileOps` | Batch file ops (`list_files`, `grep`, `read_file`) |
+| `repo_index` | Elixir repo/index services | Repository indexing |
+| `parse` | `CodePuppyControl.Parsing.Parser` | Elixir-only parse operations (elixir, erlang, python, javascript, typescript, tsx, rust) |
+| agents/tools/sessions | Elixir runtime | Default daily-driver path |
+| Python plugins/agents | Python bridge | Explicit compatibility path only |
 
-**Phase 4 Update:** The native acceleration layer has been fully removed. Parse operations now live exclusively in Elixir under `CodePuppyControl.Parsing.Parser`.
-
-Python access pattern:
+Python bridge access pattern:
 ```python
 from code_puppy.plugins.elixir_bridge import is_connected, call_method
 
 if is_connected():
     result = call_method('code_context.explore_file', {'file_path': path})
+else:
+    result = {'error': 'Elixir bridge is not connected'}
 ```
 
-If the Elixir bridge is not running, code falls back to pure-Python heuristics (e.g. regex-based skeleton). Do NOT add a new `native_backend` module — that pattern is dead.
-
-**Phase 3 Reality:** Fast Puppy is now a **runtime selector**, not a crate builder:
-- `/fast_puppy profile elixir_first` → Prefer Elixir backends (default)
-- `/fast_puppy profile python_only` → Pure Python fallback
-
 **Agent Guidelines:**
-- Check Elixir bridge availability via `code_puppy.plugins.elixir_bridge.is_connected()`
-- All parse operations route through the Elixir bridge; fall back to pure-Python heuristics when disconnected
-- Don't manually edit `fast_puppy/` — add new capabilities via the bridge
-- **Migration rule:** Import from `code_puppy.plugins.elixir_bridge` instead of direct bridge imports or `native_backend`
-- To test without native acceleration: set `enable_elixir_control=false` in `puppy.cfg`
+- Check bridge availability via `code_puppy.plugins.elixir_bridge.is_connected()` before Python compatibility code calls Elixir.
+- Parse operations are Elixir-owned. Do not add a Python runtime parse backend; narrowly scoped UI heuristics are okay only when clearly documented as compatibility behavior.
+- Import from `code_puppy.plugins.elixir_bridge` instead of direct bridge internals.
+- Default runtime work belongs in Elixir (`CodePuppyControl`). Use Python only for legacy/PyPI compatibility, Python plugins/agents, or explicit bridge mode (`PUP_RUNTIME=python`, `--bridge-mode`).
+- `PUP_PYTHON_WORKER_SCRIPT` is required only when explicit Python bridge mode is selected and a worker script cannot otherwise be configured.
 
 ## Available Hooks
 

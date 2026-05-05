@@ -9,20 +9,29 @@ For per-commit detail, see `git log`.
 
 ### Architecture & Runtime
 
-- **Elixir/Phoenix control plane** (`elixir/code_puppy_control/`) replaces the
-  Python FastAPI control plane for session management, scheduling, and
-  orchestration. The Python runtime remains for agent execution and tooling.
-- **Dual CLI**: The Elixir escript (`pup`) and Python console script
-  (`code-puppy`) coexist; `--bridge-mode` on the Elixir CLI delegates to the
-  Python runtime.
+- **Elixir-native runtime and Phoenix control plane** (`elixir/code_puppy_control/`)
+  are now the default for agent execution, tooling, session management,
+  scheduling, and orchestration.
+- **Python compatibility path**: The Python package/CLI remains available for
+  legacy PyPI usage, Python plugins/agents, and troubleshooting. The Elixir
+  escript (`pup`) and Python console script (`code-puppy`, plus the legacy
+  Python `pup` alias in the `codepp` wheel) coexist. Use
+  `uvx --from codepp code-puppy` or a known Python venv's `code-puppy` to force
+  the Python/PyPI path and an explicit Elixir binary path (`./pup` or packaged
+  native artifact) when `PATH` ambiguity matters. `--bridge-mode` or
+  `PUP_RUNTIME=python` explicitly delegates to the Python bridge runtime.
 - **Burrito single-binary packaging** for macOS, Linux, and Windows — no
   Erlang/Elixir installation required on target machines.
 
-### Python Distribution
+### Python Distribution (Legacy/Compatibility)
 
 - Published to PyPI as **`codepp`** (the `code-puppy` name on PyPI belongs to
-  upstream). Installed entry points remain `code-puppy`, `pup`, and `gac`.
-- Requires **Python 3.14+** (free-threaded builds supported).
+  upstream). Installed Python entry points remain `code-puppy`, legacy alias
+  `pup`, and `gac` for compatibility with existing workflows. The Python `0.0.x`
+  version stream is independent from the Elixir-native `0.1.x` stream in
+  `elixir/code_puppy_control/mix.exs`.
+- Requires **Python 3.14+** when using the Python package/CLI, Python bridge, or
+  free-threaded compatibility path.
 
 ### CI & Release
 
@@ -39,7 +48,7 @@ For per-commit detail, see `git log`.
 
 - 48 plugins, 18+ agents, 150+ merged feature branches.
 - Agent names aligned with current catalogue (`elixir-code-critic`, `qa-kitten`).
-- Plugin system uses `code_puppy/plugins/` + hook callbacks.
+- Default plugin system uses Elixir `CodePuppyControl.Callbacks`; legacy Python plugins under `code_puppy/plugins/` remain supported through the compatibility bridge.
 
 ### Security
 

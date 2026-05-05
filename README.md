@@ -33,7 +33,7 @@
     ╚═╝     ╚═╝  ╚═╝╚══════╝   ╚═╝       ╚═╝      ╚═════╝ ╚═╝     ╚═╝        ╚═╝   
 ```
 
-**🚀 Now with Python 3.14 Free-Threading Support! 🚀**
+**🚀 Elixir-native by default — Python is now an optional compatibility path! 🚀**
 
 ---
 
@@ -57,7 +57,7 @@ This fork adds significant capabilities to the original code_puppy, transforming
 
 | Feature | Description | Speedup/Impact |
 |---------|-------------|----------------|
-| ⚡ Native Acceleration | Pure Elixir + Python architecture for high-performance operations | 10-50x faster |
+| ⚡ Native Runtime | Elixir-native runtime with an optional Python compatibility bridge | 10-50x faster |
 | 🐕 Pack Parallelism | 8-agent concurrent execution with intelligent queuing | 8x throughput |
 | 📚 Progressive Skills | Metadata-only skill injection until needed | Zero context cost |
 | 🔍 Supervisor Review | Quality-gated multi-agent review loops | Higher quality |
@@ -73,13 +73,30 @@ This fork adds significant capabilities to the original code_puppy, transforming
 
 ## Quick start
 
+Elixir-native is the default runtime. Use the Elixir CLI when you have a packaged or locally built binary available:
+
+```bash
+cd elixir/code_puppy_control
+MIX_ENV=prod mix escript.build
+./pup -i
+```
+
+Legacy/PyPI compatibility path (Python package, still supported):
+
 ```bash
 uvx --from codepp code-puppy -i
 ```
 
+> **CLI name collision during migration:** both runtimes can provide a command named `pup`.
+> - **Elixir-native:** `mix escript.build` creates `elixir/code_puppy_control/pup` (`./pup --version` reports the Elixir `0.1.x` stream from `mix.exs`). Burrito release artifacts use the `code_puppy_control` release name plus platform suffixes.
+> - **Python/PyPI compatibility:** `codepp` installs canonical `code-puppy` plus a legacy `pup` alias (`code-puppy --version` and Python `pup --version` report the `0.0.x` stream from `pyproject.toml`).
+> - If both are on `PATH`, shell order decides. Prefer `uvx --from codepp code-puppy` or a known Python venv's `code-puppy` for Python flows, and an explicit Elixir path (`./pup` or the packaged native binary) for Elixir flows. No `pup-ex` executable is generated today; `pup_ex` names Mix tasks only.
+
 ## Installation
 
-### UV (Recommended)
+### UV / PyPI (Legacy Python Compatibility)
+
+The PyPI package is kept for compatibility and for users who specifically need the Python CLI or bridge. It can still connect to the Elixir runtime when available, but the Elixir-native `pup` path is the default direction. In the Python/PyPI package, the canonical command is `code-puppy`; the Python `pup` command is a legacy alias retained for backwards compatibility during the migration.
 
 #### macOS / Linux
 
@@ -94,7 +111,7 @@ uvx --from codepp code-puppy
 
 #### Windows
 
-On Windows, we recommend installing code-puppy as a global tool for the best experience with keyboard shortcuts (Ctrl+C/Ctrl+X cancellation):
+For the legacy Python/PyPI path on Windows, install code-puppy as a global tool for the best experience with keyboard shortcuts (Ctrl+C/Ctrl+X cancellation):
 
 ```powershell
 # Install UV if you don't have it (run in PowerShell as Admin)
@@ -199,86 +216,71 @@ Please review this code for security issues." > .claude/commands/review.md
 /review with focus on authentication
 ```
 
-## ⚡ Fast Puppy (Native Acceleration)
+## ⚡ Elixir-Native Runtime & Acceleration
 
-Code Puppy uses a **pure Elixir + Python architecture** for high-performance operations:
+Code Puppy is **Elixir-native by default**. There is no separate legacy Python-led
+"native acceleration" layer anymore; the BEAM runtime owns the fast path:
 
-| Capability | Backend | Purpose |
-|------------|---------|---------|
-| `message_core` | Elixir | Message serialization, hashing, pruning |
-| `file_ops` | Elixir | Fast file listing, grep, reading |
-| `repo_index` | Elixir | Repository indexing |
-| `parse` | Elixir | Tree-sitter code parsing |
+| Capability | Current owner | Python needed? |
+|------------|---------------|----------------|
+| `message_core` | Elixir (`MessageCore`) | No |
+| `file_ops` | Elixir (`FileOps`) | No |
+| `repo_index` | Elixir repo/index services | No |
+| `parse` | Elixir (`CodePuppyControl.Parsing.Parser`) | No |
+| agents / tools / sessions | Elixir runtime | No on the default path |
+| legacy Python plugins/agents | Python bridge | Yes, explicit bridge mode only |
 
-**Architecture:**
+**Architecture (default path):**
 ```
 ┌─────────────────────────────────────────────────┐
-│                   Python Layer                   │
-│   Code Puppy agents, LLM clients, plugins       │
-│   Communications via JSON-RPC over stdio        │
-└──────────────────────┬──────────────────────────┘
-                       │ JSON-RPC (Content-Length framed)
-┌──────────────────────▼──────────────────────────┐
-│                  Elixir Layer                    │
+│              Elixir-native Runtime              │
 │   CodePuppyControl (BEAM/OTP)                   │
-│   • Message processing & pruning               │
-│   • Token estimation                           │
-│   • File operations (list, read, grep)         │
-│   • Tree-sitter parsing                        │
-│   • Session serialization (MessagePack)        │
-│   • Agent session management                   │
-│   • Scheduler (Oban)                           │
-│   • Model registry                             │
+│   • Agent loop, sessions, CLI/TUI coordination  │
+│   • Message processing & pruning                │
+│   • Token estimation                            │
+│   • File operations (list, read, grep)          │
+│   • Parsing / symbols / code context            │
+│   • Session serialization                       │
+│   • Scheduler (Oban)                            │
+│   • Model registry & provider clients           │
+└──────────────────────┬──────────────────────────┘
+                       │ optional JSON-RPC bridge
+┌──────────────────────▼──────────────────────────┐
+│          Optional Python Compatibility Layer     │
+│   Legacy `code-puppy` CLI, PyPI package,         │
+│   Python plugins/agents, explicit bridge mode    │
 └─────────────────────────────────────────────────┘
 ```
 
-**Quick Start:**
-```bash
-# Check current status
-/fast_puppy
+### Runtime Selection
 
-# Switch profile (primary action)
-/fast_puppy profile elixir_first   # Use Elixir backend (default)
-/fast_puppy profile python_only    # Pure Python mode (no Elixir)
+| Need | Command / setting |
+|------|-------------------|
+| Default daily driver | Run the Elixir `pup` escript or Burrito `code_puppy_control_*` binary |
+| Force Elixir | `PUP_RUNTIME=elixir ./pup` |
+| Explicit Python bridge | `PUP_RUNTIME=python ./pup` or `./pup --bridge-mode` |
+| Legacy Python/PyPI CLI | `uvx --from codepp code-puppy` |
 
-# Enable/disable capabilities
-/fast_puppy enable message_core
-/fast_puppy disable parse
+`PUP_PYTHON_WORKER_SCRIPT` is **not** required for normal Elixir use. Set it
+only when intentionally running Python bridge mode and the worker script cannot
+otherwise be configured.
 
-# Detailed diagnostics
-/fast_puppy status
-```
+The old Fast Puppy profile UI is historical. If `/fast_puppy` appears in an
+older compatibility shell, treat it as a status stub — not as the runtime
+control surface. Use `PUP_RUNTIME` / `--bridge-mode` for explicit routing.
 
-Python fallback is always available - Elixir backend provides optional acceleration.
+### Python Compatibility Opt-Outs
 
-### Automatic Elixir Control Plane (Zero Config)
-
-On first startup, the Elixir control plane is automatically started if available:
-
-- **Elixir control plane**: Started via Docker or local Elixir if available
-- **Graceful fallback**: No Elixir? No problem - degrades to pure Python
-
-### `/fast_puppy` Commands
-
-```
-/fast_puppy                        → show status for all capabilities
-/fast_puppy status                 → detailed per-capability status
-/fast_puppy profile <name>         → switch runtime profile
-/fast_puppy enable <capability>    → enable a capability
-/fast_puppy disable <capability>   → disable a capability
-```
-
-### Opt-Out (Air-Gapped CI, etc.)
-
-To disable Elixir auto-start, set in `~/.code_puppy/puppy.cfg`:
+Legacy/PyPI users can still disable Elixir bridge auto-start in
+`~/.code_puppy/puppy.cfg` when running the Python compatibility CLI:
 
 ```ini
 enable_elixir_control=false
 ```
 
-### 🚀 Python 3.14 Free-Threaded Support (No-GIL)
+### 🚀 Python 3.14 Free-Threaded Support (Legacy/Bridge Mode)
 
-**Code Puppy is Python 3.14 ready!** Take advantage of the new free-threaded mode for true parallelism.
+**Code Puppy's Python compatibility path is Python 3.14 ready!** Use this when you explicitly run the legacy Python CLI, Python bridge, or Python plugins/agents.
 
 | Python Version | GIL Status | Parallelism |
 |----------------|------------|-------------|
@@ -292,7 +294,7 @@ enable_elixir_control=false
 python3.14t -m code_puppy
 
 # Option 2: Set the environment variable before launch
-PYTHON_GIL=0 pup
+PYTHON_GIL=0 code-puppy
 
 # Option 3: Set in puppy.cfg (advisory — logged at startup)
 free_threading=true
@@ -310,13 +312,14 @@ free_threading=true
 # Verify free-threading is active
 python3.14t -c "import sys; print(f'Free-threading: {not sys._is_gil_enabled()}')"
 
-# Check Code Puppy's Elixir backend status
-/fast_puppy status
+# Check the Python compatibility CLI starts
+code-puppy --help
 ```
 
 ## Requirements
 
-- Python 3.14+
+- Packaged or locally built `pup` CLI for the Elixir-native default runtime
+- Python 3.14+ only for the legacy `code-puppy`/PyPI compatibility path, Python plugins/agents, or explicit `--bridge-mode` / `PUP_RUNTIME=python`
 - OpenAI API key (for GPT models)
 - Cerebras API key (for Cerebras models)
 - Anthropic key (for Claude models)
@@ -355,8 +358,8 @@ If you use `!<command>`, you are explicitly choosing direct local execution.
 ### Plugin trust boundary
 
 Built-in plugins ship with Code Puppy, but **user plugins are fully trusted local code**.
-Any Python in `~/.code_puppy/plugins/` is imported and executed during plugin discovery.
-That means user plugins can read files, execute processes, modify configuration, and access any data your local Python process can access.
+If you enable the Python compatibility/plugin bridge, Python in `~/.code_puppy/plugins/` is imported and executed during plugin discovery.
+That means user plugins can read files, execute processes, modify configuration, and access any data the local Python bridge process can access.
 
 Only install or keep user plugins you trust at the same level as other local developer tooling.
 
@@ -431,7 +434,7 @@ The `rotate_every` parameter controls how many requests are made to each model b
 
 ## Create your own Agent!!!
 
-Code Puppy features a flexible agent system that allows you to work with specialized AI assistants tailored for different coding tasks. The system supports both built-in Python agents and custom JSON agents that you can create yourself.
+Code Puppy features a flexible agent system that allows you to work with specialized AI assistants tailored for different coding tasks. The default runtime is Elixir-native; custom JSON agents remain the recommended user-facing extension path, and legacy Python agents remain available through the compatibility bridge.
 
 ## Quick Start
 
@@ -485,11 +488,11 @@ This is useful for managing context length when you have a long conversation his
 
 ## Agent Types
 
-### Python Agents
-Built-in agents implemented in Python with full system integration:
-- Discovered automatically from `code_puppy/agents/` directory
-- Inherit from `BaseAgent` class
-- Full access to system internals
+### Built-in and Compatibility Agents
+Elixir-native built-in agents run through `CodePuppyControl` by default. Legacy Python agents remain supported for compatibility:
+- Python compatibility agents are discovered from the `code_puppy/agents/` directory when the Python bridge is enabled
+- They inherit from the legacy `BaseAgent` class
+- They are useful for existing Python integrations, plugins, and troubleshooting
 - Examples: `code-puppy`, `agent-creator`
 
 ### JSON Agents
@@ -658,8 +661,8 @@ Agents can access these tools based on their configuration:
 ### JSON Agents Directory
 - **All platforms**: `~/.code_puppy/agents/`
 
-### Python Agents Directory
-- **Built-in**: `code_puppy/agents/` (in package)
+### Legacy Python Agents Directory
+- **Compatibility path**: `code_puppy/agents/` (in the Python package)
 
 ## Best Practices
 
@@ -690,20 +693,21 @@ Agents can access these tools based on their configuration:
 
 ### Agent Discovery
 The system automatically discovers agents by:
-1. **Python Agents**: Scanning `code_puppy/agents/` for classes inheriting from `BaseAgent`
-2. **JSON Agents**: Scanning user's agents directory for `*-agent.json` files
-3. Instantiating and registering discovered agents
+1. **Elixir-native agents**: Registering built-ins through the default `CodePuppyControl` runtime
+2. **JSON Agents**: Scanning the user's agents directory for `*-agent.json` files
+3. **Legacy Python agents**: Scanning `code_puppy/agents/` for classes inheriting from `BaseAgent` when the Python bridge is enabled
+4. Instantiating and registering discovered agents
 
 ### JSONAgent Implementation
-JSON agents are powered by the `JSONAgent` class (`code_puppy/agents/json_agent.py`):
-- Inherits from `BaseAgent` for full system integration
+On the legacy Python compatibility path, JSON agents are powered by the `JSONAgent` class (`code_puppy/agents/json_agent.py`):
+- Inherits from `BaseAgent` for compatibility with the existing agent interface
 - Loads configuration from JSON files with robust validation
 - Supports all BaseAgent features (tools, prompts, settings)
 - Cross-platform user directory support
 - Built-in error handling and schema validation
 
 ### BaseAgent Interface
-Both Python and JSON agents implement this interface:
+Elixir-native agents, JSON agents, and legacy Python agents expose the same user-facing interface:
 - `name`: Unique identifier
 - `display_name`: Human-readable name with emoji
 - `description`: Brief description of purpose
@@ -711,8 +715,8 @@ Both Python and JSON agents implement this interface:
 - `get_available_tools()`: Returns list of tool names
 
 ### Agent Manager Integration
-The `agent_manager.py` provides:
-- Unified registry for both Python and JSON agents
+On the legacy Python compatibility path, `agent_manager.py` provides:
+- Unified registry for Python compatibility agents and JSON agents
 - Seamless switching between agent types
 - Configuration persistence across sessions
 - Automatic caching for performance
@@ -723,9 +727,9 @@ The `agent_manager.py` provides:
 - **Main Agent System**: Loads and manages both agent types
 - **Cross-Platform**: Consistent behavior across all platforms
 
-## Adding Python Agents
+## Adding Legacy Python Agents
 
-To create a new Python agent:
+Prefer JSON agents for user customization. Create a Python agent only when you specifically need the legacy Python compatibility path or Python internals:
 
 1. Create file in `code_puppy/agents/` (e.g., `my_agent.py`)
 2. Implement class inheriting from `BaseAgent`
@@ -828,13 +832,13 @@ The agent system supports future expansion:
 4. **Version Control**: JSON agents are git-friendly
 5. **Built-in Validation**: Schema validation with helpful error messages
 6. **Cross-Platform**: Works consistently across all platforms
-7. **Backward Compatible**: Doesn't affect existing Python agents
+7. **Backward Compatible**: Doesn't affect existing legacy Python agents
 
 ## Implementation Details
 
 ### Files in System
-- **Core Implementation**: `code_puppy/agents/json_agent.py`
-- **Agent Discovery**: Integrated in `code_puppy/agents/agent_manager.py`
+- **Core Implementation (Python compatibility path)**: `code_puppy/agents/json_agent.py`
+- **Agent Discovery (Python compatibility path)**: Integrated in `code_puppy/agents/agent_manager.py`
 - **Command Interface**: Works through existing `/agent` command
 - **Testing**: Elixir test suite (see `elixir/code_puppy_control/test/`)
 
@@ -843,7 +847,7 @@ The agent system supports future expansion:
 2. `JSONAgent` class loads and validates each JSON configuration
 3. Agents are registered in unified agent registry
 4. Users can switch to JSON agents via `/agent <name>` command
-5. Tool access and system prompts work identically to Python agents
+5. Tool access and system prompts work consistently with built-in and legacy Python agents
 
 ### Error Handling
 - Invalid JSON syntax: Clear error messages with line numbers
@@ -869,7 +873,7 @@ The agent system supports future expansion:
 4. Include documentation and examples
 5. Test across different platforms
 
-### Python Agent Contributions
+### Legacy Python Agent Contributions
 1. Follow existing code style
 2. Include comprehensive tests
 3. Document the agent's purpose and usage

@@ -151,8 +151,9 @@ ok "wheel installed into temporary venv"
 # ── Verify entry points ───────────────────────────────────────────────────
 # Run --help on each installed entry point.  A non-zero exit or missing
 # binary counts as a failure.  We do NOT test the gac entry point here
-# because it requires a git repo context; code-puppy and pup are the
-# primary CLI entry points.
+# because it requires a git repo context. code-puppy is the canonical
+# Python/PyPI entry point; pup is the legacy compatibility alias that
+# intentionally remains under smoke until a formal deprecation release.
 
 PYTHON="${VENV_DIR}/bin/python"
 FAILED=0

@@ -248,7 +248,7 @@ These are runtime state or filesystem operations, not config keys.
 
 All path constants are lazily resolved via `__getattr__` (PEP 562) using
 `_LAZY_PATH_FACTORIES`. Internal code uses `_xdg_*()` / `_path_*()` helpers
-that respect pup-ex isolation (ADR-003).
+that respect Elixir-home isolation (ADR-003). `pup_ex` is a Mix task namespace, not a standalone `pup-ex` executable.
 
 ### Resolution Priority
 
@@ -256,7 +256,7 @@ that respect pup-ex isolation (ADR-003).
 1. Module-level override (test monkeypatch, e.g. config.CONFIG_DIR = "/tmp")
 2. XDG env var set? -> <XDG value>/code_puppy  (subject to ADR-003 pup-ex guard)
 3. XDG env var unset? -> home_dir() directly
-   a. PUP_EX_HOME (pup-ex mode) -> $PUP_EX_HOME or ~/.code_puppy_ex/
+   a. PUP_EX_HOME (Elixir home / `pup_ex` task context) -> $PUP_EX_HOME or ~/.code_puppy_ex/
    b. PUP_HOME / PUPPY_HOME (standard mode) -> value or ~/.code_puppy/
 ```
 

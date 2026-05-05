@@ -4,6 +4,8 @@ defmodule CodePuppyControl.MixProject do
   def project do
     [
       app: :code_puppy_control,
+      # Elixir/native release stream. Python/PyPI compatibility stream lives in
+      # ../../pyproject.toml and is intentionally independent during migration.
       version: "0.1.0",
       elixir: "~> 1.15",
       elixirc_paths: elixirc_paths(Mix.env()),
@@ -19,6 +21,10 @@ defmodule CodePuppyControl.MixProject do
   defp escript do
     [
       main_module: CodePuppyControl.CLI,
+      # Native daily-driver command. This collides with the Python `codepp`
+      # legacy `pup` console script, so docs must call out PATH ambiguity.
+      # Do not rename without a release/deprecation plan; CI/package smoke
+      # currently validate `./pup`.
       name: :pup,
       app: nil
     ]

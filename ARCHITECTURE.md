@@ -2,82 +2,91 @@
 
 ## High-Level System Architecture
 
-> **Phase 6 Complete (2026-04-17)**: Code Puppy has achieved the **"no Rust, thin Python"** end state.
+> **Phase H Reach (2026-05)**: Code Puppy's default runtime is **Elixir-native**.
+> Python is optional and only required for legacy bridge-worker flows.
 > 
-> - **Python layer**: TUI (Textual), CLI interface, pydantic-ai agent loop
-> - **Elixir layer**: ALL runtime operations (file ops, parsing, job scheduling, message processing)
-> - **Rust layer**: **COMPLETELY ELIMINATED**
+> - **Elixir-native CLI/REPL**: Default entry point — `pup` binary (Burrito or escript)
+> - **Elixir OTP runtime**: ALL core operations (agent execution, LLM, file ops, parsing, session state, plugins, TUI)
+> - **Python bridge** (optional): Legacy/PyPI compatibility, Python plugins/agents, and `PUP_RUNTIME=python` / `--bridge-mode` flows
+> - **Rust layer**: **COMPLETELY ELIMINATED** (since Phase 6)
 >
-> Architecture: Thin Python shell → Elixir backend only (zero Rust)
+> Architecture: Elixir-native control plane → Python bridge optional (compat/legacy)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│                              USER INTERFACE LAYER                                │
-├─────────────┬─────────────┬─────────────────┬─────────────────────────────────┤
-│   CLI       │   API       │   Web Terminal  │   Plugin Commands               │
-│  (TTY)      │ (FastAPI)   │   (WebSocket)   │   (/slash)                      │
-└──────┬──────┴──────┬──────┴────────┬────────┴───────────────┬─────────────────┘
-       │             │               │                        │
-       └─────────────┴───────────────┴────────────────────────┘
+│                         USER INTERFACE LAYER                                       │
+├────────────────┬────────────────┬─────────────────┬──────────────────────────────┤
+│   CLI (TTY)    │   TUI (Owl)    │   Web Terminal   │   Plugin Commands           │
+│  (Elixir)      │  (Elixir)      │   (LiveView WS)  │   (/slash — Elixir)         │
+└──────┬─────────┴───────┬────────┴────────┬────────┴──────────────┬───────────────┘
+       │                 │                 │                       │
+       └─────────────────┴─────────────────┴───────────────────────┘
                               │
-                    ┌─────────┴──────────┐
-                    │   APP RUNNER       │
-                    │  (Entry Point)     │
-                    └─────────┬──────────┘
+                    ┌─────────┴────────────────────────────────────┐
+                    │   ELIXIR CLI / RUNNER (pup binary)           │
+                    │   (Burrito single-binary or escript)         │
+                    └─────────┬────────────────────────────────────┘
                               │
-         ┌────────────────────┼────────────────────┐
-         │                    │                    │
-┌────────▼────────┐  ┌────────▼────────┐  ┌────────▼────────┐
-│ CONFIG SYSTEM   │  │ CALLBACK SYSTEM │  │  PLUGIN LOADER  │
-│ (puppy.cfg)     │  │  (Lifecycle)    │  │ (Auto-discover) │
-└────────┬────────┘  └────────┬────────┘  └────────┬────────┘
-         │                    │                    │
-         └────────────────────┴────────────────────┘
+         ┌────────────────────┼────────────────────────────────────┐
+         │                    │                                    │
+┌────────▼────────┐  ┌────────▼────────┐  ┌───────────────────────▼────┐
+│ CONFIG SYSTEM   │  │ CALLBACK SYSTEM │  │  PLUGIN LOADER (Elixir)    │
+│ (pup-ex.ini)    │  │  (CodePuppy     │  │  (Auto-discover Elixir &   │
+│                 │  │   Control.      │  │   legacy Python plugins)   │
+│                 │  │   Callbacks)    │  │                            │
+└────────┬────────┘  └────────┬────────┘  └────────────────────────────┘
+         │                    │
+         └────────────────────┘
                               │
-                    ┌─────────┴──────────┐
-                    │   AGENT MANAGER      │
-                    │  (Agent Registry)    │
-                    └─────────┬──────────────┘
+                    ┌─────────┴────────────────────────────────────┐
+                    │   AGENT MANAGER (GenServer + Registry)       │
+                    │  (Agent Registry, Session Cache)             │
+                    └─────────┬────────────────────────────────────┘
                               │
-    ┌─────────────────────────┼─────────────────────────┐
-    │                         │                         │
-┌───▼────┐           ┌────────▼────────┐      ┌─────────▼────────┐
-│ BASE   │           │ AGENT RUNTIME   │      │   PACK LEADER    │
-│ AGENT  │◄─────────│     STATE       │      │(Parallelism Ctrl)│
-│        │           │ (History/Ctx)   │      │   MAX=8 agents   │
-└───┬────┘           └─────────────────┘      └──────────────────┘
+    ┌─────────────────────────┼────────────────────────────────────┐
+    │                         │                                    │
+┌───▼────────────────┐  ┌────▼──────────────┐  ┌──────────────────▼─────┐
+│ AGENT BEHAVIOUR    │  │ AGENT RUNTIME      │  │   PACK LEADER          │
+│ (Elixir behaviours)│  │ STATE (GenServer)  │  │(Parallelism Ctrl)      │
+│                    │  │ (History/Ctx/ETS)  │  │   MAX=8 agents         │
+└───┬────────────────┘  └────────────────────┘  └────────────────────────┘
     │
-    │  ┌────────────────────────────────────────────────────────────┐
-    │  │                    AGENT TYPES                              │
-    │  ├─────────────┬─────────────┬─────────────┬───────────────────┤
-    │  │ CodePuppy   │  CodeReviewer│ Security    │ PythonPro        │
-    │  │  (Default)  │   (PR rev)   │  Auditor    │  (Code gen)      │
-    │  ├─────────────┼─────────────┼─────────────┼───────────────────┤
-    │  │  TerminalQA │  TurboExec   │  CodeScout  │   QA Kitten      │
-    │  │  (Q&A)      │  (Batch ops) │ (Explorer)  │  (Test help)     │
-    │  └─────────────┴─────────────┴─────────────┴───────────────────┘
+    │  ┌─────────────────────────────────────────────────────────────────┐
+    │  │                    AGENT IMPLEMENTATIONS (Elixir)                │
+    │  ├─────────────┬─────────────┬─────────────┬───────────────────────┤
+    │  │ CodePuppy   │  CodeReviewer│ Security    │ PythonPro             │
+    │  │  (Default)  │   (PR rev)   │  Auditor    │  (Code gen)           │
+    │  ├─────────────┼─────────────┼─────────────┼───────────────────────┤
+    │  │  TerminalQA │  TurboExec   │  CodeScout   │   QA Kitten          │
+    │  │  (Q&A)      │  (Batch ops) │ (Explorer)  │  (Test help)          │
+    │  └─────────────┴─────────────┴─────────────┴───────────────────────┘
     │
     ▼
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│                           PYDANTIC AI LAYER                                  │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
-│  │Model Factory│  │Rate Limiter │  │Token Ledger │  │  Model Switching    │  │
-│  │ (create)    │  │(Adaptive)   │  │ (track)     │  │  (fallback chain)   │  │
-│  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └─────────────────────┘  │
-│         │                │                │                                  │
-│         └────────────────┴────────────────┘                                  │
-│                          │                                                   │
-│         ┌────────────────┴────────────────┐                                  │
-│         ▼                                 ▼                                  │
-│  ┌──────────────┐              ┌─────────────────┐                          │
-│  │   Claude     │              │     OpenAI      │                          │
-│  │  (Anthropic) │              │  (GPT/o series) │                          │
-│  └──────────────┘              └─────────────────┘                          │
+│                      LLM / MODEL LAYER (Elixir)                                │
+│  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐  ┌─────────────┐  │
+│  │ Provider       │  │Rate Limiter    │  │Token Ledger    │  │ Model       │  │
+│  │ Registry       │  │(GenServer+ETS) │  │(ETS Cache)     │  │ Switching   │  │
+│  │ (GenServer)    │  │                │  │                │  │ (fallback)  │  │
+│  └──────┬─────────┘  └───────┬────────┘  └───────┬────────┘  └──────┬──────┘  │
+│         │                   │                    │                  │         │
+│         └───────────────────┴────────────────────┴──────────────────┘         │
+│                              │                                                │
+│         ┌────────────────────┴───────────────────┐                            │
+│         ▼                                        ▼                            │
+│  ┌──────────────────┐              ┌──────────────────────────┐               │
+│  │   HTTP Client    │              │   Streaming Protocol     │               │
+│  │   (Elixir-native)│              │   (SSE/chunk handling)   │               │
+│  └────────┬─────────┘              └────────────┬─────────────┘               │
+│           │                                      │                            │
+│  ┌────────▼──────────────────────────────────────▼──────────┐                │
+│  │   Providers: Anthropic, OpenAI, Google, etc.             │                │
+│  └───────────────────────────────────────────────────────────┘                │
 └──────────────────────────────────────────────────────────────────────────────┘
     │
     ▼
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│                            TOOL LAYER                                        │
+│                            TOOL LAYER (Elixir)                                │
 ├────────────────┬────────────────┬────────────────┬───────────────────────────┤
 │  FILE OPS      │  EXECUTION     │  AGENT OPS     │   USER INTERACTION        │
 ├────────────────┼────────────────┼────────────────┼───────────────────────────┤
@@ -92,26 +101,36 @@
          │              │                │                       │
          └──────────────┴────────────────┴───────────────────────┘
                               │
-                    ┌─────────┴────────────────────────┐
-                    │   ELIXIR RUNTIME BACKEND         │
-                    │   (Primary - All Operations)     │
-                    └─────────┬────────────────────────┘
+                    ┌─────────┴──────────────────────────────────┐
+                    │   ELIXIR OTP RUNTIME (Core)                │
+                    │   (GenServers, ETS, Supervision Trees)     │
+                    └─────────┬──────────────────────────────────┘
                               │
          ┌────────────────────┼────────────────────┐
          │                    │                    │
 ┌────────▼────────┐  ┌────────▼────────┐  ┌────────▼────────┐
 │  FILE SERVICE   │  │  PARSE SERVICE  │  │  SCHEDULER      │
-│ (list/read/grep)│  │ (Tree-sitter)   │  │ (Job Queue)     │
-│                 │  │                 │  │                 │
+│ (FileOps)       │  │ (leex/yecc     │  │ (Oban Job Queue)│
+│                 │  │  parsers)      │  │                 │
 └─────────────────┘  └─────────────────┘  └─────────────────┘
     │
     ▼
 ┌──────────────────────────────────────────────────────────────────────────────┐
+│                   PYTHON BRIDGE (Optional / Legacy)                           │
+│                                                                               │
+│  ┌──────────────────────────────────────────────────────────────────────┐     │
+│  │  PythonWorker.Port (GenServer) — JSON-RPC 2.0 over stdio             │     │
+│  │  Only activated when PUP_RUNTIME=python or --bridge-mode             │     │
+│  └──────────────────────────────────────────────────────────────────────┘     │
+│                                                                               │
+└──────────────────────────────────────────────────────────────────────────────┘
+    │
+    ▼
+┌──────────────────────────────────────────────────────────────────────────────┐
 │                              MCP LAYER                                         │
-│                    (Model Context Protocol)                                      │
 ├────────────────────────┬────────────────────────┬────────────────────────────┤
 │    MCP MANAGER         │      CIRCUIT BREAKER   │      SECURITY LAYER        │
-│  (Server lifecycle)    │    (Fault isolation)   │    (Command whitelist)     │
+│  (DynamicSupervisor)   │    (Fault isolation)   │    (Command whitelist)     │
 │                        │                        │    (Injection detect)      │
 └────────────────────────┴────────────────────────┴────────────────────────────┘
     │
@@ -122,13 +141,13 @@
 │   CORE PLUGINS     │   AUTH PLUGINS     │     FEATURE PLUGINS                  │
 ├────────────────────┼────────────────────┼────────────────────────────────────┤
 │ • fast_puppy       │ • claude_code_oauth│ • agent_skills (Skill install)       │
-│   (Elixir backend) │ • chatgpt_oauth    │ • turbo_executor (Batch ops)         │
+│   (status stub)    │ • chatgpt_oauth    │ • turbo_executor (Batch ops)         │
 │ • file_mentions    │                    │ • shell_safety (Cmd filter)          │
 │   (@file support)  │                    │ • agent_trace (Analytics)            │
-│ • repo_compass     │                    │ • agent_trace (Analytics)            │
-│   (Repo mapping)   │                    │ • agent_memory (Persistence)         │
-│ • pack_parallelism │                    │ • code_explorer (Nav)                │
-│   (Limits)         │                    │ • loop_detection                     │
+│ • repo_compass     │                    │ • agent_memory (Persistence)         │
+│   (Repo mapping)   │                    │ • code_explorer (Nav)                │
+│ • pack_parallelism │                    │ • loop_detection                     │
+│   (Limits)         │                    │                                      │
 └────────────────────┴────────────────────┴────────────────────────────────────┘
     │
     ▼
@@ -136,84 +155,97 @@
 │                            STORAGE LAYER                                       │
 ├────────────────────┬────────────────────┬────────────────────────────────────┤
 │   SESSION STORAGE  │   PERSISTENCE      │      STATE MANAGEMENT                │
-│ (terminal_sessions)│  (checkpoints)   │    (DBOS / SQLite)                   │
+│ (Ecto/SQLite)      │  (checkpoints)     │    (GenServer + ETS)               │
 └────────────────────┴────────────────────┴────────────────────────────────────┘
 ```
 
 ## Data Flow Example: Agent Execution
 
 ```
-User Input
+User Input (stdin or TUI)
     │
     ▼
-┌──────────────┐
-│  AppRunner   │ ──► Parses args, loads config
-└──────┬───────┘
+┌──────────────────┐
+│   pup CLI        │ ──► Parses args, loads Elixir config
+│   (Burrito/      │
+│    escript)      │
+└──────┬───────────┘
        │
        ▼
-┌──────────────┐
-│AgentManager  │ ──► Discovers/selects agent
-└──────┬───────┘
+┌──────────────────────┐
+│  AgentManager        │ ──► Discovers/selects agent (GenServer)
+│  (CodePuppyControl)  │
+└──────┬───────────────┘
        │
        ▼
-┌──────────────┐
-│  BaseAgent   │ ──► Loads system prompt
-│  + State     │ ──► Loads message history
-└──────┬───────┘
+┌──────────────────────┐
+│  AgentBehaviour      │ ──► Loads system prompt
+│  (Elixir behaviour)  │ ──► Loads message history (ETS/EventStore)
+└──────┬───────────────┘
        │
        ▼
-┌──────────────┐
-│ PydanticAI   │ ──► Makes model call
-└──────┬───────┘
+┌──────────────────────┐
+│  ProviderRegistry    │ ──► Resolves LLM provider
+└──────┬───────────────┘
        │
        ▼
-┌──────────────┐
-│ ModelOutput  │ ──► Text or tool calls
-└──────┬───────┘
+┌──────────────────────┐
+│  HTTP Client         │ ──► Streaming request to LLM
+│  (Elixir-native)     │ ──► SSE/chunk handling
+└──────┬───────────────┘
        │
-       ├───────────────────────┐
-       │ (if text)             │ (if tool call)
-       ▼                       ▼
-┌──────────┐           ┌──────────────┐
-│ Response │           │ ToolRegistry │
-│ to User  │           └──────┬───────┘
-└──────────┘                  │
-                              ├─────────────┬─────────────┐
-                              │             │             │
-                              ▼             ▼             ▼
-                        ┌─────────┐   ┌──────────┐  ┌──────────┐
-                        │File Ops │   │ Subagent │  │  Shell   │
-                        │(Native) │   │(Pack Ldr)│  │(Safety)  │
-                        └────┬────┘   └────┬─────┘  └────┬─────┘
-                             │             │             │
-                             └─────────────┴─────────────┘
-                                           │
-                                           ▼
-                                    ┌──────────────┐
-                                    │ Tool Results │
-                                    └──────┬───────┘
-                                           │
-                                           ▼
-                                    (Back to PydanticAI)
+       ▼
+┌──────────────────────┐
+│  ModelOutput         │ ──► Text or tool calls
+└──────┬───────────────┘
+       │
+       ├─────────────────────────┐
+       │ (if text)               │ (if tool call)
+       ▼                         ▼
+┌──────────────┐       ┌──────────────────────┐
+│ TUI/CLI out  │       │  Tool.Runner         │
+│ (Owl/TTY)    │       │  (Elixir-native)     │
+└──────────────┘       └──────┬───────────────┘
+                              │
+              ┌───────────────┼───────────────┐
+              │               │               │
+              ▼               ▼               ▼
+       ┌──────────────┐ ┌──────────────┐ ┌──────────────┐
+       │ FileOps      │ │ Sub-agent    │ │ Shell Runner │
+       │ (Elixir)     │ │ (Pack Lead)  │ │ (Safety)     │
+       └──────┬───────┘ └──────┬───────┘ └──────┬───────┘
+              │               │               │
+              └───────────────┼───────────────┘
+                              │
+                              ▼
+                      ┌──────────────────┐
+                      │ Tool Results     │
+                      └──────┬───────────┘
+                             │
+                             ▼
+                    (Back to LLM loop)
 ```
+
+> **Legacy Python bridge**: When `PUP_RUNTIME=python`, the tool layer delegates
+> to a Python subprocess via `PythonWorker.Port` (JSON-RPC over stdio).
+> See [Bridge mode flow](docs/architecture.md#bridge-mode-flow) for details.
 
 ## Key Architectural Decisions
 
 | Aspect | Decision | Rationale |
 |--------|----------|-----------|
-| **Plugin System** | Hook-based callbacks | Hot-swappable, zero core modification |
-| **Native Accel** | Pure Elixir runtime | Thin Python shell + full Elixir backend (zero Rust) |
+| **Plugin System** | Hook-based callbacks (Elixir, with legacy Python compat) | Hot-swappable, zero core modification |
+| **Runtime** | Elixir-native (default); Python bridge optional | `PUP_RUNTIME=python` / `--bridge-mode` for legacy/PyPI compatibility and Python plugins/agents |
 | **Agent Concurrency** | Pack Leader with MAX=8 | Prevents resource exhaustion |
-| **Model Routing** | Adaptive rate limiting | Protects against rate limit storms |
+| **Model Routing** | Adaptive rate limiting (GenServer + ETS) | Protects against rate limit storms |
 | **MCP Security** | Circuit breaker + whitelist | Defense in depth for external tools |
-| **State Mgmt** | AgentRuntimeState isolation | Thread-safe, testable, resettable |
+| **State Mgmt** | GenServer + ETS | Thread-safe (BEAM), testable, resettable |
 
-## Class Hierarchy (Simplified)
+## Agent Hierarchy (Elixir-Native)
 
 ```
-BaseAgent (ABC)
-├── AgentPromptMixin (mixin)
-├── AgentRuntimeState (composition)
+AgentBehaviour (Elixir behaviour)
+├── AgentRuntimeState (GenServer + ETS)
 │
 ├── CodePuppyAgent
 ├── CodeReviewerAgent
@@ -233,6 +265,10 @@ BaseAgent (ABC)
     ├── Terrier (grep)
     └── Watchdog (monitoring)
 ```
+
+> **Historical note**: Agents were originally Python `BaseAgent (ABC)` classes.
+> They have been ported to Elixir behaviours under `CodePuppyControl.Agents`.
+> The Python agent classes remain for legacy bridge-mode compatibility.
 
 ## Hook Phases (Callback System)
 

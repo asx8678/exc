@@ -1,15 +1,16 @@
-# Thin Shell Contract: Python → Elixir Migration
+# Historical Thin Shell Contract: Python → Elixir Migration
 
 > **Issue:** Thin Shell Contract  
-> **Status:** Draft - Shepherd Review Addressed — Complete module classification, verified line counts, full RPC documentation. Uncategorized modules are migration backlog, not release blockers.
+> **Status:** Historical / superseded by the Elixir-native `pup` runtime. This document is preserved as migration context, not as the current target architecture. The current daily-driver path is `CodePuppyControl`; Python remains only for legacy PyPI compatibility, Python plugins/agents, and explicit bridge mode (`PUP_RUNTIME=python` / `--bridge-mode`).
 > **Last Updated:** 2026-04-17  
+> **Superseded Note Added:** 2026-05-05
 > **Changes:** Fixed base_agent.py count (3,152 vs ~1,300), added command_line/ tier, documented all 34 bridge RPC methods, added "Uncategorized" section with 62K+ lines, corrected Rust counts (38 files, 119K lines)
 
 ---
 
-## Purpose
+## Historical Purpose
 
-This document defines the **"thin shell"** — the minimal Python surface that remains after the Elixir migration is complete. It answers:
+This document defined the **"thin shell"** — the minimal Python surface that was expected to remain after the Elixir migration completed. That is no longer the current end-state guidance. It answers historical planning questions:
 
 1. **Why does Python remain?** — TUI rendering, CLI entry point, pydantic-ai agent orchestration
 2. **What exactly stays in Python?** — Specific modules with justification
@@ -210,7 +211,7 @@ Key unclassified top-level modules:
 
 | Plugin Category | Examples | Direction |
 |-----------------|----------|-----------|
-| Bridge integrations | `fast_puppy/`, `turbo_indexer_bridge.py` | Review per-bridge |
+| Bridge integrations | `fast_puppy/`, `turbo_indexer_bridge.py` | Historical review bucket; current `fast_puppy` is status-only |
 | UI enhancements | `theme_switcher/`, `colors_menu/` | **Retain** |
 | Git workflow | `git_auto_commit/`, `shell_safety/` | Review |
 | Agent features | `agent_memory/`, `agent_trace/`, `loop_detection/` | Review |
@@ -426,7 +427,7 @@ RuntimeError               # Elixir returned error response
 |--------|----------|-----------|
 | `turbo_parse` | **Migrated** | Tree-sitter now handled via `turbo_parse_nif` Elixir NIF. Decision resolved: Rust completely removed in favor of Elixir. |
 | `messaging/bus.py` | **Conditional** | MessageBus may stay as local event router even with Elixir EventBus for intra-Python events. Hybrid approach likely. |
-| `plugins/*/register_callbacks.py` | **Stay** | Plugin contract is Python-first by design. Elixir plugins would need separate discovery mechanism. |
+| `plugins/*/register_callbacks.py` | **Historical stay** | Historical note: at the time, the plugin contract was Python-led. Current default runtime uses `CodePuppyControl.Callbacks`; Python plugins are compatibility/bridge-only. |
 
 ---
 
@@ -525,7 +526,7 @@ code_puppy/
 │   │   ├── wire_protocol.py # JSON-RPC framing (1,525 lines)
 │   │   └── register_callbacks.py # Bridge hooks (358 lines)
 │   ├── pack_parallelism/    # Run limiter
-│   ├── fast_puppy/          # Native acceleration
+│   ├── fast_puppy/          # Historical acceleration/status stub
 │   ├── file_mentions/         # @file support
 │   └── */register_callbacks.py  # ~46 more plugin hooks
 │

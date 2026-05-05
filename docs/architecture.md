@@ -18,159 +18,130 @@
 
 ## 1. High-Level Overview
 
-Code Puppy is a **dual-runtime system** designed for maximum performance and simplicity. It combines Python (for agent orchestration and UX) with Elixir (for all runtime operations):
+Code Puppy's default runtime is **Elixir-native**. The `pup` binary (Burrito single-binary or escript) runs all core operations — CLI, TUI, agent execution, LLM calls, file ops, parsing, session state, and plugins — without any Python dependency.
+
+Python is **optional** and used only for legacy/PyPI compatibility, Python plugins/agents, or explicit bridge-worker mode (`PUP_RUNTIME=python` / `--bridge-mode`).
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                           CODE PUPPY ARCHITECTURE                           │
+│                     CODE PUPPY ARCHITECTURE (Current)                        │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
 │   ┌──────────────────────────────────────────────────────────────────────┐  │
-│   │                        ELIXIR CONTROL PLANE                          │  │
+│   │                        ELIXIR NATIVE CLI (pup)                       │  │
 │   │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐                │  │
-│   │  │   Phoenix    │  │   PubSub     │  │   Scheduler  │                │  │
-│   │  │    API       │  │   (Events)   │  │   (Oban)     │                │  │
+│   │  │   CLI/TTY    │  │   TUI (Owl)  │  │   REPL       │                │  │
+│   │  │   (Elixir)   │  │   (Elixir)   │  │   (Elixir)   │                │  │
 │   │  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘                │  │
 │   │         │                 │                 │                         │  │
 │   │  ┌──────▼─────────────────▼─────────────────▼───────┐                 │  │
 │   │  │         OTP Supervision Tree (BEAM)              │                 │  │
 │   │  │  ┌────────────┐  ┌────────────┐  ┌────────────┐  │                 │  │
-│   │  │  │PythonWorker│  │  Run       │  │  Request   │  │                 │  │
-│   │  │  │   Port     │  │  Manager   │  │  Tracker   │  │                 │  │
+│   │  │  │ Run.Manager│  │  Agent     │  │  Session   │  │                 │  │
+│   │  │  │ (GenServer)│  │  Manager   │  │  (Ecto)    │  │                 │  │
 │   │  │  └────────────┘  └────────────┘  └────────────┘  │                 │  │
 │   │  └──────────────────────────────────────────────────┘                 │  │
-│   └────────────────────────────────▲─────────────────────────────────────┘  │
-│                                    │                                        │
-│              JSON-RPC 2.0 + Content-Length Framing                        │
-│                                    │                                        │
-│   ┌────────────────────────────────▼─────────────────────────────────────┐  │
-│   │                      PYTHON CLI RUNTIME                              │  │
-│   │                                                                        │  │
-│   │   ┌────────────┐   ┌────────────┐   ┌────────────┐   ┌────────────┐  │  │
-│   │   │  AppRunner │   │   Agents   │   │   Tools    │   │Callbacks   │  │  │
-│   │   │  (Entry)   │   │  (LLM)     │   │ (File/Sys) │   │(Hooks)     │  │  │
-│   │   └─────┬──────┘   └─────┬──────┘   └─────┬──────┘   └─────┬──────┘  │  │
-│   │         │                │                │                │         │  │
-│   │   ┌─────▼────────────────▼────────────────▼────────────────▼─────┐    │  │
-│   │   │              Message Bus / Event System                      │    │  │
-│   │   └──────────────────────────────────────────────────────────┘    │  │
-│   └────────────────────────────────▲─────────────────────────────────────┘  │
-│                                    │                                        │
-│              JSON-RPC over stdio   │                                        │
-│                                    │                                        │
-│   ┌────────────────────────────────▼─────────────────────────────────────┐  │
-│   │                      ELIXIR SERVICES LAYER                             │  │
-│   │                                                                        │  │
-│   │   ┌────────────────┐  ┌────────────────┐  ┌────────────────┐         │  │
-│   │   │  MessageCore   │  │    FileOps     │  │  TurboParse    │         │  │
-│   │   │  (Messages)    │  │  (File Ops)    │  │  (Parsing)     │         │  │
-│   │   ├────────────────┤  ├────────────────┤  ├────────────────┤         │  │
-│   │   │ • Pruning      │  │ • list_files   │  │ • Symbols      │         │  │
-│   │   │ • Hashing      │  │ • grep         │  │ • Highlights   │         │  │
-│   │   │ • Serialize    │  │ • read_files   │  │ • Folds        │         │  │
-│   │   │ • Token Est    │  │ • Batch Exec   │  │ • Batch Parse  │         │  │
-│   │   └────────────────┘  └────────────────┘  └────────────────┘         │  │
 │   └──────────────────────────────────────────────────────────────────────┘  │
-│                                                                             │
+│                                    │                                        │
+│         ┌──────────────────────────┼──────────────────────────┐            │
+│         │                          │                          │            │
+│   ┌─────▼──────────┐    ┌──────────▼──────┐    ┌─────────────▼──────┐     │
+│   │ Provider       │    │ Tool.Runner     │    │ Callbacks / Hooks  │     │
+│   │ Registry       │    │ (Elixir-native) │    │ (Elixir, legacy    │     │
+│   │ (LLM)          │    │                 │    │  Python compat)    │     │
+│   └────────────────┘    └──────────┬───────┘    └────────────────────┘     │
+│                                     │                                      │
+│   ┌─────────────────────────────────▼─────────────────────────────────┐   │
+│   │                    ELIXIR SERVICES LAYER                          │   │
+│   │                                                                   │   │
+│   │   ┌────────────────┐  ┌────────────────┐  ┌────────────────┐     │   │
+│   │   │  MessageCore   │  │    FileOps     │  │  Parsing.Parser│     │   │
+│   │   │  (Messages)    │  │  (File Ops)    │  │  (leex/yecc)   │     │   │
+│   │   ├────────────────┤  ├────────────────┤  ├────────────────┤     │   │
+│   │   │ • Pruning      │  │ • list_files   │  │ • Symbols      │     │   │
+│   │   │ • Hashing      │  │ • grep         │  │ • Highlights   │     │   │
+│   │   │ • Serialize    │  │ • read_files   │  │ • Folds        │     │   │
+│   │   │ • Token Est    │  │ • Batch Exec   │  │ • Batch Parse  │     │   │
+│   │   └────────────────┘  └────────────────┘  └────────────────┘     │   │
+│   └───────────────────────────────────────────────────────────────────┘   │
+│                                                                           │
+│   ┌─────────────────────────────────────────────────────────────────┐     │
+│   │  PYTHON BRIDGE (Optional / Legacy)                              │     │
+│   │  PythonWorker.Port — JSON-RPC 2.0 over stdio                   │     │
+│   │  Only activated when PUP_RUNTIME=python                        │     │
+│   └─────────────────────────────────────────────────────────────────┘     │
+│                                                                           │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Runtime Responsibilities
 
-| Runtime | Primary Role | Language | Process Model |
-|---------|-------------|----------|---------------|
-| **Python CLI** | Agent execution, tool orchestration, LLM interaction | Python 3.12+ | Asyncio + ThreadPool |
-| **Elixir Control Plane** | Web API, real-time events, distributed supervision | Elixir/OTP | BEAM VM (Processes) |
-| **Elixir Backend** | ALL runtime operations (file I/O, parsing, messages) | Elixir | BEAM VM (OTP) |
+| Runtime | Primary Role | Language | Process Model | Default |
+|---------|-------------|----------|---------------|---------|
+| **Elixir CLI/Runner** | All operations: CLI, TUI, agent exec, LLM calls, file ops, parsing, sessions, plugins | Elixir | BEAM VM (OTP) | ✅ **Default** |
+| **Elixir OTP Control** | OTP supervision, PubSub, ETS state, scheduler | Elixir | BEAM VM | Always active |
+| **Python Bridge** (*optional*) | Legacy compatibility bridge for `PUP_RUNTIME=python` | Python 3.12+ | Asyncio + ThreadPool | ❌ Optional |
 
 ---
 
 ## 2. Detailed Component Diagram
 
-### Python Runtime Components
+> **Historical: Python Runtime Components**
+>
+> The Python runtime was the original primary runtime (pre-Phase H). It remains
+> available as a bridge-worker for `PUP_RUNTIME=python` mode. The default Elixir
+> runtime now implements all of these components natively.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│                            PYTHON RUNTIME                                        │
+│                            PYTHON RUNTIME (Legacy Bridge)                        │
 │                                                                                  │
 │  ┌────────────────────────────────────────────────────────────────────────────┐ │
-│  │                         ENTRY LAYER                                         │ │
-│  │                                                                             │ │
+│  │                         ENTRY LAYER (Python CLI)                            │ │
 │  │   ┌───────────────┐      ┌───────────────┐      ┌───────────────┐        │ │
 │  │   │   __main__.py │─────▶│   AppRunner   │─────▶│     main()    │        │ │
 │  │   └───────────────┘      └───────────────┘      └───────┬───────┘        │ │
-│  │                            • CLI args                   │                 │ │
-│  │                            • Config load                ▼                 │ │
-│  │                            • Signal handling    ┌───────────────┐        │ │
-│  │                            • Renderer setup     │  interactive  │        │ │
-│  │                                                   │     loop      │        │ │
-│  └───────────────────────────────────────────────────└───────────────┘────────┘ │
-│                                                                                  │
-│  ┌────────────────────────────────────────────────────────────────────────────┐ │
-│  │                        AGENT ECOSYSTEM                                      │ │
-│  │                                                                             │ │
-│  │   ┌─────────────────────────────────────────────────────────────────┐      │ │
-│  │   │                    BaseAgent (ABC)                               │      │ │
-│  │   │  • PydanticAI integration    • Message streaming      • Tools    │      │ │
-│  │   │  • Tool execution          • History management         • MCP    │      │ │
-│  │   └────────┬────────────────────────────────────────────┬───────────┘      │ │
-│  │            │                                            │                   │ │
-│  │   ┌────────▼──────────┐                    ┌──────────▼──────────┐        │ │
-│  │   │   CodePuppyAgent  │                    │   PackLeaderAgent   │        │ │
-│  │   │   (Default)       │                    │   (Orchestrator)    │        │ │
-│  │   └────────┬──────────┘                    └──────────┬──────────┘        │ │
-│  │            │                                            │                 │ │
-│  │   ┌────────▼──────────┬────────────────┬───────────────▼──────────┐      │ │
-│  │   │ Specialized Reviewers              │ Pack Agents               │      │ │
-│  │   │ • CodeReviewer    • QAExpert       │ • Retriever  • Shepherd │      │ │
-│  │   │ • PythonReviewer  • SecurityAuditor│ • Shepherd    • Watchdog  │      │ │
-│  │   │ • JS/TS Reviewers • GolangReviewer │ • Terrier                 │      │ │
-│  │   └───────────────────┬────────────────┴──────────────────────────┘      │ │
-│  │                       │                                                   │ │
-│  │   ┌───────────────────▼──────────────────┐                               │ │
-│  │   │        TurboExecutorAgent            │                               │ │
-│  │   │   (Batch file operations)            │                               │ │
-│  │   └──────────────────────────────────────┘                               │ │
-│  │                                                                             │ │
+│  │                                                          ▼                 │ │
+│  │                                               ┌───────────────┐           │ │
+│  │                                               │  interactive  │           │ │
+│  │                                                │     loop      │           │ │
+│  │                                                └───────────────┘           │ │
 │  └────────────────────────────────────────────────────────────────────────────┘ │
 │                                                                                  │
 │  ┌────────────────────────────────────────────────────────────────────────────┐ │
-│  │                         TOOL LAYER                                          │ │
-│  │                                                                             │ │
+│  │                 AGENT ECOSYSTEM (Legacy Python)                             │ │
+│  │   ┌──────────────────────────────────────────────┐                         │ │
+│  │   │         BaseAgent (ABC) — Python only        │                         │ │
+│  │   │  • PydanticAI integration                    │                         │ │
+│  │   │  • Tool execution & streaming                │                         │ │
+│  │   └────────┬─────────────────────────┬──────────┘                         │ │
+│  │            │                         │                                    │ │
+│  │   ┌────────▼──────────┐   ┌──────────▼──────────┐                        │ │
+│  │   │   CodePuppyAgent  │   │   PackLeaderAgent    │                        │ │
+│  │   └───────────────────┘   └──────────────────────┘                        │ │
+│  └────────────────────────────────────────────────────────────────────────────┘ │
+│                                                                                  │
+│  ┌────────────────────────────────────────────────────────────────────────────┐ │
+│  │                     TOOL LAYER (Legacy Python)                              │ │
 │  │   ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  │ │
 │  │   │   File Ops   │  │   Shell Cmd  │  │   Browser    │  │   Agents     │  │ │
 │  │   │  (read/grep) │  │  (run_shell) │  │  (Puppeteer) │  │  (invoke)    │  │ │
-│  │   ├──────────────┤  ├──────────────┤  ├──────────────┤  ├──────────────┤  │ │
-│  │   │ • read_file  │  │ • cmd exec   │  │ • navigate   │  │ • subagent   │  │ │
-│  │   │ • list_files │  │ • env vars   │  │ • interact   │  │ • parallel   │  │ │
-│  │   │ • grep       │  │ • timeout    │  │ • screenshot │  │ • sessions   │  │ │
-│  │   │ • edit_file  │  │ • PTY        │  │ • terminal   │  │ • streaming  │  │ │
 │  │   └──────────────┘  └──────────────┘  └──────────────┘  └──────────────┘  │ │
-│  │                                                                             │ │
-│  │   ┌─────────────────────────────────────────────────────────────────┐    │ │
-│  │   │                        MCP Manager                               │    │ │
-│  │   │  • Server lifecycle    • Health monitoring    • Circuit breakers   │    │ │
-│  │   │  • Tool registry       • Async stdio bridge  • Error isolation    │    │ │
-│  │   └─────────────────────────────────────────────────────────────────┘    │ │
-│  │                                                                             │ │
 │  └────────────────────────────────────────────────────────────────────────────┘ │
 │                                                                                  │
 │  ┌────────────────────────────────────────────────────────────────────────────┐ │
-│  │                     TURBO ORCHESTRATOR                                      │ │
-│  │                                                                             │ │
+│  │                     TURBO ORCHESTRATOR (Legacy)                             │ │
 │  │      ┌───────────────┐     ┌───────────────┐     ┌───────────────┐       │ │
 │  │      │     Plan      │────▶│  Validate     │────▶│  Execute      │       │ │
-│  │      │   (Operations)│     │  (Security)   │     │  (Priority)   │       │ │
 │  │      └───────────────┘     └───────────────┘     └───────┬───────┘       │ │
-│  │                                                            │               │ │
-│  │              ┌─────────────────────────────────────────────┼──────────┐    │ │
-│  │              ▼                                             ▼          │    │ │
-│  │      ┌───────────────┐     ┌───────────────┐     ┌───────────────┐  │    │ │
-│  │      │   FileOps     │     │   TreeSitter  │     │    Native     │  │    │ │
-│  │      │   (Elixir)    │     │   (Elixir)    │     │   (Python)    │──┘    │ │
+│  │                                                           │               │ │
+│  │      ┌───────────────┐     ┌───────────────┐     ┌───────▼───────┐       │ │
+│  │      │   FileOps     │     │   TreeSitter  │     │  Python-only  │       │ │
+│  │      │   (Elixir)    │     │   (Elixir)    │     │  (Elixir now) │       │ │
 │  │      └───────────────┘     └───────────────┘     └───────────────┘       │ │
-│  │                                                                             │ │
 │  └────────────────────────────────────────────────────────────────────────────┘ │
+│  > **Note**: The Turbo Orchestrator was a Python-only batch system. In the       │
+│  > Elixir runtime, batch file operations use `FileOps.batch/1` directly.          │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -218,21 +189,21 @@ Code Puppy is a **dual-runtime system** designed for maximum performance and sim
 │  │  │  └─────────────┘  └─────────────┘  └─────────────┘  └───────────┘ │   │ │
 │  │  │                                                                       │   │ │
 │  │  │  ┌─────────────────────────────────────────────────────────────────┐   │   │ │
-│  │  │  │              PythonWorker Supervisor (Dynamic)                │   │ │
-│  │  │  │                                                                 │   │ │
-│  │  │  │   ┌──────────────┐    ┌──────────────┐    ┌──────────────┐      │   │ │
-│  │  │  │   │ PythonWorker │    │ PythonWorker │    │ PythonWorker │      │   │ │
-│  │  │  │   │   Port #1    │    │   Port #2    │    │   Port #3    │  ... │   │ │
-│  │  │  │   │  (run: abc)  │    │  (run: xyz)  │    │  (run: 123)  │      │   │ │
-│  │  │  │   └──────────────┘    └──────────────┘    └──────────────┘      │   │ │
-│  │  │  └─────────────────────────────────────────────────────────────────┘   │   │ │
-│  │  │                                                                       │   │ │
-│  │  │  ┌─────────────────────────────────────────────────────────────────┐   │   │ │
 │  │  │  │              MCP Server Supervisor (Dynamic)                    │   │ │
 │  │  │  │                                                                 │   │ │
 │  │  │  │   ┌──────────────┐    ┌──────────────┐    ┌──────────────┐      │   │ │
 │  │  │  │   │ MCP Server   │    │ MCP Server   │    │ MCP Server   │      │   │ │
 │  │  │  │   │ Process      │    │ Process      │    │ Process      │ ...  │   │ │
+│  │  │  │   └──────────────┘    └──────────────┘    └──────────────┘      │   │ │
+│  │  │  └─────────────────────────────────────────────────────────────────┘   │   │ │
+│  │  │                                                                       │   │ │
+│  │  │  ┌─────────────────────────────────────────────────────────────────┐   │   │ │
+│  │  │  │              PythonWorker Supervisor (Dynamic) — Optional       │   │ │
+│  │  │  │  Only started when PUP_RUNTIME=python (legacy bridge mode)     │   │ │
+│  │  │  │   ┌──────────────┐    ┌──────────────┐    ┌──────────────┐      │   │ │
+│  │  │  │   │ PythonWorker │    │ PythonWorker │    │ PythonWorker │      │   │ │
+│  │  │  │   │   Port #1    │    │   Port #2    │    │   Port #3    │  ... │   │ │
+│  │  │  │   │  (run: abc)  │    │  (run: xyz)  │    │  (run: 123)  │      │   │ │
 │  │  │  │   └──────────────┘    └──────────────┘    └──────────────┘      │   │ │
 │  │  │  └─────────────────────────────────────────────────────────────────┘   │   │ │
 │  │  │                                                                       │   │ │
@@ -335,53 +306,61 @@ Code Puppy is a **dual-runtime system** designed for maximum performance and sim
 
 ## 3. Data Flow Diagrams
 
-### CLI Mode Flow (Standalone)
+### CLI Mode Flow (Elixir-Native Default)
 
 ```
-┌──────────┐     ┌──────────────┐     ┌─────────────────┐     ┌──────────────┐
-│   User   │     │  code-puppy  │     │  Agent Runtime  │     │   LLM API    │
-│          │     │   (Python)   │     │   (asyncio)     │     │  (OpenAI/    │
-│          │     │              │     │                 │     │  Anthropic)  │
-└────┬─────┘     └──────┬───────┘     └────────┬────────┘     └──────┬───────┘
-     │                  │                      │                     │
-     │  Type prompt     │                      │                     │
-     │─────────────────▶│                      │                     │
-     │                  │                      │                     │
-     │                  │  Parse & route       │                     │
-     │                  │─────────────────────▶│                     │
-     │                  │                      │                     │
-     │                  │                      │  Build messages     │
-     │                  │                      │  + tool schemas       │
-     │                  │                      │─────────────────────▶│
-     │                  │                      │                     │
-     │                  │                      │◀────────────────────│
-     │                  │                      │   Streaming response│
-     │                  │                      │                     │
-     │                  │◀────────────────────│   Events (text/     │
-     │                  │   Render events      │   tool_calls)       │
-     │                  │                      │                     │
-     │◀─────────────────│   Display output     │                     │
-     │   See response   │   (Rich console)     │                     │
-     │                  │                      │                     │
-     │  [Tool needed]   │                      │                     │
-     │  ─ ─ ─ ─ ─ ─ ─ ─ │                      │                     │
-     │                  │  ┌──────────────┐    │                     │
-     │                  │  │ Tool Executor│    │                     │
-     │                  │  │              │    │                     │
-     │                  │  │• read_file   │◀───│                     │
-     │                  │  │• list_files  │    │                     │
-     │                  │  │• grep        │────▶│                     │
-     │                  │  │• run_shell   │    │  Return results     │
-     │                  │  └──────────────┘    │─────────────────────▶
-     │                  │                      │
-     │◀─────────────────│   Tool output shown  │
-     │   View results   │   in conversation    │
-     │                  │                      │
+┌──────────┐     ┌──────────────────┐     ┌──────────────────┐     ┌──────────────┐
+│   User   │     │   pup (Elixir)   │     │  Agent Runtime   │     │   LLM API    │
+│          │     │  (Burrito/escript)│     │  (BEAM OTP)      │     │  (OpenAI/    │
+│          │     │                  │     │  (GenServer)     │     │  Anthropic)  │
+└────┬─────┘     └──────┬───────────┘     └────────┬─────────┘     └──────┬───────┘
+     │                  │                          │                     │
+     │  Type prompt     │                          │                     │
+     │─────────────────▶│                          │                     │
+     │                  │                          │                     │
+     │                  │  Route to AgentManager   │                     │
+     │                  │─────────────────────────▶│                     │
+     │                  │                          │                     │
+     │                  │                          │  Build messages     │
+     │                  │                          │  + tool schemas     │
+     │                  │                          │─────────────────────▶│
+     │                  │                          │                     │
+     │                  │                          │◀────────────────────│
+     │                  │                          │   Streaming response│
+     │                  │                          │                     │
+     │                  │◀─────────────────────────│   Events (text/    │
+     │                  │   Events via PubSub/Ets  │   tool_calls)      │
+     │                  │                          │                     │
+     │◀─────────────────│   Display (Owl/TTY)      │                     │
+     │   See response   │                          │                     │
+     │                  │                          │                     │
+     │  [Tool needed]   │                          │                     │
+     │  ─ ─ ─ ─ ─ ─ ─ ─ │                          │                     │
+     │                  │  ┌──────────────────┐    │                     │
+     │                  │  │ Tool.Runner      │    │                     │
+     │                  │  │ (Elixir-native)  │    │                     │
+     │                  │  │                  │    │                     │
+     │                  │  │• read_file       │◀───│                     │
+     │                  │  │• list_files      │    │                     │
+     │                  │  │• grep            │────▶│                     │
+     │                  │  │• run_shell       │    │  Return results     │
+     │                  │  └──────────────────┘    │─────────────────────▶
+     │                  │                          │
+     │◀─────────────────│   Tool output shown      │
+     │   View results   │   in conversation        │
+     │                  │                          │
 ```
 
-### Bridge Mode Flow (Elixir Orchestration)
+> **Note**: In legacy `PUP_RUNTIME=python` mode, the tool layer delegates to
+> a Python subprocess via `PythonWorker.Port` (see Bridge Mode below).
 
-Python bridge mode is activated either by passing `--bridge-mode` to the Python CLI or by setting `CODE_PUPPY_BRIDGE=1` before process start. The CLI shim sets the environment variable before importing the full application runtime so the bridge plugin freezes `BRIDGE_ENABLED=True` during plugin discovery. Once startup callbacks run, the bridge plugin emits `bridge.ready`, starts its stdin reader, and `AppRunner` keeps the event loop alive until the bridge controller handles `exit` and marks itself stopped.
+### Bridge Mode Flow (Legacy: Elixir → Python Bridge)
+
+> **Legacy Mode** — The default Elixir-native runtime does not use bridge mode.
+> Bridge mode is only activated when `PUP_RUNTIME=python` is set, or when
+> the user explicitly invokes the legacy Python CLI with `--bridge-mode`.
+>
+Python bridge mode is activated either by passing `--bridge-mode` to the Python CLI or by setting `CODE_PUPPY_BRIDGE=1` or `PUP_RUNTIME=python`. The CLI shim sets the environment variable before importing the full application runtime so the bridge plugin freezes `BRIDGE_ENABLED=True` during plugin discovery. Once startup callbacks run, the bridge plugin emits `bridge.ready`, starts its stdin reader, and `AppRunner` keeps the event loop alive until the bridge controller handles `exit` and marks itself stopped.
 
 ```
 ┌─────────────┐    ┌───────────────┐    ┌───────────────────┐    ┌───────────────┐
@@ -590,87 +569,86 @@ Content-Length: 95\r\n\r\n
 
 ## 5. Deployment Modes
 
-| Mode | Entry Point | When to Use |
-|------|-------------|-------------|
-| **CLI Interactive** | `code-puppy` or `python -m code_puppy` | Local development, day-to-day coding |
-| **CLI Prompt-only** | `code-puppy -p "create a React component"` | CI/CD, automation, scripting |
-| **Bridge Mode** | `pup --bridge-mode`, `python -m code_puppy --bridge-mode`, or `CODE_PUPPY_BRIDGE=1 pup` on the Python CLI | Python bridge worker via JSON-RPC over stdio (Elixir spawns PythonWorker.Port). The Elixir CLI parses its own `--bridge-mode` as a reserved flag with no runtime effect. |
-| **HTTP API** | `elixir/CodePuppyControlWeb` | External integrations, web dashboards |
-| **WebSocket** | `ws://host/socket` | Real-time UIs, streaming responses |
-| **TUI Mode** | `CODE_PUPPY_TUI=1` | Rich terminal interface (Textual) |
+| Mode | Entry Point | Runtime | When to Use |
+|------|-------------|---------|-------------|
+| **CLI Interactive (default)** | `pup` (Burrito binary or escript) | Elixir-native | ✅ Default — local development, day-to-day coding |
+| **CLI Prompt-only** | `pup -p "create a React component"` | Elixir-native | CI/CD, automation, scripting |
+| **TUI Mode** | `pup` (TUI auto-launch) | Elixir-native (Owl) | Rich terminal interface |
+| **Bridge Mode** (legacy) | `PUP_RUNTIME=python pup` | Elixir → Python bridge | Legacy compatibility; Python agent via JSON-RPC over stdio |
+| **HTTP API** | `CodePuppyControlWeb` | Elixir (Phoenix) | External integrations, web dashboards |
+| **WebSocket** | `ws://host/socket` | Elixir (Phoenix) | Real-time UIs, streaming responses |
 
-### Mode Selection Logic
+### Mode Selection Logic (Elixir-Native)
 
 ```
-Entry Point:
+Entry Point: pup (Elixir binary)
 ┌─────────────────────────────────────────────────────────┐
-│                    AppRunner.run()                      │
+│                CodePuppyControl.CLI.run()               │
 └──────────────────┬──────────────────────────────────────┘
                    │
          ┌─────────┴─────────┐
          │
-    CODE_PUPPY_BRIDGE?  ◀── yes ──▶  bridge startup callback + AppRunner._run_bridge_mode()
+    PUP_RUNTIME=python?  ◀── yes ──▶  Route to PythonWorker.Port (legacy bridge)
          │ no
          ▼
-    args.prompt?  ◀── yes ──▶  prompt_runner.execute_single()
+    args.prompt?  ◀── yes ──▶  execute_single_prompt()
          │ no
          ▼
-    is_tui_enabled()?  ◀── yes ──▶  textual_interactive_mode()
+    TUI available?  ◀── yes ──▶  Owl-based TUI
          │ no
          ▼
-         interactive_mode()  ◀── default CLI loop
+         REPL/interactive loop  ◀── default CLI loop
 ```
+
+> **Note**: The legacy Python CLI (`code-puppy` or `python -m code_puppy`) still exists for
+> backward compatibility but is not the default entry point. All new development should
+> use the Elixir-native `pup` binary.
 
 ---
 
 ## 6. Technology Stack
 
-| Layer | Technology | Purpose |
-|-------|-----------|---------|
-| **Core** | Python 3.12+ | Main runtime (asyncio) |
-| **LLM Framework** | PydanticAI | Type-safe agent/model integration |
-| **HTTP Client** | httpx | Async HTTP for LLM APIs |
-| **CLI Parsing** | argparse | Command-line interface |
-| **TUI** | Textual | Rich terminal interface |
-| **Console** | Rich | Pretty printing, progress bars |
-| **Config** | TOML + configparser | Settings persistence |
-| **Web (Elixir)** | Phoenix + Cowboy | HTTP/WebSocket server |
-| **PubSub (Elixir)** | Phoenix.PubSub | Event broadcasting |
-| **Database (Elixir)** | PostgreSQL + Ecto | Scheduled tasks |
-| **Jobs (Elixir)** | Oban | Background job processing |
-| **Parsing (Elixir)** | tree-sitter | Syntax analysis |
-| **Concurrency (Elixir)** | BEAM/OTP | Lightweight processes |
-| **Process Runner** | Elixir | MCP server management |
+| Layer | Technology (Default) | Purpose |
+|-------|---------------------|---------|
+| **Core Runtime** | **Elixir/OTP** (BEAM) | **✅ Default** — CLI, TUI, agents, LLM, tools, sessions |
+| **CLI Binary** | Burrito (single-binary) or escript | Self-contained `pup` executable |
+| **TUI** | Owl (Elixir) | Rich terminal interface |
+| **LLM Provider** | `CodePuppyControl.ModelFactory` | Provider registry, HTTP streaming |
+| **HTTP Client** | Finch / Mint (Elixir) | Async HTTP for LLM APIs |
+| **Agent System** | Agent behaviours (Elixir) | Agent lifecycle, tool dispatch |
+| **File Operations** | `FileOps` (Elixir) | list_files, grep, read/write |
+| **Parsing** | `Parsing.Parser` (Elixir leex/yecc) | Syntax analysis (Elixir, Python, JS, TS, Rust) |
+| **Config** | INI parser (Elixir) | `~/.code_puppy_ex/` settings |
+| **Session Store** | Ecto + SQLite | State persistence |
+| **Event Bus** | Phoenix.PubSub | Event broadcasting |
+| **Web Server** | Phoenix + Cowboy | HTTP/WebSocket/Admin UI |
+| **Scheduler** | Oban | Background job processing |
+| **Plugin System** | `CodePuppyControl.Callbacks` | Hook-based (Elixir-native, with Python compat) |
+| **MCP** | GenServer + Port | MCP server lifecycle |
 
-### Python Dependencies
+### Python Bridge Dependencies (Optional / Legacy)
+
+When `PUP_RUNTIME=python` is set, the Python worker requires the Python package dependencies and, in production bridge mode, a configured worker script (`PUP_PYTHON_WORKER_SCRIPT` unless supplied via app config/discovery):
 
 ```toml
 [project.dependencies]
-# Core
 pydantic = ">=2.10"
 pydantic-ai = ">=0.0.24"
 httpx = ">=0.27"
 rich = ">=13.9"
 textual = ">=0.85"
-
-# File operations
-gitignore-parser = ">=0.1"
-pathspec = ">=0.12"
-
-# Utilities
-platformdirs = ">=4.3"
-psutil = ">=6.1"
-pyfiglet = ">=1.0"
-
-# Optional
-browser-use = {optional = true}
 ```
+
+> These dependencies and `PUP_PYTHON_WORKER_SCRIPT` are **only required** when running explicit legacy bridge mode.
+> The default Elixir runtime has zero Python dependency and does not read a Python worker script.
 
 ---
 
 ## 7. Plugin Architecture
 
-Code Puppy uses a **callback-based plugin system** for extensibility.
+Code Puppy uses a **callback-based plugin system** for extensibility. The default runtime uses
+`CodePuppyControl.Callbacks` (Elixir-native), with backward compatibility for legacy Python plugins
+when `PUP_RUNTIME=python` bridge mode is active.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -678,34 +656,36 @@ Code Puppy uses a **callback-based plugin system** for extensibility.
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
 │   ┌─────────────────────────────────────────────────────────┐  │
-│   │                   callbacks.py                          │  │
-│   │                                                         │  │
-│   │   register_callback("startup", my_startup_func)         │  │
-│   │   register_callback("shutdown", my_shutdown_func)       │  │
-│   │   register_callback("load_prompt", my_prompt_addon)     │  │
-│   │   ...                                                   │  │
+│   │    CodePuppyControl.Callbacks (Elixir-native)            │  │
+│   │                                                          │  │
+│   │   register_callback("startup", my_func)                 │  │
+│   │   register_callback("shutdown", my_func)                │  │
+│   │   register_callback("load_prompt", my_func)             │  │
+│   │   ...                                                    │  │
 │   └─────────────────────────────────────────────────────────┘  │
 │                              │                                  │
 │          ┌───────────────────┼───────────────────┐              │
 │          ▼                   ▼                   ▼              │
 │   ┌────────────┐     ┌────────────┐     ┌────────────┐        │
-│   │ Builtin    │     │  Built-in  │     │   User     │        │
-│   │ Plugins    │     │  Plugins    │     │  Plugins   │        │
-│   │            │     │            │     │            │        │
-│   │• fast_puppy│     │• file_ments│     │~/.code_puppy│        │
-│   │• turbo_exec│     │• agent_skills│    │  /plugins/  │        │
-│   │• adv_plan │     │• cost_est  │     │            │        │
-│   │• pack_par │     │• git_auto  │     │• register_  │        │
-│   │• turbo_par│     │• shell_safe│     │  callbacks │        │
-│   │• elixir_br│     │• ...       │     │  .py       │        │
+│   │ Built-in   │     │  Built-in  │     │   User     │        │
+│   │ Elixir     │     │  Python    │     │  Plugins   │        │
+│   │ Plugins    │     │  Plugins   │     │  (Elixir/  │        │
+│   │            │     │  (legacy)  │     │   Python)  │        │
+│   │• pack_par  │     │• fast_puppy│     │~/.code_    │        │
+│   │            │     │ (status)   │     │            │        │
+│   │• agent_trc │     │• file_ments│     │ puppy_ex/  │        │
+│   │• agent_mem │     │• agent_skls│     │  plugins/  │        │
+│   │• code_explr│     │• shell_safe│     │  or        │        │
+│   │• loop_det  │     │• turbo_exe │     │~/.code_    │        │
+│   │            │     │• ...       │     │  puppy/    │        │
 │   └────────────┘     └────────────┘     └────────────┘        │
 │                                                                 │
-│   Discovery:                                                    │
-│   ──────────                                                    │
-│   1. Scan code_puppy/plugins/*/register_callbacks.py            │
-│   2. Scan ~/.code_puppy/plugins/*/register_callbacks.py         │
-│   3. Import and execute registration functions                  │
-│   4. Store callbacks in phase-indexed registry                  │
+│   Discovery (Elixir-native):                                    │
+│   ─────────────────────────────                                 │
+│   1. Scan CodePuppyControl.Plugins.* (built-in Elixir)          │
+│   2. Scan ~/.code_puppy_ex/plugins/*/register_callbacks.ex      │
+│   3. For legacy Python compat: scan code_puppy/plugins/*/        │
+│      register_callbacks.py (via PythonWorker bridge)            │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -727,12 +707,12 @@ Code Puppy uses a **callback-based plugin system** for extensibility.
 
 ## Architecture Principles
 
-1. **Fail Graceful**: Elixir operations fall back to Python; Python falls back to safe defaults
-2. **Zero-Copy Where Possible**: MessageBatch avoids repeated serialization
-3. **Event-Driven**: PubSub pattern enables loose coupling between components
-4. **Type Safety**: Pydantic models at boundaries; Elixir for performance-critical paths
-5. **Plugin-First**: New features should prefer plugin architecture over core modification
-6. **Pure Elixir + Python**: No Rust — simplified build, same performance via BEAM/OTP
+1. **Elixir-Native by Default**: The `pup` binary runs all core operations without Python. Python is only needed for legacy bridge mode.
+2. **BEAM Reliability**: OTP supervision trees, GenServers, and ETS provide fault tolerance and concurrency without manual lock management.
+3. **Event-Driven**: PubSub pattern enables loose coupling between components.
+4. **Plugin-First**: New features should prefer the hook-based plugin architecture over core modification.
+5. **Zero-Copy Where Possible**: MessageBatch avoids repeated serialization via ETS caching.
+6. **No Rust**: Pure Elixir + optional Python — simplified build, same performance via BEAM/OTP.
 
 ---
 

@@ -1,11 +1,12 @@
 #!/bin/sh
 # gac - Git Auto Commit CLI wrapper
-# Invokes the Elixir Mix task or falls back to the Python CLI.
+# Invokes the Elixir escript/Mix task. Legacy Python fallback is disabled unless
+# PUP_ALLOW_LEGACY_PYTHON_CLI=1 is set for debug/rollback.
 #
 # NOTE: This wrapper is used by `mix release` output only.
 # For Burrito single-binary distribution, see docs/burrito-release.md —
 # Burrito binaries are self-contained and do not use these overlays.
-set -euo pipefail
+set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 RELEASE_DIR="${SCRIPT_DIR}/.."
@@ -24,10 +25,20 @@ if [ -f "${MIX_PROJECT_DIR}/mix.exs" ] && command -v mix >/dev/null 2>&1; then
     exec mix gac "$@"
 fi
 
-# Fall back to the Python `gac` if available
-if command -v gac >/dev/null 2>&1; then
-    exec gac "$@"
+# Legacy Python fallback is an explicit debug/rollback opt-in only.
+if [ "${PUP_ALLOW_LEGACY_PYTHON_CLI:-0}" = "1" ]; then
+    LEGACY_GAC="$(command -v gac || true)"
+    if [ -n "${LEGACY_GAC}" ]; then
+        if [ "${LEGACY_GAC}" = "${SCRIPT_DIR}/gac" ]; then
+            echo "Error: PUP_ALLOW_LEGACY_PYTHON_CLI=1 was set, but 'gac' resolves to this release wrapper; refusing recursive fallback." >&2
+            exit 1
+        fi
+        exec "${LEGACY_GAC}" "$@"
+    fi
+
+    echo "Error: Elixir escript/Mix task is unavailable and no legacy Python 'gac' command was found." >&2
+    exit 1
 fi
 
-echo "Error: Neither the Elixir Mix task nor the Python 'gac' command is available." >&2
+echo "Error: Elixir escript/Mix task is unavailable; Python 'gac' fallback is disabled by default. Set PUP_ALLOW_LEGACY_PYTHON_CLI=1 to opt in to legacy/debug fallback." >&2
 exit 1

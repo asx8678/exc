@@ -1,6 +1,9 @@
 # Elixir CLI Quickstart & Dogfood Guide
 
-> 🐶 Daily-driver guide for the Elixir `pup` CLI — setup, credentials, smoke, escript, and troubleshooting.
+> 🐶 **Primary daily-driver** — The Elixir CLI is the default runtime: `./pup` when built as an escript via `mix`, or `code_puppy_control_<target>` when built as a Burrito single-binary.
+> Python is optional and only needed for explicit bridge-worker or legacy Python CLI flows (see [Python bridge-worker mode](#python-bridge-worker-mode)).
+>
+> ⚠️ **Command-name collision:** the Python `codepp` package also installs a legacy `pup` alias next to its canonical Python/PyPI `code-puppy` command. This guide uses `./pup` for the Elixir escript when ambiguity matters. If bare `pup` runs the Python CLI, call the Elixir binary by path or adjust `PATH`. Version streams are separate: Python/PyPI is `0.0.x` from `pyproject.toml`; Elixir-native is `0.1.x` from `mix.exs`. There is no generated `pup-ex` executable; `pup_ex` names Mix tasks.
 
 ---
 
@@ -63,22 +66,26 @@ Expected output ends with `Status: ISOLATED ✅`. If you see warnings, check [Tr
 
 ## 3. Isolation & Home Directory
 
-Elixir pup-ex uses a **separate home** from Python pup to prevent config corruption (see [ADR-003](adr/ADR-003-dual-home-config-isolation.md)):
+The Elixir runtime (`./pup` CLI and `pup_ex` Mix tasks) uses a **separate home** from the Python compatibility package to prevent config corruption (see [ADR-003](adr/ADR-003-dual-home-config-isolation.md)):
 
 | Runtime | Home Directory | Access |
 |---------|---------------|--------|
-| Elixir pup-ex | `~/.code_puppy_ex/` (or `PUP_EX_HOME`) | Read + write |
-| Python pup | `~/.code_puppy/` | Read-only via import |
+| Elixir `./pup` / `pup_ex` tasks | `~/.code_puppy_ex/` (or `PUP_EX_HOME`) | Read + write |
+| Python `code-puppy` / legacy `pup` | `~/.code_puppy/` | Read-only via import |
 
 ### Environment variables
 
 | Variable | Purpose | Default |
 |----------|---------|---------|
 | `PUP_EX_HOME` | Override Elixir home | `~/.code_puppy_ex/` |
+| `PUP_RUNTIME` | Force runtime selector (`auto`, `elixir`, or `python`); set to `python` to activate bridge-worker mode | `auto` (Elixir-first) |
+| `PUP_PYTHON_WORKER_SCRIPT` | Path to the Python worker script used by the Elixir bridge; required only for explicit `PUP_RUNTIME=python` / `--bridge-mode` flows | — |
 | `PUP_HOME` | Deprecated — logs warning | — |
 | `PUPPY_HOME` | Legacy — logs warning | — |
 
-> **Use `PUP_EX_HOME` for Elixir.** `PUP_HOME`/`PUPPY_HOME` are deprecated fallbacks honoured by both Python and Elixir (Elixir logs a deprecation warning). They will be removed in a future release.
+> **Use `PUP_EX_HOME` for Elixir.** `PUP_RUNTIME` controls which runtime backend the CLI selects at session start. `PUP_HOME`/`PUPPY_HOME` are deprecated fallbacks honoured by both Python and Elixir (Elixir logs a deprecation warning). They will be removed in a future release.
+>
+> New runtime env vars use the `PUP_` prefix per project convention. Legacy `PUPPY_`-prefixed vars are deprecated but still supported.
 
 ### Directory layout
 
@@ -219,7 +226,7 @@ The `pup` escript is a self-contained CLI binary that requires only the Erlang r
 MIX_ENV=prod mix escript.build
 ```
 
-Produces `./pup` in the project root.
+Produces `./pup` in the Elixir project root. This is the Elixir-native `pup`, not the Python `codepp` legacy alias.
 
 ### Verify
 
@@ -245,7 +252,7 @@ Requires Zig on PATH. See [docs/burrito-release.md](../elixir/code_puppy_control
 
 ### `pup` command reference
 
-This section describes the **Elixir escript** built as `./pup` from `elixir/code_puppy_control`. If your shell resolves `pup` to the installed Python `codepp` console script instead, `--bridge-mode` has a real Python bridge-worker effect; see [Python bridge-worker mode](#python-bridge-worker-mode) below.
+This section describes the **Elixir escript** built as `./pup` from `elixir/code_puppy_control`. If your shell resolves bare `pup` to the installed Python `codepp` console script instead, use `./pup` or the packaged Elixir binary path. Within the Python/PyPI package, `pup` is the legacy alias and `code-puppy` is canonical.
 
 ```
 Usage: pup [OPTIONS] [PROMPT]
@@ -261,19 +268,21 @@ Options:
   --bridge-mode         Force Python runtime (sets PUP_RUNTIME=python for the session)
 ```
 
-### Python bridge-worker mode
+### Python bridge-worker mode (optional)
 
-The Python CLI now implements bridge-worker mode for Elixir orchestration. This is separate from the Elixir escript flag above:
+> **Python is optional.** The bridge-worker mode exists for legacy Python CLI interoperability and for capabilities not yet ported to Elixir.
+
+When `PUP_RUNTIME=python` or `--bridge-mode` is passed, the Elixir CLI delegates capability execution to a Python process running as a JSON-RPC bridge worker. In production bridge mode, configure `PUP_PYTHON_WORKER_SCRIPT` if the worker script cannot be discovered from the installed `codepp` package. The default Elixir runtime never needs this variable.
 
 ```bash
-# Python console entry point installed by the codepp package
-pup --bridge-mode
+# Elixir CLI with explicit Python bridge
+./pup --bridge-mode
 
-# Equivalent explicit module invocation
+# Or via environment variable
+PUP_RUNTIME=python ./pup
+
+# Python standalone bridge worker (legacy direct invocation)
 python -m code_puppy --bridge-mode
-
-# Equivalent environment-driven activation
-CODE_PUPPY_BRIDGE=1 pup
 ```
 
 In Python bridge-worker mode:
