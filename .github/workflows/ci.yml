@@ -138,3 +138,65 @@ jobs:
 
       - name: Build escript and run packaged CLI smoke
         run: ./scripts/smoke-packaged.sh --no-python
+
+  # ── Burrito native binary smoke ────────────────────────────────────────
+  # Builds the host Burrito binary and validates the native Elixir runtime
+  # in a Python-free environment (PUP_RUNTIME=elixir, sanitized env).
+  # This is the CI gate for the native cutover guarantee.
+  # Refs: code-puppy-7st, code-puppy-v2o
+
+  burrito-native-smoke:
+    name: Burrito native smoke
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: elixir/code_puppy_control
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Elixir
+        uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.17"
+          otp-version: "27"
+
+      - name: Install system dependencies
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq xz-utils
+
+      # ── Install Zig ─────────────────────────────────────────────────
+      # Burrito 1.5.0 requires EXACTLY Zig 0.15.2. It calls exit(1) on
+      # version mismatch. Pin precisely to avoid CI flakiness from Zig
+      # breaking changes (every 0.x.y has historically broken Burrito).
+      # Refs: bd memory "burrito-build-requirements"
+
+      - name: Install Zig 0.15.2
+        run: |
+          ZIG_VERSION="0.15.2"
+          ZIG_TARBALL="zig-linux-x86_64-${ZIG_VERSION}.tar.xz"
+          curl -fsSL "https://ziglang.org/download/${ZIG_VERSION}/${ZIG_TARBALL}" -o /tmp/${ZIG_TARBALL}
+          tar -xJf /tmp/${ZIG_TARBALL} -C /tmp/
+          echo "/tmp/zig-linux-x86_64-${ZIG_VERSION}" >> "$GITHUB_PATH"
+
+      - name: Verify Zig version
+        run: zig version
+
+      - name: Restore dependencies cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            elixir/code_puppy_control/deps
+            elixir/code_puppy_control/_build
+          key: beam-burrito-${{ runner.os }}-${{ hashFiles('elixir/code_puppy_control/mix.lock') }}
+          restore-keys: |
+            beam-burrito-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: mix deps.get --only prod
+
+      - name: Build Burrito host binary
+        run: ./scripts/build-burrito.sh --host-only
+
+      - name: Run Burrito native smoke
+        run: ./scripts/smoke-burrito-native.sh
