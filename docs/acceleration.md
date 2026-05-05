@@ -4,6 +4,12 @@ Code Puppy no longer has a separate "native acceleration" layer bolted onto a
 legacy Python-led CLI. The current daily-driver runtime is **Elixir-native**:
 `CodePuppyControl` owns core execution on the BEAM, and Python is optional.
 
+The **Burrito native binary** (`code_puppy_control_<target>`) is the recommended
+install — fully self-contained with no Erlang/Elixir/Python on the target. The
+`./pup` escript is a degraded dev/smoke path (lacks Repo/Oban/Phoenix Endpoint).
+
+`PUP_RUNTIME=elixir` (or unset/`auto`) is the canonical no-Python runtime selector.
+
 ## Current Architecture
 
 ```
@@ -87,11 +93,11 @@ Use these current controls instead:
 
 | Need | Current control |
 |---|---|
-| Default daily driver | Run the Elixir `pup` binary/escript |
+| **Default daily driver** | **Burrito `code_puppy_control_*` native binary** (recommended) |
 | Force Elixir | `PUP_RUNTIME=elixir` |
+| Dev / smoke testing | `./pup` escript (degraded: no Repo/Oban/Endpoint) |
 | Explicit Python bridge | `PUP_RUNTIME=python` or `--bridge-mode` |
 | Build no-Python confidence | `mix pup_ex.smoke --no-python` |
-| Packaged self-contained runtime | Burrito `code_puppy_control_*` binary |
 
 ## Validation Commands
 

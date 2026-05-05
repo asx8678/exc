@@ -1,7 +1,6 @@
 # Elixir CLI Quickstart & Dogfood Guide
 
-> 🐶 **Primary daily-driver** — The Elixir CLI is the default runtime: `./pup` when built as an escript via `mix`, or `code_puppy_control_<target>` when built as a Burrito single-binary.
-> Python is optional and only needed for explicit bridge-worker or legacy Python CLI flows (see [Python bridge-worker mode](#python-bridge-worker-mode)).
+> 🐶 **Primary daily-driver** — The **Burrito native binary** (`code_puppy_control_<target>`) is the recommended install: fully self-contained, no Erlang/Elixir/Python on the target machine, and includes the complete OTP release (Repo/Oban/Phoenix Endpoint). The `./pup` escript is available for dev/smoke testing but is a **degraded** runtime (no database, scheduler, or admin UI). Python is optional and only needed for explicit bridge-worker or legacy Python CLI flows (see [Python bridge-worker mode](#python-bridge-worker-mode)).
 >
 > ⚠️ **Command-name collision:** the Python `codepp` package also installs a legacy `pup` alias next to its canonical Python/PyPI `code-puppy` command. This guide uses `./pup` for the Elixir escript when ambiguity matters. If bare `pup` runs the Python CLI, call the Elixir binary by path or adjust `PATH`. Version streams are separate: Python/PyPI is `0.0.x` from `pyproject.toml`; Elixir-native is `0.1.x` from `mix.exs`. There is no generated `pup-ex` executable; `pup_ex` names Mix tasks.
 
@@ -218,7 +217,7 @@ The smoke suite needs to set sandbox env vars **before** the OTP application sta
 
 ## 6. Escript Build
 
-The `pup` escript is a self-contained CLI binary that requires only the Erlang runtime on the target machine (no Elixir install needed).
+The `pup` escript is a self-contained CLI binary that requires only the Erlang runtime on the target machine (no Elixir install needed). It is suitable for **local development and smoke testing**, but is a **degraded runtime** — it lacks Repo/Oban/Phoenix Endpoint (no database, scheduler, or admin UI). For real work, prefer the Burrito binary (see below).
 
 ### Build
 
@@ -238,15 +237,28 @@ Produces `./pup` in the Elixir project root. This is the Elixir-native `pup`, no
 mix pup_ex.smoke --escript
 ```
 
-### Burrito single-binary (optional)
+### Burrito native binary (recommended daily-driver)
 
-For truly self-contained distribution (no Erlang/Elixir on the target), use Burrito:
+The Burrito binary is the **recommended production runtime** — a fully self-contained executable with no Erlang/Elixir/Python required on the target machine. It includes the complete OTP release (Repo/Oban/Phoenix Endpoint), providing database, scheduler, admin UI, and all production services that the escript lacks.
 
 ```bash
 scripts/build-burrito.sh
 ```
 
 Requires Zig on PATH. See [docs/burrito-release.md](../elixir/code_puppy_control/docs/burrito-release.md) for the platform matrix and prerequisites.
+
+Pre-built Burrito binaries are published to [GitHub Releases](https://github.com/mpfaffenberger/code_puppy/releases) for each tagged Elixir release.
+
+**Runtime comparison:**
+
+| Feature | Burrito binary | Escript `./pup` |
+|---------|---------------|------------------|
+| Self-contained (no Erlang install) | ✅ Yes | ❌ Needs Erlang/OTP |
+| Repo (Ecto/SQLite database) | ✅ Yes | ❌ No |
+| Oban (scheduler) | ✅ Yes | ❌ No |
+| Phoenix Endpoint (admin UI) | ✅ Yes | ❌ No |
+| Production ready | ✅ Recommended | ⚠️ Dev/smoke only |
+| Python-free by default | ✅ `PUP_RUNTIME=elixir` | ✅ `PUP_RUNTIME=elixir` |
 
 ## 7. CLI Usage
 

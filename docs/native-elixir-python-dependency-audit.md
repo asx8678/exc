@@ -225,14 +225,17 @@ Grouped logically — **not** one per grep hit. These are the actionable outcome
 
 **Actions:** Delete Python `fast_puppy` plugin dir. Verify no imports reference it.
 
-### 6.4 Update README and Install Docs to Prefer Burrito Native (P2)
+### 6.4 Update README and Install Docs to Prefer Burrito Native (P2) — ✅ code-puppy-2j6
 
 **Rationale:** `README.md` currently shows `uvx --from codepp code-puppy` prominently. The Burrito native binary should be the first-recommended install method.
 
 **Actions:**
-- Reorder README install section: Burrito first, Python/PyPI as "compatibility path"
+- Reorder README install section: Burrito first, escript as dev/smoke, Python/PyPI as "compatibility path"
 - Add version stream distinction (0.1.x Elixir vs 0.0.x Python) more prominently
-- Update `docs/acceleration.md` and `docs/getting_started.md` similarly
+- Update `docs/acceleration.md`, `docs/getting_started.md`, and `docs/ELIXIR_CLI_QUICKSTART.md` similarly
+- Make escript vs Burrito distinction explicit (escript = degraded, no Repo/Oban/Endpoint)
+
+**Status:** Completed in code-puppy-2j6.
 
 ### 6.5 Define Native Plugin/Callback Migration Policy (P2)
 

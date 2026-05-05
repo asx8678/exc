@@ -73,30 +73,76 @@ This fork adds significant capabilities to the original code_puppy, transforming
 
 ## Quick start
 
-Elixir-native is the default runtime. Use the Elixir CLI when you have a packaged or locally built binary available:
+**Burrito native binary** is the recommended daily-driver — a self-contained executable with no Erlang/Elixir/Python install required:
 
 ```bash
-cd elixir/code_puppy_control
-MIX_ENV=prod mix escript.build
-./pup -i
+# Download the latest Burrito release for your platform from GitHub Releases
+# Linux (x86_64):
+curl -L https://github.com/mpfaffenberger/code_puppy/releases/latest/download/code_puppy_control_linux_x86_64 -o pup
+chmod +x pup && ./pup -i
+
+# macOS (Apple Silicon):
+curl -L https://github.com/mpfaffenberger/code_puppy/releases/latest/download/code_puppy_control_macos_arm64 -o pup
+chmod +x pup && ./pup -i
 ```
 
-Legacy/PyPI compatibility path (Python package, still supported):
+> **Escript (dev/smoke only):** `mix escript.build` produces a `./pup` escript for local development and smoke testing. The escript is a **degraded** runtime — it lacks Repo/Oban/Phoenix Endpoint (no database, no scheduler, no admin UI). Prefer the Burrito binary for real work.
+
+Legacy/PyPI compatibility path (Python package — bridge mode or legacy Python CLI only):
 
 ```bash
 uvx --from codepp code-puppy -i
 ```
 
-> **CLI name collision during migration:** both runtimes can provide a command named `pup`.
-> - **Elixir-native:** `mix escript.build` creates `elixir/code_puppy_control/pup` (`./pup --version` reports the Elixir `0.1.x` stream from `mix.exs`). Burrito release artifacts use the `code_puppy_control` release name plus platform suffixes.
-> - **Python/PyPI compatibility:** `codepp` installs canonical `code-puppy` plus a legacy `pup` alias (`code-puppy --version` and Python `pup --version` report the `0.0.x` stream from `pyproject.toml`). The Python `pup` alias is being deprecated — see [the deprecation plan](docs/release/python-pup-alias-deprecation-plan.md) for timeline and opt-in warning details.
-> - If both are on `PATH`, shell order decides. Prefer `uvx --from codepp code-puppy` or a known Python venv's `code-puppy` for Python flows, and an explicit Elixir path (`./pup` or the packaged native binary) for Elixir flows. No `pup-ex` executable is generated today; `pup_ex` names Mix tasks only.
+> **Version streams & CLI name collision:**
+> - **Elixir-native (0.1.x):** Burrito `code_puppy_control_*` binaries and `mix escript.build` → `./pup` both report the `0.1.x` stream from `mix.exs`. The Burrito binary is the full-featured daily-driver; the escript is dev/smoke only (no Repo/Oban/Endpoint).
+> - **Python/PyPI compatibility (0.0.x):** `codepp` installs canonical `code-puppy` plus a legacy `pup` alias reporting the `0.0.x` stream from `pyproject.toml`. The Python `pup` alias is being deprecated — see [the deprecation plan](docs/release/python-pup-alias-deprecation-plan.md).
+> - If both are on `PATH`, shell order decides. For Python flows, use `uvx --from codepp code-puppy` or a known Python venv's `code-puppy`. For Elixir flows, use the Burrito binary or `./pup` (escript). No `pup-ex` executable exists; `pup_ex` names Mix tasks only.
+> - **`PUP_RUNTIME=elixir`** is the canonical no-Python runtime selector. `PUP_RUNTIME=python` or `--bridge-mode` activates the Python compatibility bridge.
 
 ## Installation
 
-### UV / PyPI (Legacy Python Compatibility)
+### Burrito Native Binary (Recommended)
 
-The PyPI package is kept for compatibility and for users who specifically need the Python CLI or bridge. It can still connect to the Elixir runtime when available, but the Elixir-native `pup` path is the default direction. In the Python/PyPI package, the canonical command is `code-puppy`; the Python `pup` command is a legacy alias being deprecated (see the [deprecation plan](docs/release/python-pup-alias-deprecation-plan.md) for details and timeline).
+The Burrito binary is a fully self-contained executable — **no Erlang, Elixir, or Python install required**. It includes the complete OTP release with Repo/Oban/Phoenix Endpoint (database, scheduler, admin UI), making it the recommended daily-driver path.
+
+```bash
+# Download the latest release for your platform from GitHub Releases:
+# https://github.com/mpfaffenberger/code_puppy/releases
+
+# Linux (x86_64)
+curl -L https://github.com/mpfaffenberger/code_puppy/releases/latest/download/code_puppy_control_linux_x86_64 -o pup
+chmod +x pup
+./pup -i
+
+# macOS (Apple Silicon)
+curl -L https://github.com/mpfaffenberger/code_puppy/releases/latest/download/code_puppy_control_macos_arm64 -o pup
+chmod +x pup
+./pup -i
+
+# macOS (Intel)
+curl -L https://github.com/mpfaffenberger/code_puppy/releases/latest/download/code_puppy_control_macos_x86_64 -o pup
+chmod +x pup
+./pup -i
+```
+
+> **Runtime selector:** `PUP_RUNTIME=elixir` (or unset/`auto`) is the default. No Python is required or invoked.
+> Set `PUP_RUNTIME=python` or pass `--bridge-mode` only when you need the Python compatibility bridge.
+
+### Escript Build (Dev / Smoke Testing)
+
+The escript is useful for local development and smoke testing, but is a **degraded runtime** — it lacks Repo/Oban/Phoenix Endpoint (no database, scheduler, or admin UI). For real work, prefer the Burrito binary above.
+
+```bash
+cd elixir/code_puppy_control
+mix deps.get
+MIX_ENV=prod mix escript.build
+./pup --help
+```
+
+### UV / PyPI (Compatibility / Legacy Python Bridge)
+
+The PyPI package is kept for compatibility and for users who specifically need the Python CLI or bridge. It can still connect to the Elixir runtime when available, but the Burrito/Elixir-native path is the default. In the Python/PyPI package, the canonical command is `code-puppy`; the Python `pup` command is a legacy alias being deprecated (see the [deprecation plan](docs/release/python-pup-alias-deprecation-plan.md) for details and timeline).
 
 #### macOS / Linux
 
@@ -256,8 +302,9 @@ Code Puppy is **Elixir-native by default**. There is no separate legacy Python-l
 
 | Need | Command / setting |
 |------|-------------------|
-| Default daily driver | Run the Elixir `pup` escript or Burrito `code_puppy_control_*` binary |
+| **Default daily driver** | **Burrito `code_puppy_control_*` native binary** (recommended) |
 | Force Elixir | `PUP_RUNTIME=elixir ./pup` |
+| Dev / smoke testing | `./pup` escript (degraded: no Repo/Oban/Endpoint) |
 | Explicit Python bridge | `PUP_RUNTIME=python ./pup` or `./pup --bridge-mode` |
 | Legacy Python/PyPI CLI | `uvx --from codepp code-puppy` |
 
@@ -318,12 +365,10 @@ code-puppy --help
 
 ## Requirements
 
-- Packaged or locally built `pup` CLI for the Elixir-native default runtime
-- Python 3.14+ only for the legacy `code-puppy`/PyPI compatibility path, Python plugins/agents, or explicit `--bridge-mode` / `PUP_RUNTIME=python`
-- OpenAI API key (for GPT models)
-- Cerebras API key (for Cerebras models)
-- Anthropic key (for Claude models)
-- Ollama endpoint available
+- **Burrito native binary** (recommended): No runtime dependencies — Erlang/Elixir/Python are bundled in the binary
+- **Escript** (dev/smoke): Erlang/OTP 26+ on the target machine
+- Python 3.14+ **only** for the legacy `code-puppy`/PyPI compatibility path, Python plugins/agents, or explicit `--bridge-mode` / `PUP_RUNTIME=python`
+- API keys: OpenAI (GPT models), Cerebras, Anthropic (Claude models), or Ollama endpoint
 
 ## Agent Rules
 We support AGENT.md files for defining coding standards and styles that your code should comply with. These rules can cover various aspects such as formatting, naming conventions, and even design guidelines.
