@@ -99,8 +99,21 @@ defmodule CodePuppyControl.Application do
     # unnecessarily. We detect escript mode + help/version flags here and
     # short-circuit just like we do for Burrito.
     if cli_fast_path?() do
-      spawn_cli_dispatch()
-      Supervisor.start_link([], strategy: :one_for_one, name: CodePuppyControl.Supervisor)
+      if escript_mode?() do
+        # Escript fast path: run CLI synchronously and halt before the
+        # escript runtime calls main/1 again.  With `app: :code_puppy_control`
+        # in the escript config, the BEAM auto-starts the application before
+        # the escript main/1 entry point; if we only spawned CLI dispatch
+        # asynchronously, the escript main/1 would also call CLI.main/1,
+        # producing duplicate --help/--version output.
+        run_cli_and_halt()
+      else
+        # Burrito fast path: spawn CLI dispatch after starting an empty
+        # supervisor.  Burrito controls the full lifecycle and won't
+        # re-invoke main/1, so async dispatch is safe.
+        spawn_cli_dispatch()
+        Supervisor.start_link([], strategy: :one_for_one, name: CodePuppyControl.Supervisor)
+      end
     else
       start_normal()
     end
@@ -172,7 +185,35 @@ defmodule CodePuppyControl.Application do
     result
   end
 
-  # Unified CLI dispatch for both Burrito and escript contexts.
+  # Synchronous CLI dispatch for the escript fast path.
+  # Calls CLI.main/1 directly and halts the VM, guaranteeing that
+  # --help/--version output appears exactly once (the escript runtime
+  # won't get a chance to call main/1 again).
+  defp run_cli_and_halt do
+    args = cli_argv()
+
+    try do
+      CodePuppyControl.CLI.main(args)
+      System.halt(0)
+    rescue
+      e ->
+        IO.puts(
+          :stderr,
+          "CLI crashed: #{Exception.format(:error, e, __STACKTRACE__)}"
+        )
+
+        System.halt(1)
+    catch
+      :exit, {:shutdown, code} when is_integer(code) ->
+        System.halt(code)
+
+      kind, reason ->
+        IO.puts(:stderr, "CLI aborted (#{kind}): #{inspect(reason)}")
+        System.halt(1)
+    end
+  end
+
+  # Async CLI dispatch for Burrito context.
   # Spawns a process that calls CLI.main/1 with the appropriate argv,
   # then halts the VM with the exit code from the CLI.
   defp spawn_cli_dispatch do
@@ -334,7 +375,10 @@ defmodule CodePuppyControl.Application do
         # Shell command runner process tracking
         CodePuppyControl.Tools.CommandRunner.ProcessManager,
         # PTY session manager for interactive terminals
-        CodePuppyControl.PtyManager
+        CodePuppyControl.PtyManager,
+        # Auth rate limiter ETS table owner — no DB/NIF dependency,
+        # always started so the table is available in escript mode too.
+        CodePuppyControlWeb.Plugs.RateLimiterServer
       ]
 
     # Children that require the exqlite NIF — only started when NOT in
@@ -354,8 +398,6 @@ defmodule CodePuppyControl.Application do
         [
           # SQLite database (requires exqlite NIF)
           CodePuppyControl.Repo,
-          # Auth rate limiter ETS table owner
-          CodePuppyControlWeb.Plugs.RateLimiterServer,
           # Oban job processing with SQLite engine
           {Oban, Application.fetch_env!(:code_puppy_control, Oban)}
         ]

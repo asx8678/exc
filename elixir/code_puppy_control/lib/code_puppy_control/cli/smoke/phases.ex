@@ -389,6 +389,15 @@ defmodule CodePuppyControl.CLI.Smoke.Phases do
         packaged_cli_env()
       end
 
+    # The interactive bootstrap probe runs the escript without
+    # --help/--version, so config/runtime.exs validates
+    # PUP_SECRET_KEY_BASE and PUP_DATABASE_PATH.  Add generated
+    # values if the probe env doesn't already provide them.
+    env =
+      env
+      |> ensure_env_var("PUP_SECRET_KEY_BASE", smoke_secret_key_base())
+      |> ensure_env_var("PUP_DATABASE_PATH", "/tmp/pup_smoke_nonexistent.db")
+
     with {:version, {ver_out, 0}} <-
            {:version, System.cmd(path, ["--version"], stderr_to_stdout: true, env: env)},
          true <- ver_out =~ "code-puppy" || {:fail, :version_marker_missing, ver_out},
@@ -488,13 +497,12 @@ defmodule CodePuppyControl.CLI.Smoke.Phases do
   # or `{:error, reason}` on unexpected failure.  Uses a 15-second
   # timeout to prevent hangs.
   #
-  # (code-puppy-be7) Uses Port instead of sh -c with raw string
-  # interpolation to avoid shell injection. The /quit input is written
-  # to a temporary file which is piped to the CLI via the shell, keeping
-  # the command argument safe from interpolation.
+  # (code-puppy-fut) Uses System.cmd/3 with a temp stdin file piped
+  # via `sh -c`.  Paths are escaped with shell_single_quote_escape/1
+  # to prevent breakage on single quotes in filenames (the classic
+  # `it's` → `'it'\''s'` idiom).  No misleading Port comments.
   defp run_interactive_bootstrap(path, env) do
-    # Write the /quit command to a temp file to avoid shell injection
-    # via raw string interpolation in `printf '/quit\n' | '#{path}'`.
+    # Write the /quit command to a temp file.
     tmp_dir = System.tmp_dir!()
     uniq = :erlang.unique_integer([:positive])
     stdin_file = Path.join(tmp_dir, "pup_smoke_stdin_#{uniq}")
@@ -505,7 +513,7 @@ defmodule CodePuppyControl.CLI.Smoke.Phases do
       task =
         Task.async(fn ->
           try do
-            System.cmd("sh", ["-c", "cat '#{stdin_file}' | '#{path}'"],
+            System.cmd("sh", ["-c", "cat '#{shell_sq(stdin_file)}' | '#{shell_sq(path)}'"],
               stderr_to_stdout: true,
               env: env
             )
@@ -531,6 +539,21 @@ defmodule CodePuppyControl.CLI.Smoke.Phases do
     after
       File.rm(stdin_file)
     end
+  end
+
+  # Escape a string for safe interpolation inside POSIX single quotes.
+  # In a single-quoted shell context, the only character that needs
+  # escaping is the single quote itself.  The standard idiom ends
+  # the current quote, adds an escaped single quote, and reopens:
+  #
+  #     it's  →  'it'\''s'
+  #
+  # This is safe even for strings containing backslashes, dollar
+  # signs, or other shell metacharacters because single-quoting
+  # suppresses all interpretation.
+  @spec shell_sq(String.t()) :: String.t()
+  defp shell_sq(s) do
+    String.replace(s, "'", "'\\''")
   end
 
   # Scan interactive bootstrap output for crash indicators that signal
@@ -567,6 +590,23 @@ defmodule CodePuppyControl.CLI.Smoke.Phases do
 
   defp random_hex(bytes) do
     :crypto.strong_rand_bytes(bytes) |> Base.encode16(case: :lower)
+  end
+
+  # 64-byte secret key base for the smoke probe environment.
+  # Not persisted — regenerated each run.  Only used to satisfy
+  # config/runtime.exs validation so the escript can boot its
+  # supervision tree during the interactive bootstrap probe.
+  defp smoke_secret_key_base do
+    :crypto.strong_rand_bytes(48) |> Base.encode64(padding: false)
+  end
+
+  # Add an env var to the list if not already present.
+  defp ensure_env_var(env, key, value) do
+    if Enum.any?(env, fn {k, _v} -> k == key end) do
+      env
+    else
+      [{key, value} | env]
+    end
   end
 
   defp safe_predicate(fun) do
