@@ -295,15 +295,34 @@ defmodule CodePuppyControl.ModelsDevParser.Registry do
         if File.exists?(bundled_path) do
           ApiClient.load_from_file(state, bundled_path)
         else
-          {:error, "No data source available: bundled file not found at #{bundled_path}"}
+          # Non-fatal: in escript mode, :code.priv_dir/1 resolves to a
+          # non-existent path inside the zip archive. Start with empty
+          # data rather than crashing the supervision tree.
+          Logger.warning(
+            "ModelsDevParser bundled data not found at #{bundled_path} " <>
+              "(escript or non-standard install). Starting with empty registry."
+          )
+
+          {:ok, %{state | data_source: "unavailable (bundled file missing)"}}
         end
     end
   end
 
   defp get_bundled_json_path do
-    # Look for bundled JSON in priv directory relative to this module
-    priv_dir = :code.priv_dir(:code_puppy_control)
-    Path.join(priv_dir, @bundled_json_filename)
+    # Look for bundled JSON in priv directory relative to this module.
+    # In escript mode, :code.priv_dir/1 may return {:error, :bad_name}
+    # even with app: :code_puppy_control in mix.exs, because the .app
+    # file layout inside the escript zip differs from a normal install.
+    # Fall back to Application.app_dir/2 which works by finding the
+    # module's beam file on the code path.
+    case :code.priv_dir(:code_puppy_control) do
+      {:error, _} ->
+        # Fallback: use Application.app_dir/2 which resolves via code path
+        Application.app_dir(:code_puppy_control, "priv/#{@bundled_json_filename}")
+
+      priv_dir ->
+        Path.join(priv_dir, @bundled_json_filename)
+    end
   end
 
   # ============================================================================

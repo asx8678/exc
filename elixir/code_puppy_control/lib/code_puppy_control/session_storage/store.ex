@@ -341,12 +341,26 @@ defmodule CodePuppyControl.SessionStorage.Store do
     # narrow "no such table" Exqlite.Error during startup recovery. Catch
     # those gracefully only in tests; in other environments, reraise so real
     # persistence failures are visible.
+    # (code-puppy-be7) In escript mode, Repo is not started at all, so
+    # disk recovery raises RuntimeError ("could not lookup Ecto repo").
+    # Catch that too — the Store starts with 0 sessions.
     recovered =
       try do
         Operations.do_recover_from_disk()
       rescue
         e in [DBConnection.OwnershipError, Exqlite.Error] ->
           handle_init_repo_error(e, __STACKTRACE__)
+
+        e in RuntimeError ->
+          if String.contains?(Exception.message(e), "could not lookup Ecto repo") do
+            Logger.warning(
+              "SessionStorage.Store: Repo not started (escript mode?); skipping disk recovery"
+            )
+
+            0
+          else
+            reraise e, __STACKTRACE__
+          end
       end
 
     terminal_count =
@@ -411,11 +425,20 @@ defmodule CodePuppyControl.SessionStorage.Store do
   # sandbox contention, letting the Store stay alive for ETS-only reads. In
   # non-test environments, and for unexpected DB errors in tests, reraise so
   # real persistence failures stay visible. (code_puppy-i1n)
+  # (code-puppy-be7) Also catches RuntimeError when Repo is not started
+  # (escript mode).
   defp safe_repo(fun) do
     fun.()
   rescue
     e in [DBConnection.OwnershipError] ->
       handle_repo_error(e, __STACKTRACE__)
+
+    e in RuntimeError ->
+      if String.contains?(Exception.message(e), "could not lookup Ecto repo") do
+        {:error, :repo_unavailable}
+      else
+        reraise e, __STACKTRACE__
+      end
   end
 
   defp handle_init_repo_error(%DBConnection.OwnershipError{} = e, stacktrace) do

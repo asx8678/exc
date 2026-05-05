@@ -287,7 +287,16 @@ defmodule CodePuppyControl.ModelRegistry do
         {:ok, %{table: table}}
 
       {:error, reason} ->
-        Logger.error("ModelRegistry failed to load configs: #{inspect(reason)}")
+        # (code-puppy-be7) In escript mode, :code.priv_dir resolves to a
+        # path inside the zip archive (not a real file). Downgrade to
+        # warning so it doesn't pollute startup as an [error].
+        log_level =
+          case reason do
+            {:file_read_error, _path, :enotdir} -> :warning
+            _ -> :error
+          end
+
+        Logger.log(log_level, "ModelRegistry failed to load configs: #{inspect(reason)}")
         # Still start the GenServer, but with empty config
         {:ok, %{table: table}}
     end
@@ -358,11 +367,20 @@ defmodule CodePuppyControl.ModelRegistry do
     if env_path != nil and env_path != "" do
       env_path
     else
-      Application.get_env(
-        :code_puppy_control,
-        :bundled_models_path,
-        Application.app_dir(:code_puppy_control, "priv/models.json")
-      )
+      case :code.priv_dir(:code_puppy_control) do
+        {:error, _} ->
+          # Escript mode: priv_dir is not available. Use the path anyway
+          # so the error message is clear; load_bundled_models/0 will
+          # handle the :enoent gracefully.
+          "<escript-no-priv-dir>/priv/models.json"
+
+        priv_dir ->
+          Application.get_env(
+            :code_puppy_control,
+            :bundled_models_path,
+            Path.join(priv_dir, "models.json")
+          )
+      end
     end
   end
 

@@ -26,14 +26,21 @@ defmodule CodePuppyControl.MixProject do
       # Do not rename without a release/deprecation plan; CI/package smoke
       # currently validate `./pup`.
       name: :pup,
-      app: nil
+      # Bundle priv files from :code_puppy_control so models.json and
+      # models_dev_api.json are available in the escript archive.
+      # NOTE: NIF .so files (exqlite) still cannot be loaded from the
+      # zip archive — the Application detects escript mode and skips
+      # DB-dependent children (Repo, Oban, Endpoint). (code-puppy-be7)
+      app: :code_puppy_control
     ]
   end
 
   def application do
     [
       mod: {CodePuppyControl.Application, []},
-      # Explicitly list auto-started applications, excluding :erlexec.
+      # Explicitly list auto-started applications, excluding :erlexec and
+      # :ecto_sqlite3/:exqlite.
+      #
       # In escript/Burrito builds, erlexec's native port (exec-port) may not
       # be findable (it looks under a virtual/unusable priv_dir), causing
       # the entire application startup to fail. By excluding erlexec from
@@ -42,6 +49,14 @@ defmodule CodePuppyControl.MixProject do
       # on the first create_session/2 call and returns a clear error if
       # unavailable, allowing ExecutorPty to fall back to standard
       # execution via System.cmd.
+      #
+      # (code-puppy-be7) Similarly, :ecto_sqlite3/:exqlite are excluded
+      # from auto-start because the exqlite NIF .so cannot be loaded from
+      # the escript zip archive. Repo.start_link/1 is only called when
+      # the Application's build_children/1 decides to include Repo in the
+      # supervision tree (i.e., not in escript mode). Moving these to
+      # included_applications means the beam files are on the code path
+      # but the applications are not auto-started.
       applications: [
         :kernel,
         :stdlib,
@@ -57,7 +72,6 @@ defmodule CodePuppyControl.MixProject do
         :oban,
         :crontab,
         :plug_cowboy,
-        :ecto_sqlite3,
         :telemetry,
         :msgpax,
         :finch,
@@ -65,10 +79,11 @@ defmodule CodePuppyControl.MixProject do
         :owl
       ],
       # erlexec is included (loaded, beam files on path) but NOT
-      # auto-started. PtyManager starts it lazily. This means erlexec
-      # will be stopped when code_puppy_control stops, which is correct
-      # for lifecycle management.
-      included_applications: [:erlexec]
+      # auto-started. PtyManager starts it lazily.
+      # ecto_sqlite3/exqlite are included but NOT auto-started.
+      # Repo.start_link/1 is only called from the Application supervision
+      # tree when NOT in escript mode. (code-puppy-be7)
+      included_applications: [:erlexec, :ecto_sqlite3, :exqlite, :db_connection, :ecto_sql, :ecto]
     ]
   end
 

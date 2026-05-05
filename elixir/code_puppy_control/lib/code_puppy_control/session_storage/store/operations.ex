@@ -315,7 +315,18 @@ defmodule CodePuppyControl.SessionStorage.Store.Operations do
         count
 
       {:error, reason} ->
-        Logger.error("SessionStorage.Store: disk recovery failed: #{inspect(reason)}")
+        # (code-puppy-be7) Repo-unavailable in escript mode is expected;
+        # downgrade to warning so it doesn't pollute startup logs.
+        log_level =
+          case reason do
+            %RuntimeError{message: msg} when is_binary(msg) ->
+              if String.contains?(msg, "could not lookup Ecto repo"), do: :warning, else: :error
+
+            _ ->
+              :error
+          end
+
+        Logger.log(log_level, "SessionStorage.Store: disk recovery failed: #{inspect(reason)}")
         0
     end
   end

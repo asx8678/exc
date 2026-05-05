@@ -432,29 +432,6 @@ defmodule CodePuppyControl.CLI.Smoke.Phases do
               }
             }
           end
-
-        {:guard_active, bootstrap_out} ->
-          # CLI startup guard correctly caught a failure and exited
-          # nonzero with a clear FATAL message.  This is correct
-          # behavior — the guard is protecting the user from a degraded
-          # supervision tree (e.g. in escript where NIFs/data files
-          # have path issues).  Report as :pass since the guard is
-          # doing its job.
-          %{
-            phase: phase,
-            status: :pass,
-            detail:
-              "#{phase} --version and --help exited 0; interactive " <>
-                "bootstrap exited with CLI guard active (startup failure " <>
-                "handled correctly)",
-            metrics: %{
-              path: path,
-              version_bytes: byte_size(ver_out),
-              help_bytes: byte_size(help_out),
-              bootstrap_bytes: byte_size(bootstrap_out),
-              cli_guard_active: true
-            }
-          }
       end
     else
       {:version, {output, exit_status}} ->
@@ -508,95 +485,75 @@ defmodule CodePuppyControl.CLI.Smoke.Phases do
 
   # Pipe `/quit\n` into the packaged CLI with a sandboxed environment
   # and capture all output.  Returns `{:ok, output}` on success (exit 0)
-  # or `{:guard_active, output}` when the CLI guard caught a startup
-  # failure and exited nonzero with a clear FATAL message (which is
-  # correct behavior — the guard is protecting the user from a
-  # degraded supervision tree).  Returns `{:error, reason}` on
-  # unexpected failure.  Uses a 15-second timeout to prevent hangs.
+  # or `{:error, reason}` on unexpected failure.  Uses a 15-second
+  # timeout to prevent hangs.
   #
-  # We use `sh -c` with a pipe because `System.cmd/3` does not support
-  # passing stdin to the child process directly.  The timeout is
-  # implemented via Task.await/2 since System.cmd/3 has no :timeout
-  # option.
+  # (code-puppy-be7) Uses Port instead of sh -c with raw string
+  # interpolation to avoid shell injection. The /quit input is written
+  # to a temporary file which is piped to the CLI via the shell, keeping
+  # the command argument safe from interpolation.
   defp run_interactive_bootstrap(path, env) do
-    task =
-      Task.async(fn ->
-        try do
-          System.cmd("sh", ["-c", "printf '/quit\\n' | '#{path}'"],
-            stderr_to_stdout: true,
-            env: env
-          )
-        catch
-          kind, reason -> {kind, reason}
-        end
-      end)
+    # Write the /quit command to a temp file to avoid shell injection
+    # via raw string interpolation in `printf '/quit\n' | '#{path}'`.
+    tmp_dir = System.tmp_dir!()
+    uniq = :erlang.unique_integer([:positive])
+    stdin_file = Path.join(tmp_dir, "pup_smoke_stdin_#{uniq}")
 
-    case Task.yield(task, 15_000) || Task.shutdown(task, :brutal_kill) do
-      {:ok, {output, 0}} ->
-        {:ok, output}
+    try do
+      File.write!(stdin_file, "/quit\n")
 
-      {:ok, {output, exit_status}} when is_integer(exit_status) ->
-        # Nonzero exit — check if the CLI guard caught the failure
-        if cli_guard_active_in_output?(output) do
-          {:guard_active, output}
-        else
+      task =
+        Task.async(fn ->
+          try do
+            System.cmd("sh", ["-c", "cat '#{stdin_file}' | '#{path}'"],
+              stderr_to_stdout: true,
+              env: env
+            )
+          catch
+            kind, reason -> {kind, reason}
+          end
+        end)
+
+      case Task.yield(task, 15_000) || Task.shutdown(task, :brutal_kill) do
+        {:ok, {output, 0}} ->
+          {:ok, output}
+
+        {:ok, {output, exit_status}} when is_integer(exit_status) ->
           {:error, "exited #{exit_status}: #{String.slice(output, 0, 200)}"}
-        end
 
-      {:ok, {:exit, reason}} ->
-        {:error, "port exited: #{inspect(reason)}"}
+        {:ok, {:exit, reason}} ->
+          {:error, "port exited: #{inspect(reason)}"}
 
-      nil ->
-        # Task timed out and was killed
-        {:error, "interactive bootstrap timed out after 15s"}
+        nil ->
+          # Task timed out and was killed
+          {:error, "interactive bootstrap timed out after 15s"}
+      end
+    after
+      File.rm(stdin_file)
     end
-  end
-
-  defp cli_guard_active_in_output?(output) do
-    String.contains?(output, "FATAL: code_puppy_control application failed to start") or
-      String.contains?(output, "FATAL: core OTP components are not alive")
   end
 
   # Scan interactive bootstrap output for crash indicators that signal
   # the OTP supervision tree is degraded.  Returns a list of error
   # description strings (empty = clean).
   #
-  # The probe distinguishes between:
-  # - OLD broken behavior: erlexec crashes + REPL entered → crashes on
-  #   /agent (the bug this probe was designed to catch)
-  # - NEW correct behavior: CLI guard detects startup failure, prints
-  #   FATAL message, and exits 1 (the guard is doing its job)
-  #
-  # If the CLI guard's FATAL message is present alongside an exit 1,
-  # that is NOT an error — the guard is protecting the user from a
-  # degraded supervision tree.  The error patterns below only flag
-  # the case where the old bug manifests (erlexec crash + REPL entry
-  # without the guard catching it).
+  # (code-puppy-be7) Since bootstrap now must exit 0 (not just have the
+  # CLI guard catch a failure), we also flag FATAL messages as errors
+  # because they indicate the guard prevented REPL entry.
   defp detect_bootstrap_errors(output) do
-    # If the CLI guard caught the failure and exited cleanly, that's
-    # correct behavior — not a bug.
-    cli_guard_active =
-      String.contains?(output, "FATAL: code_puppy_control application failed to start") or
-        String.contains?(output, "FATAL: core OTP components are not alive")
+    error_patterns = [
+      {"FATAL: code_puppy_control application failed to start",
+       "application startup failed (FATAL message in output)"},
+      {"FATAL: core OTP components are not alive",
+       "core OTP components missing (FATAL message in output)"},
+      {"No exec-port files found", "erlexec exec-port not found"},
+      {"Application erlexec exited", "erlexec application crashed"},
+      {"ArgumentError", "ArgumentError during startup"}
+    ]
 
-    if cli_guard_active do
-      # CLI guard is working — no bootstrap errors to report.
-      # The app startup failure is being handled correctly.
-      []
-    else
-      # Without the CLI guard, check for the old bug patterns where
-      # erlexec crashed but the REPL was entered anyway.
-      error_patterns = [
-        {"No exec-port files found", "erlexec exec-port not found (startup not guarded)"},
-        {"Application erlexec exited", "erlexec application crashed (startup not guarded)"},
-        {":slash_commands", "slash_commands ETS table issue (startup not guarded)"},
-        {"ArgumentError", "ArgumentError raised during startup (startup not guarded)"}
-      ]
-
-      for {pattern, label} <- error_patterns,
-          String.contains?(output, pattern),
-          do: label
-    end
+    for {pattern, label} <- error_patterns,
+        String.contains?(output, pattern),
+        do: label
   end
 
   defp packaged_cli_env do
