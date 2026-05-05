@@ -389,14 +389,20 @@ defmodule CodePuppyControl.CLI.Smoke.Phases do
         packaged_cli_env()
       end
 
-    # The interactive bootstrap probe runs the escript without
-    # --help/--version, so config/runtime.exs validates
-    # PUP_SECRET_KEY_BASE and PUP_DATABASE_PATH.  Add generated
-    # values if the probe env doesn't already provide them.
-    env =
-      env
-      |> ensure_env_var("PUP_SECRET_KEY_BASE", smoke_secret_key_base())
-      |> ensure_env_var("PUP_DATABASE_PATH", "/tmp/pup_smoke_nonexistent.db")
+    # (code-puppy-nml) The escript can now start without PUP_SECRET_KEY_BASE
+    # and PUP_DATABASE_PATH because runtime.exs detects escript mode and
+    # skips validation. Do NOT inject these env vars — the probe must prove
+    # that plain `./pup` works without them.
+    #
+    # For escript, also run an explicit no-env bootstrap that explicitly
+    # unsets PUP_SECRET_KEY_BASE/PUP_DATABASE_PATH from the child
+    # environment to prove the escript can start without them even when
+    # inherited from the parent process.
+    no_env_bootstrap_result =
+      if phase == :escript do
+        no_env = sanitize_prod_secrets(env)
+        run_interactive_bootstrap(path, no_env)
+      end
 
     with {:version, {ver_out, 0}} <-
            {:version, System.cmd(path, ["--version"], stderr_to_stdout: true, env: env)},
@@ -413,19 +419,54 @@ defmodule CodePuppyControl.CLI.Smoke.Phases do
         {:ok, bootstrap_out} ->
           bootstrap_errors = detect_bootstrap_errors(bootstrap_out)
 
-          if bootstrap_errors == [] do
-            %{
-              phase: phase,
-              status: :pass,
-              detail:
+          # For escript, also validate the explicit no-env bootstrap
+          no_env_errors =
+            case no_env_bootstrap_result do
+              {:ok, no_env_out} ->
+                detect_bootstrap_errors(no_env_out)
+
+              {:error, reason} ->
+                ["no-env bootstrap failed: #{String.slice(to_string(reason), 0, 100)}"]
+
+              nil ->
+                # Not an escript probe, skip
+                []
+            end
+
+          all_errors = bootstrap_errors ++ no_env_errors
+
+          if all_errors == [] do
+            detail =
+              if no_env_bootstrap_result != nil do
+                "#{phase} --version, --help, interactive bootstrap/quit, " <>
+                  "and no-env bootstrap/quit exited 0 with stable markers"
+              else
                 "#{phase} --version, --help, and interactive bootstrap/quit " <>
-                  "exited 0 with stable markers",
-              metrics: %{
+                  "exited 0 with stable markers"
+              end
+
+            metrics =
+              %{
                 path: path,
                 version_bytes: byte_size(ver_out),
                 help_bytes: byte_size(help_out),
                 bootstrap_bytes: byte_size(bootstrap_out)
               }
+
+            metrics =
+              case no_env_bootstrap_result do
+                {:ok, no_env_out} ->
+                  Map.put(metrics, :no_env_bootstrap_bytes, byte_size(no_env_out))
+
+                _ ->
+                  metrics
+              end
+
+            %{
+              phase: phase,
+              status: :pass,
+              detail: detail,
+              metrics: metrics
             }
           else
             %{
@@ -433,11 +474,11 @@ defmodule CodePuppyControl.CLI.Smoke.Phases do
               status: :fail,
               detail:
                 "#{phase} interactive bootstrap/quit detected errors: " <>
-                  Enum.join(bootstrap_errors, "; "),
+                  Enum.join(all_errors, "; "),
               metrics: %{
                 path: path,
                 bootstrap_bytes: byte_size(bootstrap_out),
-                errors: bootstrap_errors
+                errors: all_errors
               }
             }
           end
@@ -586,27 +627,36 @@ defmodule CodePuppyControl.CLI.Smoke.Phases do
     ]
   end
 
+  # Explicitly unset PUP_SECRET_KEY_BASE and PUP_DATABASE_PATH (and their
+  # legacy names) in the child process environment.  This proves the
+  # escript can start without these prod env vars. (code-puppy-nml)
+  #
+  # System.cmd/3 interprets a `nil` value as "unset in child process".
+  @prod_secret_env_vars [
+    "PUP_SECRET_KEY_BASE",
+    "SECRET_KEY_BASE",
+    "PUP_DATABASE_PATH",
+    "DATABASE_PATH"
+  ]
+
+  defp sanitize_prod_secrets(env) do
+    # Add nil entries for each prod secret env var so they are explicitly
+    # unset in the child process, even if inherited from the parent.
+    stripped =
+      for key <- @prod_secret_env_vars, reduce: env do
+        acc ->
+          # Remove any existing entry first
+          Enum.reject(acc, fn {k, _v} -> k == key end)
+      end
+
+    # Append nil entries to unset in child process
+    stripped ++ for key <- @prod_secret_env_vars, do: {key, nil}
+  end
+
   # ── Helpers ───────────────────────────────────────────────────────────
 
   defp random_hex(bytes) do
     :crypto.strong_rand_bytes(bytes) |> Base.encode16(case: :lower)
-  end
-
-  # 64-byte secret key base for the smoke probe environment.
-  # Not persisted — regenerated each run.  Only used to satisfy
-  # config/runtime.exs validation so the escript can boot its
-  # supervision tree during the interactive bootstrap probe.
-  defp smoke_secret_key_base do
-    :crypto.strong_rand_bytes(48) |> Base.encode64(padding: false)
-  end
-
-  # Add an env var to the list if not already present.
-  defp ensure_env_var(env, key, value) do
-    if Enum.any?(env, fn {k, _v} -> k == key end) do
-      env
-    else
-      [{key, value} | env]
-    end
   end
 
   defp safe_predicate(fun) do

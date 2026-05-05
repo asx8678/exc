@@ -135,6 +135,78 @@ defmodule Mix.Tasks.PupEx.PackagedCliSmokeTest do
         File.rm_rf(sandbox)
       end
     end
+
+    # (code-puppy-nml) Prove that the escript can start without
+    # PUP_SECRET_KEY_BASE and PUP_DATABASE_PATH.  In escript mode,
+    # Repo/Oban/Endpoint are skipped, so these env vars should not
+    # be required for interactive bootstrap.
+    test "direct no-env interactive bootstrap exits 0 without PUP_SECRET_KEY_BASE/PUP_DATABASE_PATH",
+         %{
+           project_root: project_root
+         } do
+      ensure_escript_built!(project_root)
+      escript_path = Path.join(project_root, "pup")
+
+      sandbox =
+        Path.join(
+          System.tmp_dir!(),
+          "pup_noenv_smoke_#{:erlang.unique_integer([:positive])}"
+        )
+
+      File.mkdir_p!(sandbox)
+
+      # Write /quit to a temp file for stdin
+      stdin_file = Path.join(sandbox, "stdin")
+      File.write!(stdin_file, "/quit\n")
+
+      try do
+        # Explicitly unset prod secrets — nil values in System.cmd
+        # mean "unset in child process"
+        env = [
+          {"PUP_EX_HOME", sandbox},
+          {"PUP_SMOKE_PROBE", "1"},
+          {"PUP_SECRET_KEY_BASE", nil},
+          {"SECRET_KEY_BASE", nil},
+          {"PUP_DATABASE_PATH", nil},
+          {"DATABASE_PATH", nil}
+        ]
+
+        pre = real_home_signature()
+
+        task =
+          Task.async(fn ->
+            System.cmd(
+              "sh",
+              ["-c", "cat '#{shell_sq(stdin_file)}' | '#{shell_sq(escript_path)}'"],
+              stderr_to_stdout: true,
+              env: env
+            )
+          end)
+
+        {output, exit_status} =
+          case Task.yield(task, 15_000) || Task.shutdown(task, :brutal_kill) do
+            {:ok, result} -> result
+            nil -> {"", -1}
+          end
+
+        post = real_home_signature()
+
+        assert exit_status == 0,
+               "pup without PUP_SECRET_KEY_BASE/PUP_DATABASE_PATH exited #{exit_status}: #{String.slice(output, 0, 300)}"
+
+        assert pre == post,
+               "real ~/.code_puppy_ex was mutated by no-env pup invocation"
+
+        # Should not contain the prod secret error
+        refute output =~ "PUP_SECRET_KEY_BASE is missing",
+               "pup should not require PUP_SECRET_KEY_BASE in escript mode"
+
+        refute output =~ "PUP_DATABASE_PATH is missing",
+               "pup should not require PUP_DATABASE_PATH in escript mode"
+      after
+        File.rm_rf(sandbox)
+      end
+    end
   end
 
   describe "burrito packaged smoke" do
@@ -237,4 +309,7 @@ defmodule Mix.Tasks.PupEx.PackagedCliSmokeTest do
       {:error, reason} -> {:err, reason}
     end
   end
+
+  # Escape a string for safe interpolation inside POSIX single quotes.
+  defp shell_sq(s), do: String.replace(s, "'", "'\\''")
 end

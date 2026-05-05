@@ -4,8 +4,8 @@ import Config
 # See CodePuppyControl.Config for centralized configuration management.
 #
 # Environment Variables:
-# PUP_SECRET_KEY_BASE - Phoenix endpoint secret (required in prod, auto-generated for Burrito)
-# PUP_DATABASE_PATH - SQLite database path (required in prod, auto-defaulted for Burrito)
+# PUP_SECRET_KEY_BASE - Phoenix endpoint secret (required in prod, auto-generated for Burrito/escript)
+# PUP_DATABASE_PATH - SQLite database path (required in prod, auto-defaulted for Burrito/escript)
 # PUP_PYTHON_WORKER_SCRIPT - Python worker entry point (optional; required only when PUP_RUNTIME=python)
 # PUP_HISTORY_LIMIT - Event history size limit (default: 1000)
 # PUP_WEBSOCKET_SECRET - WebSocket auth secret (optional)
@@ -21,6 +21,12 @@ import Config
 # directory (:filename.basedir(:user_data, "code_puppy")). This avoids requiring
 # env vars for self-contained distribution while respecting ADR-003 isolation
 # (NOT writing to ~/.code_puppy/).
+#
+# Escript CLI fallback (code-puppy-nml):
+# When running as an escript (`./pup`), the exqlite NIF cannot be loaded from
+# the zip archive, so Repo/Oban/Endpoint are skipped in the supervision tree.
+# Therefore, PUP_SECRET_KEY_BASE and PUP_DATABASE_PATH are auto-defaulted
+# (transient, not persisted) so the escript can boot without prod env secrets.
 
 # Store the config environment atom for runtime detection
 config :code_puppy_control, :env, config_env()
@@ -32,7 +38,12 @@ if config_env() == :prod do
   help_mode =
     CodePuppyControl.Config.cli_help_or_version_flag?(:init.get_plain_arguments())
 
-  unless help_mode do
+  # In escript mode, Repo/Oban/Endpoint are skipped (exqlite NIF cannot
+  # load from the zip archive), so DB/secret validation and config are
+  # not needed. The supervision tree degrades gracefully. (code-puppy-nml)
+  escript_cli = CodePuppyControl.Config.escript_mode?()
+
+  unless help_mode or escript_cli do
     # Validate and load required configuration
     # CodePuppyControl.Config handles validation and legacy name support
     :ok = CodePuppyControl.Config.validate!()
@@ -62,8 +73,8 @@ if config_env() == :prod do
     end
   end
 
-  # In help_mode, intentionally leave config unpopulated.
-  # application.ex:start/2 detects help mode and starts an empty
+  # In help_mode or escript_cli, intentionally leave config unpopulated.
+  # application.ex:start/2 detects these modes and starts a degraded
   # supervision tree, so no child needs these values.
 else
   # Development and test environments

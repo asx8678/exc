@@ -50,4 +50,21 @@ defmodule CodePuppyControl.ConfigTest do
       assert Config.cli_help_or_version_flag?(["--version"])
     end
   end
+
+  describe "escript_mode?/0" do
+    test "returns false in test/dev environment (priv_dir is valid)" do
+      # In the test environment, :code.priv_dir(:code_puppy_control) returns
+      # a valid directory, so escript_mode?() should be false.
+      refute Config.escript_mode?(),
+             "escript_mode?() should return false in test/dev environment"
+    end
+  end
+
+  describe "burrito_binary?/0" do
+    test "returns false when __BURRITO env var is not set" do
+      # Clear __BURRITO if set
+      System.delete_env("__BURRITO")
+      refute Config.burrito_binary?()
+    end
+  end
 end

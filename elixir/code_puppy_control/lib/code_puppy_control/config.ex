@@ -115,20 +115,29 @@ defmodule CodePuppyControl.Config do
         """
 
       _ ->
-        # nil or empty string — fall through to Burrito default or error
-        if burrito_binary?() do
-          default_secret_key_base()
-        else
-          raise """
-          Required environment variable PUP_SECRET_KEY_BASE is missing.
+        # nil or empty string — fall through to Burrito/escript default or error
+        cond do
+          burrito_binary?() ->
+            default_secret_key_base()
 
-          You can set it via:
-            export PUP_SECRET_KEY_BASE="your-value"
+          escript_mode?() ->
+            # In escript mode, Repo/Oban/Endpoint are skipped, so a
+            # secret key is not needed for DB-dependent subsystems.
+            # Generate a transient key so any code that reads this value
+            # gets a valid 64-byte string, but do NOT persist it.
+            default_secret_key_base()
 
-          Note: The legacy name SECRET_KEY_BASE is also supported but deprecated.
+          true ->
+            raise """
+            Required environment variable PUP_SECRET_KEY_BASE is missing.
 
-          Alternatively, run as a Burrito binary which auto-generates a key.
-          """
+            You can set it via:
+              export PUP_SECRET_KEY_BASE="your-value"
+
+            Note: The legacy name SECRET_KEY_BASE is also supported but deprecated.
+
+            Alternatively, run as a Burrito binary or escript which auto-generates a key.
+            """
         end
     end
   end
@@ -170,6 +179,37 @@ defmodule CodePuppyControl.Config do
   end
 
   @doc """
+  Returns `true` when running as an escript (`./pup`).
+
+  Escript mode is detected the same way as
+  `CodePuppyControl.Application.escript_mode?/0`: when the BEAM VM boots
+  from an escript, `:code.priv_dir(:code_puppy_control)` returns
+  `{:error, :bad_name}` because the application's `.app` file is not on
+  the code path in the standard way. We also verify the returned path
+  actually exists on disk.
+
+  In escript mode, NIF libraries (like exqlite's sqlite3_nif.so) cannot be
+  loaded from the zip archive, and the supervision tree degrades gracefully
+  by skipping DB-dependent children (Repo, Oban, Endpoint). Therefore,
+  `PUP_SECRET_KEY_BASE` and `PUP_DATABASE_PATH` are not required.
+
+  This function is safe to call from `config/runtime.exs` — it does not
+  depend on the OTP application being started.
+  """
+  @spec escript_mode?() :: boolean()
+  def escript_mode? do
+    case :code.priv_dir(:code_puppy_control) do
+      {:error, _} ->
+        true
+
+      priv_dir when is_list(priv_dir) ->
+        # Even if :code.priv_dir returns a path, in escript mode the
+        # path points inside the zip archive and is not a real directory.
+        not File.dir?(priv_dir)
+    end
+  end
+
+  @doc """
   Return the database path for SQLite.
 
   In production, checks `PUP_DATABASE_PATH` env var first, then falls back
@@ -186,20 +226,29 @@ defmodule CodePuppyControl.Config do
           value
 
         _ ->
-          # nil or empty string — fall through to Burrito default or error
-          if burrito_binary?() do
-            default_database_path()
-          else
-            raise """
-            Required environment variable PUP_DATABASE_PATH is missing.
+          # nil or empty string — fall through to Burrito/escript default or error
+          cond do
+            burrito_binary?() ->
+              default_database_path()
 
-            You can set it via:
-              export PUP_DATABASE_PATH="your-value"
+            escript_mode?() ->
+              # In escript mode, Repo/Oban are skipped (exqlite NIF cannot
+              # load from the zip archive), so a database path is not
+              # needed. Generate a transient path so any code that reads
+              # this value gets a valid string, but do NOT persist it.
+              default_database_path()
 
-            Note: The legacy name DATABASE_PATH is also supported but deprecated.
+            true ->
+              raise """
+              Required environment variable PUP_DATABASE_PATH is missing.
 
-            Alternatively, run as a Burrito binary which provides a sensible default.
-            """
+              You can set it via:
+                export PUP_DATABASE_PATH="your-value"
+
+              Note: The legacy name DATABASE_PATH is also supported but deprecated.
+
+              Alternatively, run as a Burrito binary or escript which provides a sensible default.
+              """
           end
       end
     else
@@ -311,7 +360,9 @@ defmodule CodePuppyControl.Config do
   """
   @spec validate!() :: :ok
   def validate! do
-    if prod?() do
+    if prod?() and not escript_mode?() do
+      # In escript mode, Repo/Oban/Endpoint are skipped, so DB/secret
+      # validation is unnecessary. The supervision tree degrades gracefully.
       _ = secret_key_base()
       _ = database_path()
 
