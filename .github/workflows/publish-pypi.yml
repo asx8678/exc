@@ -4,13 +4,6 @@ on:
   push:
     tags:
       - "codepp/*"
-  workflow_dispatch:
-    inputs:
-      dry_run:
-        description: "Run quality gates and build only (skip upload)"
-        required: false
-        default: "true"
-        type: boolean
 
 concurrency:
   group: pypi-publish-${{ github.ref }}
@@ -22,6 +15,7 @@ concurrency:
 # (Settings → Environments → New environment → "pypi").  No secrets
 # are needed; the OIDC token is issued automatically on each run.
 permissions:
+  contents: read
   id-token: write
 
 # ── Quality gates → build → publish ────────────────────────────────────────
@@ -66,8 +60,8 @@ jobs:
       - name: Lint (ruff)
         run: uv run ruff check code_puppy tests scripts
 
-      - name: Test (pytest — focused deprecation tests)
-        run: uv run pytest tests/test_cli_runner_deprecation.py -q
+      - name: Test (pytest — full Python test suite)
+        run: uv run pytest tests -q
 
       - name: Python package artifact smoke
         run: ./scripts/python-package-smoke.sh
@@ -120,17 +114,4 @@ jobs:
         run: uv build --sdist --wheel
 
       - name: Publish to PyPI (Trusted Publishing / OIDC)
-        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.dry_run == 'false') }}
         uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          # The OIDC token is obtained automatically via the `id-token: write`
-          # permission and the `pypi` environment.  No API token secret needed.
-
-      - name: Dry-run notice
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run != 'false' }}
-        run: |
-          echo "⚠️  Dry run — build artifacts created but NOT uploaded to PyPI."
-          echo "To publish for real, re-run with dry_run=false."
-          echo ""
-          echo "Artifacts in dist/:"
-          ls -lh dist/
