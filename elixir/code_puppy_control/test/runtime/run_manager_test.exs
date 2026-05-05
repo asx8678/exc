@@ -465,6 +465,10 @@ defmodule CodePuppyControl.Runtime.RunManagerTest do
     @impl true
     def terminate_executor(run_id) do
       send(test_process(), {:executor_a, :terminate, run_id})
+      # Must also terminate the real Elixir executor process started by
+      # start_executor/2, otherwise the child leaks under Run.Supervisor
+      # and exhausts max_children (code-puppy-4yx).
+      CodePuppyControl.Run.Executor.Elixir.terminate_executor(run_id)
       :ok
     end
 
@@ -501,6 +505,10 @@ defmodule CodePuppyControl.Runtime.RunManagerTest do
     @impl true
     def terminate_executor(run_id) do
       send(test_process(), {:executor_b, :terminate, run_id})
+      # Must also terminate the real Elixir executor process started by
+      # start_executor/2, otherwise the child leaks under Run.Supervisor
+      # and exhausts max_children (code-puppy-4yx).
+      CodePuppyControl.Run.Executor.Elixir.terminate_executor(run_id)
       :ok
     end
 
