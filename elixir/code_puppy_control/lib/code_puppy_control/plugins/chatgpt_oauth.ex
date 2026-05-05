@@ -161,13 +161,14 @@ defmodule CodePuppyControl.Plugins.ChatGptOAuth do
     tokens = ChatGptOAuth.load_stored_tokens()
 
     if tokens && Map.get(tokens, "access_token") do
-      IO.puts("🔐 ChatGPT OAuth: Authenticated")
-      api_key = Map.get(tokens, "api_key")
+      account_id = Map.get(tokens, "account_id")
 
-      if api_key do
-        IO.puts("✅ OAuth access token available for API requests")
+      if is_nil(account_id) or account_id == "" do
+        IO.puts("🔐 ChatGPT OAuth: Access token present, but account_id is missing")
+        IO.puts("⚠️ Run /chatgpt-auth to re-authenticate and obtain account_id.")
       else
-        IO.puts("⚠️ No access token obtained. Authentication may have failed.")
+        IO.puts("🔐 ChatGPT OAuth: Authenticated")
+        IO.puts("✅ OAuth access token and account_id available for API requests")
       end
 
       chatgpt_models = ChatGptOAuth.load_chatgpt_models()

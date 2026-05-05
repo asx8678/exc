@@ -343,9 +343,20 @@ defmodule CodePuppyControl.ModelFactory.Credentials do
 
       tokens ->
         case Map.get(tokens, "access_token") do
-          nil -> {:missing, ["CHATGPT_OAUTH_TOKEN"]}
-          "" -> {:missing, ["CHATGPT_OAUTH_TOKEN"]}
-          _token -> :ok
+          nil ->
+            {:missing, ["CHATGPT_OAUTH_TOKEN"]}
+
+          "" ->
+            {:missing, ["CHATGPT_OAUTH_TOKEN"]}
+
+          _token ->
+            # access_token present — also require account_id
+            # (RuntimeConnection.resolve_chatgpt/1 needs it at send time)
+            case Map.get(tokens, "account_id") do
+              nil -> {:missing, ["CHATGPT_ACCOUNT_ID"]}
+              "" -> {:missing, ["CHATGPT_ACCOUNT_ID"]}
+              _account_id -> :ok
+            end
         end
     end
   end

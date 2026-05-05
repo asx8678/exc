@@ -15,7 +15,7 @@ defmodule CodePuppyControl.LLM.ModelFactoryTest do
   use ExUnit.Case, async: false
 
   alias CodePuppyControl.ModelFactory
-  alias CodePuppyControl.ModelFactory.{Credentials, Handle}
+  alias CodePuppyControl.ModelFactory.Handle
   alias CodePuppyControl.ModelRegistry
   alias CodePuppyControl.LLM.Providers.{OpenAI, Anthropic, Google}
 
@@ -34,6 +34,52 @@ defmodule CodePuppyControl.LLM.ModelFactoryTest do
         {k, nil} -> System.delete_env(k)
         {k, v} -> System.put_env(k, v)
       end)
+    end
+  end
+
+  # Helper to isolate PUP_EX_HOME + PUP_MACHINE_SECRET_PATH to a temp dir.
+  # Optionally writes a ChatGPT OAuth token file when chatgpt_tokens: is provided.
+  #
+  # Usage:
+  #   with_pup_ex_home([], fn -> ... end)                      # empty home, no tokens
+  #   with_pup_ex_home(chatgpt_tokens: %{...}, fn -> ... end)  # with token file
+  defp with_pup_ex_home(opts, fun) when is_list(opts) and is_function(fun, 0) do
+    tmp_dir =
+      Path.join(
+        System.tmp_dir!(),
+        "mf_home_#{:erlang.unique_integer([:positive, :monotonic])}"
+      )
+
+    File.mkdir_p!(tmp_dir)
+
+    # Optionally write ChatGPT OAuth tokens into auth/chatgpt_oauth.json
+    if token_data = Keyword.get(opts, :chatgpt_tokens) do
+      auth_dir = Path.join(tmp_dir, "auth")
+      File.mkdir_p!(auth_dir)
+      File.write!(Path.join(auth_dir, "chatgpt_oauth.json"), Jason.encode!(token_data))
+    end
+
+    secret_path = Path.join(tmp_dir, ".machine_secret")
+
+    prev_ex_home = System.get_env("PUP_EX_HOME")
+    prev_secret = System.get_env("PUP_MACHINE_SECRET_PATH")
+    System.put_env("PUP_EX_HOME", tmp_dir)
+    System.put_env("PUP_MACHINE_SECRET_PATH", secret_path)
+
+    try do
+      fun.()
+    after
+      case prev_ex_home do
+        nil -> System.delete_env("PUP_EX_HOME")
+        v -> System.put_env("PUP_EX_HOME", v)
+      end
+
+      case prev_secret do
+        nil -> System.delete_env("PUP_MACHINE_SECRET_PATH")
+        v -> System.put_env("PUP_MACHINE_SECRET_PATH", v)
+      end
+
+      File.rm_rf(tmp_dir)
     end
   end
 
@@ -290,6 +336,70 @@ defmodule CodePuppyControl.LLM.ModelFactoryTest do
           assert mod in [OpenAI, Anthropic]
         end)
       end)
+    end
+
+    test "unauthenticated chatgpt_oauth model does not appear in list_available" do
+      # Isolate to empty home so no real chatgpt_oauth.json leaks in
+      with_pup_ex_home([], fn ->
+        CodePuppyControl.ModelFactory.ProviderRegistry.register("chatgpt_oauth", OpenAI)
+
+        :ets.insert(
+          :model_configs,
+          {"chatgpt-gpt-5.5", %{"type" => "chatgpt_oauth", "name" => "gpt-5.5"}}
+        )
+
+        available = ModelFactory.list_available()
+
+        # Unauthenticated chatgpt_oauth model should NOT appear
+        refute Enum.any?(available, fn {n, _, _} -> n == "chatgpt-gpt-5.5" end)
+      end)
+    after
+      :ets.delete(:model_configs, "chatgpt-gpt-5.5")
+      CodePuppyControl.ModelFactory.ProviderRegistry.reset_for_test()
+    end
+
+    test "authenticated chatgpt_oauth model with account_id appears in list_available" do
+      with_pup_ex_home(
+        [chatgpt_tokens: %{"access_token" => "valid-token", "account_id" => "acct-xyz"}],
+        fn ->
+          CodePuppyControl.ModelFactory.ProviderRegistry.register("chatgpt_oauth", OpenAI)
+
+          :ets.insert(
+            :model_configs,
+            {"chatgpt-gpt-5.5", %{"type" => "chatgpt_oauth", "name" => "gpt-5.5"}}
+          )
+
+          available = ModelFactory.list_available()
+
+          # Authenticated chatgpt_oauth model SHOULD appear
+          assert Enum.any?(available, fn {n, _, _} -> n == "chatgpt-gpt-5.5" end)
+        end
+      )
+    after
+      :ets.delete(:model_configs, "chatgpt-gpt-5.5")
+      CodePuppyControl.ModelFactory.ProviderRegistry.reset_for_test()
+    end
+
+    test "chatgpt_oauth model with token but no account_id does not appear" do
+      with_pup_ex_home(
+        [chatgpt_tokens: %{"access_token" => "valid-token"}],
+        fn ->
+          CodePuppyControl.ModelFactory.ProviderRegistry.register("chatgpt_oauth", OpenAI)
+
+          :ets.insert(
+            :model_configs,
+            {"chatgpt-gpt-5.5", %{"type" => "chatgpt_oauth", "name" => "gpt-5.5"}}
+          )
+
+          available = ModelFactory.list_available()
+
+          # Missing account_id should exclude the model
+          refute Enum.any?(available, fn {n, _, _} -> n == "chatgpt-gpt-5.5" end)
+        end
+      )
+    after
+      :ets.delete(:model_configs, "chatgpt-gpt-5.5")
+      CodePuppyControl.ModelFactory.ProviderRegistry.reset_for_test()
     end
   end
 

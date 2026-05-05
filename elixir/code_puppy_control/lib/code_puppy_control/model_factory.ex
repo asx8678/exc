@@ -140,10 +140,13 @@ defmodule CodePuppyControl.ModelFactory do
           []
 
         provider_type in @oauth_types ->
-          # OAuth models are "available" (validation deferred to Phase 4)
-          case lookup_provider(provider_type) do
-            {:ok, mod} -> [{name, provider_type, mod}]
-            :error -> []
+          # OAuth models are available only when credentials validate
+          # (access_token + account_id for chatgpt_oauth, access_token for claude_code)
+          with {:ok, mod} <- lookup_provider(provider_type),
+               :ok <- Credentials.validate(provider_type, config) do
+            [{name, provider_type, mod}]
+          else
+            _ -> []
           end
 
         true ->

@@ -343,6 +343,25 @@ defmodule CodePuppyControl.REPL.Dispatch do
     IO.puts(IO.ANSI.red() <> "⚠ " <> message <> IO.ANSI.reset())
   end
 
+  def print_agent_error(:not_authenticated) do
+    IO.puts(
+      IO.ANSI.red() <>
+        "⚠ Model is not authenticated. " <>
+        "For ChatGPT OAuth run /chatgpt-auth; " <>
+        "for Claude Code OAuth run /claude-code-auth, then retry." <>
+        IO.ANSI.reset()
+    )
+  end
+
+  def print_agent_error(:missing_account_id) do
+    IO.puts(
+      IO.ANSI.red() <>
+        "⚠ ChatGPT OAuth token is missing account_id. " <>
+        "Run /chatgpt-auth to re-authenticate, then retry." <>
+        IO.ANSI.reset()
+    )
+  end
+
   def print_agent_error(other) do
     IO.puts(IO.ANSI.red() <> "\u26A0 " <> inspect(other) <> IO.ANSI.reset())
   end

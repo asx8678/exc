@@ -610,12 +610,18 @@ defmodule CodePuppyControl.ModelFactory.CredentialsTest do
       assert {:missing, ["CLAUDE_CODE_OAUTH_TOKEN"]} = result
     end
 
-    test "chatgpt_oauth returns :ok when OAuth token exists", %{tmp_dir: dir} do
-      # Create token file in expected location
+    test "chatgpt_oauth returns :ok when OAuth token and account_id exist", %{tmp_dir: dir} do
+      # Create token file in expected location with both access_token and account_id
       auth_dir = Path.join(dir, "auth")
       File.mkdir_p!(auth_dir)
       token_path = Path.join(auth_dir, "chatgpt_oauth.json")
-      token_data = %{"access_token" => "test-token-789", "api_key" => "test-token-789"}
+
+      token_data = %{
+        "access_token" => "test-token-789",
+        "api_key" => "test-token-789",
+        "account_id" => "acct-123"
+      }
+
       File.write!(token_path, Jason.encode!(token_data))
 
       assert :ok = Credentials.validate("chatgpt_oauth", %{})
@@ -631,6 +637,39 @@ defmodule CodePuppyControl.ModelFactory.CredentialsTest do
 
       result = Credentials.validate("chatgpt_oauth", %{})
       assert {:missing, ["CHATGPT_OAUTH_TOKEN"]} = result
+    end
+
+    test "chatgpt_oauth returns {:missing, [\"CHATGPT_ACCOUNT_ID\"]} when account_id is missing",
+         %{tmp_dir: dir} do
+      # Create token file with access_token but no account_id
+      auth_dir = Path.join(dir, "auth")
+      File.mkdir_p!(auth_dir)
+      token_path = Path.join(auth_dir, "chatgpt_oauth.json")
+      token_data = %{"access_token" => "test-token-789", "api_key" => "test-token-789"}
+      File.write!(token_path, Jason.encode!(token_data))
+
+      result = Credentials.validate("chatgpt_oauth", %{})
+      assert {:missing, ["CHATGPT_ACCOUNT_ID"]} = result
+    end
+
+    test "chatgpt_oauth returns {:missing, [\"CHATGPT_ACCOUNT_ID\"]} when account_id is empty", %{
+      tmp_dir: dir
+    } do
+      # Create token file with access_token but empty account_id
+      auth_dir = Path.join(dir, "auth")
+      File.mkdir_p!(auth_dir)
+      token_path = Path.join(auth_dir, "chatgpt_oauth.json")
+
+      token_data = %{
+        "access_token" => "test-token-789",
+        "api_key" => "test-token-789",
+        "account_id" => ""
+      }
+
+      File.write!(token_path, Jason.encode!(token_data))
+
+      result = Credentials.validate("chatgpt_oauth", %{})
+      assert {:missing, ["CHATGPT_ACCOUNT_ID"]} = result
     end
   end
 

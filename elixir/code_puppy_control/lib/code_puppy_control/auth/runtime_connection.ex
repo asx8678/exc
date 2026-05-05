@@ -80,8 +80,7 @@ defmodule CodePuppyControl.Auth.RuntimeConnection do
   defp resolve_chatgpt(base) do
     with {:ok, access_token} <- ChatGptOAuth.get_valid_access_token(),
          tokens when is_map(tokens) <- ChatGptOAuth.load_stored_tokens(),
-         account_id when is_binary(account_id) and account_id != "" <-
-           Map.get(tokens, "account_id") do
+         {:ok, account_id} <- extract_account_id(tokens) do
       config = ChatGptOAuth.config()
 
       headers =
@@ -98,9 +97,17 @@ defmodule CodePuppyControl.Auth.RuntimeConnection do
          extra_headers: headers
        }}
     else
-      nil -> {:error, :not_authenticated}
-      "" -> {:error, :missing_account_id}
+      {:error, :not_authenticated} -> {:error, :not_authenticated}
+      {:error, :missing_account_id} -> {:error, :missing_account_id}
       {:error, reason} -> {:error, reason}
+      # load_stored_tokens returned nil (no file)
+      nil -> {:error, :not_authenticated}
+    end
+  end
+
+  defp extract_account_id(tokens) when is_map(tokens) do
+    case Map.get(tokens, "account_id") do
+      id when is_binary(id) and id != "" -> {:ok, id}
       _ -> {:error, :missing_account_id}
     end
   end
