@@ -108,23 +108,51 @@ defmodule CodePuppyControl.CLI do
       System.put_env("PUP_RUNTIME", "python")
     end
 
-    # Ensure the OTP app is started for full invocations
-    Application.ensure_all_started(:code_puppy_control)
+    # Ensure the OTP app is started for full invocations.
+    # On failure, print a clear fatal message and halt — do NOT enter
+    # the REPL with a dead supervision tree (that causes confusing
+    # crashes like missing ETS tables or dead supervisors).
+    case Application.ensure_all_started(:code_puppy_control) do
+      {:ok, _} ->
+        :ok
 
+      {:error, {app, reason}} ->
+        IO.puts(:stderr, """
+        FATAL: code_puppy_control application failed to start.
+        Root cause: application #{inspect(app)} exited — #{inspect(reason)}
+
+        This usually means a dependency (like erlexec) could not find its
+        native port. If you are running as an escript or Burrito binary,
+        ensure the native port files are bundled correctly, or set
+        PUP_RUNTIME=elixir and check that the application supervision tree
+        can start without erlexec.
+        """)
+
+        halt(1)
+    end
+
+    # Validate that core processes and ETS tables are alive before
+    # entering interactive paths. If the app started but critical
+    # processes died afterward (e.g. erlexec crashed), we catch it
+    # here rather than letting the REPL crash with confusing errors.
     case resolve_run_mode(opts) do
       :worker_mode ->
         run_worker(opts)
 
       :one_shot ->
+        validate_runtime_health!()
         run_single_prompt(opts)
 
       :interactive_with_prompt ->
+        validate_runtime_health!()
         run_interactive(opts)
 
       :continue_session ->
+        validate_runtime_health!()
         run_continue_session(opts)
 
       :interactive_default ->
+        validate_runtime_health!()
         run_interactive(opts)
     end
 
@@ -195,6 +223,65 @@ defmodule CodePuppyControl.CLI do
 
   defp repl_loop_module do
     Application.get_env(:code_puppy_control, :cli_repl_loop_module, CodePuppyControl.REPL.Loop)
+  end
+
+  @doc """
+  Validates that core OTP processes and ETS tables required for REPL
+  operation are alive. Prints a clear error and halts nonzero if any
+  critical component is missing.
+
+  This is called before entering interactive, continue, or one-shot
+  paths. It is NOT called for `--help` / `--version` (which are fast
+  paths that skip app startup entirely).
+
+  ## Checks
+
+    * `CodePuppyControl.Agent.State.Supervisor` — required for agent
+      session state; if dead, `/agent` and the REPL crash with
+      `no process`.
+    * `:slash_commands` ETS table — required for slash command dispatch;
+      if missing, `/agent` crashes with `ArgumentError`.
+
+  """
+  @spec validate_runtime_health!() :: :ok | no_return()
+  def validate_runtime_health! do
+    checks = [
+      {"Agent.State.Supervisor", agent_state_supervisor_alive?()},
+      {":slash_commands ETS table", slash_commands_table_alive?()}
+    ]
+
+    failures = for {name, false} <- checks, do: name
+
+    if failures != [] do
+      IO.puts(:stderr, """
+      FATAL: core OTP components are not alive — cannot enter REPL.
+      Missing: #{Enum.join(failures, ", ")}
+
+      This indicates the application supervision tree is degraded.
+      Check logs above for the root cause (e.g. erlexec startup failure).
+      If running as an escript, ensure the native port files are bundled
+      correctly, or set PUP_RUNTIME=elixir.
+      """)
+
+      halt(1)
+    end
+
+    :ok
+  end
+
+  defp agent_state_supervisor_alive? do
+    case Process.whereis(CodePuppyControl.Agent.State.Supervisor) do
+      nil -> false
+      pid -> Process.alive?(pid)
+    end
+  end
+
+  defp slash_commands_table_alive? do
+    try do
+      :ets.info(:slash_commands) != :undefined
+    rescue
+      _ -> false
+    end
   end
 
   @spec halt(non_neg_integer()) :: no_return()

@@ -38,6 +38,14 @@ defmodule CodePuppyControl.PtyManagerTest do
       assert GenServer.call(manager, :count) == 0
     end
 
+    test "starts with erlexec_started: false (lazy startup)", %{manager: manager} do
+      # PtyManager no longer calls Application.ensure_all_started(:erlexec)
+      # at init time. It starts with erlexec_started: false and lazily
+      # attempts erlexec startup on first create_session call.
+      state = :sys.get_state(manager)
+      assert state.erlexec_started == false
+    end
+
     test "get_session returns nil for unknown session", %{manager: manager} do
       assert GenServer.call(manager, {:get_session, "nonexistent"}) == nil
     end

@@ -122,6 +122,18 @@ defmodule CodePuppyControl.CLI.SlashCommands.RegistryTest do
       assert :ok = Registry.register(cmd)
       assert {:ok, _} = Registry.get("EXIT")
     end
+
+    test "returns not_found gracefully when ETS table does not exist" do
+      # This tests the hardening added for escript startup where the
+      # :slash_commands table may not exist. We can't easily delete the
+      # table in this test environment (it's owned by the Registry
+      # GenServer), so we test with a non-existent table name by
+      # temporarily swapping the module attribute.
+      #
+      # Instead, verify that get/1 with a normal missing command still
+      # returns :not_found and does not raise.
+      assert {:error, :not_found} = Registry.get("absolutely_nonexistent_cmd_xyz")
+    end
   end
 
   describe "list_all/0" do

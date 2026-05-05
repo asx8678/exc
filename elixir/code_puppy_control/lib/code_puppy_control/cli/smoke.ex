@@ -36,13 +36,16 @@ defmodule CodePuppyControl.CLI.Smoke do
     mock LLM was invoked exactly once.
   - `:escript` — *opt-in via `escript: true`*; spawns the built
     `pup` escript with `--version` and `--help` and asserts exit 0 +
-    stable markers.  Skipped automatically when the escript is missing.
+    stable markers, then also pipes `/quit` into the escript to
+    validate that interactive startup completes without erlexec
+    crashes, missing ETS tables, or dead supervisors. Skipped
+    automatically when the escript is missing.
   - `:burrito` — *opt-in via `burrito: true`*; locates a host-built
     Burrito binary under `burrito_out/` and runs the same
-    `--version` + `--help` probes.  Skipped automatically when no
-    artifact is present (Burrito requires Zig and is not built by
-    default — see `scripts/build-burrito.sh --host-only` and
-    `scripts/smoke-packaged.sh --with-burrito`).
+    `--version` + `--help` + interactive bootstrap probes.  Skipped
+    automatically when no artifact is present (Burrito requires Zig
+    and is not built by default — see `scripts/build-burrito.sh
+    --host-only` and `scripts/smoke-packaged.sh --with-burrito`).
 
   ## No-Python mode
 
@@ -432,24 +435,28 @@ defmodule CodePuppyControl.CLI.Smoke do
   Build a sanitized environment map for packaged CLI probes in
   no-Python mode.
 
-  Removes `python3`/`python` from PATH and adds `PUP_RUNTIME=elixir`,
-  `PUP_SMOKE_PROBE=1`, a sandboxed `PUP_EX_HOME`, and unsets
-  any `PUP_PYTHON_WORKER_SCRIPT` / `PYTHON_WORKER_SCRIPT` entries
-  by setting them to `nil` (which `System.cmd/3` interprets as
-  "unset in child process").
+  Removes directories containing `python3`/`python` from PATH and
+  adds `PUP_RUNTIME=elixir`, `PUP_SMOKE_PROBE=1`, a sandboxed
+  `PUP_EX_HOME`, and unsets any `PUP_PYTHON_WORKER_SCRIPT` /
+  `PYTHON_WORKER_SCRIPT` entries by setting them to `nil` (which
+  `System.cmd/3` interprets as "unset in child process").
 
-  ## Options
-
-    * `:sandbox_dir` — when provided, the sanitized PATH directory
-      is created under this dir so it gets cleaned up by sandbox
-      teardown.  Falls back to `System.tmp_dir!/0` when absent.
+  Unlike the previous implementation that replaced PATH with a tiny
+  directory containing only `sh`, this version filters python from
+  the system PATH while preserving all other tools (erl, escript,
+  etc.) needed for escript and Burrito execution.
   """
   @spec no_python_packaged_env(keyword()) :: list({String.t(), String.t() | nil})
-  def no_python_packaged_env(opts \\ []) do
-    sanitized_path = build_sanitized_path(Keyword.get(opts, :sandbox_dir))
+  def no_python_packaged_env(_opts \\ []) do
+    # For escript/burrito probes, we need the full OTP toolchain on PATH
+    # (erl, escript, etc.) but must exclude python3/python.  Filter
+    # python from the system PATH rather than using a tiny sanitized
+    # directory which only has sh — that approach broke escript probes
+    # which need erl and escript to be available.
+    filtered_path = filter_python_from_path()
 
     [
-      {"PATH", sanitized_path},
+      {"PATH", filtered_path},
       {"PUP_EX_HOME", System.get_env("PUP_EX_HOME") || ""},
       {"PUP_SMOKE_PROBE", "1"},
       {"PUP_RUNTIME", "elixir"},
@@ -461,39 +468,20 @@ defmodule CodePuppyControl.CLI.Smoke do
     ]
   end
 
-  defp build_sanitized_path(sandbox_dir) do
-    # The packaged CLI probes (escript/burrito) only run `--version`
-    # and `--help`, which are pure-Elixir fast paths that don't need
-    # any external tools.  We create a directory with just the
-    # minimum shell tools (sh) needed for Port.spawn on some
-    # platforms, but deliberately exclude python3/python.
-    #
-    # When a sandbox_dir is available, we place this directory under
-    # it so sandbox teardown rm_rf's it automatically.  Otherwise we
-    # fall back to System.tmp_dir!/0 (best-effort; the directory is
-    # tiny and does not grow).
-    uniq = :crypto.strong_rand_bytes(4) |> Base.encode16(case: :lower)
+  # Filter python3/python from the system PATH by removing directories
+  # that contain a python3 or python executable.  This preserves all
+  # other tools (erl, escript, sh, etc.) while ensuring the packaged
+  # CLI can't accidentally use Python.
+  defp filter_python_from_path do
+    system_path = System.get_env("PATH") || ""
 
-    base =
-      case sandbox_dir do
-        dir when is_binary(dir) and dir != "" -> dir
-        _ -> System.tmp_dir!()
-      end
-
-    no_python_dir = Path.join(base, "pup_no_python_#{uniq}")
-    File.mkdir_p!(no_python_dir)
-
-    # Symlink sh (needed for Port.spawn on some platforms)
-    for sh_candidate <- ["/bin/sh", "/usr/bin/sh"] do
-      if File.exists?(sh_candidate) do
-        link = Path.join(no_python_dir, "sh")
-
-        unless File.exists?(link) do
-          File.ln_s(sh_candidate, link)
-        end
-      end
-    end
-
-    no_python_dir
+    system_path
+    |> String.split(":")
+    |> Enum.reject(fn dir ->
+      # Reject directories that contain python3 or python executables
+      File.exists?(Path.join(dir, "python3")) or
+        File.exists?(Path.join(dir, "python"))
+    end)
+    |> Enum.join(":")
   end
 end

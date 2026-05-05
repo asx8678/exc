@@ -59,6 +59,20 @@ defmodule CodePuppyControl.CLI.SlashCommands.Registry do
   """
   @spec get(String.t()) :: {:ok, CommandInfo.t()} | {:error, :not_found}
   def get(name) when is_binary(name) do
+    # Guard against missing ETS table — in a degraded startup (e.g. erlexec
+    # failure in escript mode), the Registry GenServer may not have started,
+    # so the :slash_commands table may not exist. Return a graceful error
+    # instead of raising ArgumentError from :ets.lookup/2.
+    case :ets.whereis(@table) do
+      :undefined ->
+        {:error, :not_found}
+
+      _tid ->
+        get_from_table(name)
+    end
+  end
+
+  defp get_from_table(name) do
     case :ets.lookup(@table, name) do
       [{^name, cmd_info}] ->
         {:ok, cmd_info}
@@ -90,13 +104,13 @@ defmodule CodePuppyControl.CLI.SlashCommands.Registry do
   """
   @spec list_all() :: [CommandInfo.t()]
   def list_all do
-    try do
+    if ets_table_alive?() do
       @table
       |> :ets.tab2list()
       |> Enum.map(fn {_, cmd_info} -> cmd_info end)
       |> Enum.uniq_by(& &1.name)
-    rescue
-      _ -> []
+    else
+      []
     end
   end
 
@@ -122,12 +136,12 @@ defmodule CodePuppyControl.CLI.SlashCommands.Registry do
   """
   @spec all_names() :: [String.t()]
   def all_names do
-    try do
+    if ets_table_alive?() do
       @table
       |> :ets.tab2list()
       |> Enum.map(fn {key, _} -> key end)
-    rescue
-      _ -> []
+    else
+      []
     end
   end
 
@@ -412,5 +426,11 @@ defmodule CodePuppyControl.CLI.SlashCommands.Registry do
   def handle_call(:clear, _from, state) do
     :ets.delete_all_objects(@table)
     {:reply, :ok, state}
+  end
+
+  # ── Private helpers ──────────────────────────────────────────────────
+
+  defp ets_table_alive? do
+    :ets.whereis(@table) != :undefined
   end
 end

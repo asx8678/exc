@@ -6,9 +6,9 @@ defmodule Mix.Tasks.PupEx.PackagedCliSmokeTest do
   exercises it through the dogfood smoke runner, the way an operator
   would after `mix escript.build`.  It is the deterministic answer to:
 
-    > "Does `./pup --version` and `./pup --help` actually work
-    > against the packaged binary, with zero network and zero
-    > user-home writes?"
+    > "Does `./pup --version`, `./pup --help`, and `./pup` (interactive
+    > bootstrap/quit) actually work against the packaged binary, with
+    > zero network and zero user-home writes?"
 
   Why this test is tagged `:packaged_cli` and excluded from the
   default suite (see `test/test_helper.exs`):
@@ -84,8 +84,10 @@ defmodule Mix.Tasks.PupEx.PackagedCliSmokeTest do
 
       assert phase.detail =~ "--version"
       assert phase.detail =~ "--help"
+      assert phase.detail =~ "interactive bootstrap"
       assert is_integer(phase.metrics.version_bytes)
       assert is_integer(phase.metrics.help_bytes)
+      assert is_integer(phase.metrics.bootstrap_bytes)
       assert phase.metrics.version_bytes > 0
       assert phase.metrics.help_bytes > 0
     end

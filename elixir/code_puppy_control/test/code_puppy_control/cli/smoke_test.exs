@@ -190,6 +190,7 @@ defmodule CodePuppyControl.CLI.SmokeTest do
           # by the shared probe helper (refs: code_puppy-d7m).
           assert phase.detail =~ "--version"
           assert phase.detail =~ "--help"
+          assert phase.detail =~ "interactive bootstrap"
 
         other ->
           flunk("unexpected escript phase status #{inspect(other)}: #{inspect(phase)}")
@@ -235,6 +236,7 @@ defmodule CodePuppyControl.CLI.SmokeTest do
           # markers must be stable.
           assert phase.detail =~ "--version"
           assert phase.detail =~ "--help"
+          assert phase.detail =~ "interactive bootstrap"
 
         other ->
           flunk("unexpected burrito phase status #{inspect(other)}: #{inspect(phase)}")
@@ -496,29 +498,21 @@ defmodule CodePuppyControl.CLI.SmokeTest do
       assert List.keyfind(env, "PUP_SMOKE_PROBE", 0) == {"PUP_SMOKE_PROBE", "1"}
     end
 
-    test "no_python_packaged_env places sanitized PATH dir under sandbox_dir" do
-      sandbox_dir = System.tmp_dir!()
-      env = Smoke.no_python_packaged_env(sandbox_dir: sandbox_dir)
-
-      # PATH should point inside the sandbox dir
-      {"PATH", path} = List.keyfind(env, "PATH", 0)
-
-      assert String.starts_with?(path, sandbox_dir),
-             "sanitized PATH dir should be under sandbox_dir; got: #{path}"
-
-      # Clean up the tiny dir we just created
-      File.rm_rf(path)
-    end
-
-    test "no_python_packaged_env falls back to tmp when sandbox_dir is nil" do
+    test "no_python_packaged_env filters python from PATH" do
       env = Smoke.no_python_packaged_env(sandbox_dir: nil)
 
       {"PATH", path} = List.keyfind(env, "PATH", 0)
 
-      assert String.starts_with?(path, System.tmp_dir!()),
-             "sanitized PATH dir should fall back to tmp_dir; got: #{path}"
+      # PATH should NOT contain directories with python3/python
+      path_dirs = String.split(path, ":")
 
-      File.rm_rf(path)
+      for dir <- path_dirs do
+        refute File.exists?(Path.join(dir, "python3")),
+               "no_python PATH should not include python3 in #{dir}"
+
+        refute File.exists?(Path.join(dir, "python")),
+               "no_python PATH should not include python in #{dir}"
+      end
     end
 
     test "PUP_RUNTIME is restored even when a phase fails" do

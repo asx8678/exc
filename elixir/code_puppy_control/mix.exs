@@ -33,7 +33,42 @@ defmodule CodePuppyControl.MixProject do
   def application do
     [
       mod: {CodePuppyControl.Application, []},
-      extra_applications: [:logger, :runtime_tools]
+      # Explicitly list auto-started applications, excluding :erlexec.
+      # In escript/Burrito builds, erlexec's native port (exec-port) may not
+      # be findable (it looks under a virtual/unusable priv_dir), causing
+      # the entire application startup to fail. By excluding erlexec from
+      # auto-started applications, the supervision tree starts cleanly;
+      # PtyManager lazily attempts Application.ensure_all_started(:erlexec)
+      # on the first create_session/2 call and returns a clear error if
+      # unavailable, allowing ExecutorPty to fall back to standard
+      # execution via System.cmd.
+      applications: [
+        :kernel,
+        :stdlib,
+        :elixir,
+        :logger,
+        :runtime_tools,
+        :phoenix,
+        :phoenix_ecto,
+        :phoenix_pubsub,
+        :phoenix_live_view,
+        :phoenix_html,
+        :jason,
+        :oban,
+        :crontab,
+        :plug_cowboy,
+        :ecto_sqlite3,
+        :telemetry,
+        :msgpax,
+        :finch,
+        :xxhash,
+        :owl
+      ],
+      # erlexec is included (loaded, beam files on path) but NOT
+      # auto-started. PtyManager starts it lazily. This means erlexec
+      # will be stopped when code_puppy_control stops, which is correct
+      # for lifecycle management.
+      included_applications: [:erlexec]
     ]
   end
 

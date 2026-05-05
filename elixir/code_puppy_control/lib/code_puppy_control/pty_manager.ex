@@ -55,7 +55,7 @@ defmodule CodePuppyControl.PtyManager do
 
   require Logger
 
-  defstruct sessions: %{}
+  defstruct sessions: %{}, erlexec_started: false
 
   # ---------------------------------------------------------------------------
   # Session struct
@@ -186,80 +186,55 @@ defmodule CodePuppyControl.PtyManager do
     GenServer.call(__MODULE__, :count)
   end
 
+  @doc """
+  Returns whether erlexec is available for PTY session creation.
+
+  Useful for callers that want to check PTY availability without
+  attempting to create a session. Returns `true` if erlexec has
+  been successfully started (either previously or just now),
+  `false` otherwise.
+  """
+  @spec erlexec_available?() :: boolean()
+  def erlexec_available? do
+    GenServer.call(__MODULE__, :erlexec_available)
+  end
+
   # ---------------------------------------------------------------------------
   # Server Callbacks
   # ---------------------------------------------------------------------------
 
   @impl true
   def init(_opts) do
-    case Application.ensure_all_started(:erlexec) do
-      {:ok, _} ->
-        {:ok, %__MODULE__{sessions: %{}}}
-
-      {:error, {:already_started, :erlexec}} ->
-        {:ok, %__MODULE__{sessions: %{}}}
-
-      {:error, reason} ->
-        {:stop, {:erlexec_start_failed, reason}}
-    end
+    # Do NOT call Application.ensure_all_started(:erlexec) at init time.
+    # In escript/Burrito builds, erlexec looks for its `exec-port` binary under
+    # a virtual/unusable priv_dir (e.g. `pup/erlexec/priv`), so startup fails.
+    # PtyManager must not crash the application supervision tree when erlexec
+    # is unavailable — PTY sessions are only needed for interactive terminal
+    # emulation, not for the REPL or agent loop.
+    #
+    # Instead, we start in a degraded state (erlexec_started: false) and
+    # lazily attempt erlexec startup on the first create_session/2 call.
+    # If erlexec cannot start, create_session/2 returns a clear error so
+    # ExecutorPty can fall back to standard execution.
+    {:ok, %__MODULE__{sessions: %{}, erlexec_started: false}}
   end
 
   @impl true
   def handle_call({:create_session, session_id, opts}, _from, state) do
-    state =
-      if Map.has_key?(state.sessions, session_id) do
-        Logger.warning("PtyManager: session #{session_id} already exists, closing old one")
+    # Lazily attempt erlexec startup on first create_session call.
+    # If erlexec is unavailable (e.g. in escript where exec-port cannot be
+    # found), return a clear error so ExecutorPty can fall back to standard
+    # execution via System.cmd.
+    case ensure_erlexec_started(state) do
+      {:ok, state} ->
+        do_create_session(session_id, opts, state)
 
-        case close_session_internal(session_id, state) do
-          {:ok, new_state} -> new_state
-          {:error, :not_found} -> state
-        end
-      else
-        state
-      end
+      {:error, reason, state} ->
+        Logger.error(
+          "PtyManager: erlexec unavailable, cannot create session #{session_id}: #{inspect(reason)}"
+        )
 
-    cols = Keyword.get(opts, :cols, 80)
-    rows = Keyword.get(opts, :rows, 24)
-    subscriber = Keyword.get(opts, :subscriber)
-
-    shell =
-      Keyword.get_lazy(opts, :shell, fn ->
-        System.get_env("SHELL") ||
-          System.find_executable("bash") ||
-          System.find_executable("sh") ||
-          "/bin/sh"
-      end)
-
-    erlexec_opts = [
-      :pty,
-      :stdin,
-      :stdout,
-      {:stderr, :stdout},
-      {:winsz, {rows, cols}},
-      :monitor,
-      {:kill_timeout, 5},
-      {:env, [{"TERM", System.get_env("TERM") || "xterm-256color"}]}
-    ]
-
-    case :exec.run(String.to_charlist(shell), erlexec_opts) do
-      {:ok, pid, os_pid} ->
-        session = %Session{
-          session_id: session_id,
-          os_pid: os_pid,
-          pid: pid,
-          cols: cols,
-          rows: rows,
-          shell: shell,
-          subscriber: subscriber
-        }
-
-        new_sessions = Map.put(state.sessions, session_id, session)
-        Logger.info("PtyManager: created session #{session_id} (os_pid=#{os_pid})")
-        {:reply, {:ok, session}, %{state | sessions: new_sessions}}
-
-      {:error, reason} ->
-        Logger.error("PtyManager: failed to create session #{session_id}: #{inspect(reason)}")
-        {:reply, {:error, reason}, state}
+        {:reply, {:error, {:erlexec_unavailable, reason}}, state}
     end
   end
 
@@ -362,6 +337,15 @@ defmodule CodePuppyControl.PtyManager do
   @impl true
   def handle_call(:count, _from, state) do
     {:reply, map_size(state.sessions), state}
+  end
+
+  @impl true
+  def handle_call(:erlexec_available, _from, state) do
+    # Attempt lazy startup if not yet resolved
+    case ensure_erlexec_started(state) do
+      {:ok, state} -> {:reply, true, state}
+      {:error, _reason, state} -> {:reply, false, state}
+    end
   end
 
   # ---------------------------------------------------------------------------
@@ -494,5 +478,84 @@ defmodule CodePuppyControl.PtyManager do
     Enum.find_value(state.sessions, fn {_id, session} ->
       if session.os_pid == os_pid, do: session
     end)
+  end
+
+  # Lazy erlexec startup — attempted once on the first create_session call.
+  # If erlexec is already started (or was started by another path), marks
+  # the flag and returns {:ok, state}. If startup fails, caches the failure
+  # in state so we don't retry on every create_session call.
+  defp ensure_erlexec_started(%{erlexec_started: true} = state) do
+    {:ok, state}
+  end
+
+  defp ensure_erlexec_started(state) do
+    case Application.ensure_all_started(:erlexec) do
+      {:ok, _} ->
+        {:ok, %{state | erlexec_started: true}}
+
+      {:error, {:already_started, :erlexec}} ->
+        {:ok, %{state | erlexec_started: true}}
+
+      {:error, reason} ->
+        {:error, reason, state}
+    end
+  end
+
+  defp do_create_session(session_id, opts, state) do
+    state =
+      if Map.has_key?(state.sessions, session_id) do
+        Logger.warning("PtyManager: session #{session_id} already exists, closing old one")
+
+        case close_session_internal(session_id, state) do
+          {:ok, new_state} -> new_state
+          {:error, :not_found} -> state
+        end
+      else
+        state
+      end
+
+    cols = Keyword.get(opts, :cols, 80)
+    rows = Keyword.get(opts, :rows, 24)
+    subscriber = Keyword.get(opts, :subscriber)
+
+    shell =
+      Keyword.get_lazy(opts, :shell, fn ->
+        System.get_env("SHELL") ||
+          System.find_executable("bash") ||
+          System.find_executable("sh") ||
+          "/bin/sh"
+      end)
+
+    erlexec_opts = [
+      :pty,
+      :stdin,
+      :stdout,
+      {:stderr, :stdout},
+      {:winsz, {rows, cols}},
+      :monitor,
+      {:kill_timeout, 5},
+      {:env, [{"TERM", System.get_env("TERM") || "xterm-256color"}]}
+    ]
+
+    case :exec.run(String.to_charlist(shell), erlexec_opts) do
+      {:ok, pid, os_pid} ->
+        session = %Session{
+          session_id: session_id,
+          os_pid: os_pid,
+          pid: pid,
+          cols: cols,
+          rows: rows,
+          shell: shell,
+          subscriber: subscriber
+        }
+
+        new_sessions = Map.put(state.sessions, session_id, session)
+        Logger.info("PtyManager: created session #{session_id} (os_pid=#{os_pid})")
+        {:reply, {:ok, session}, %{state | sessions: new_sessions}}
+
+      {:error, reason} ->
+        Logger.error("PtyManager: failed to create session #{session_id}: #{inspect(reason)}")
+        {:reply, {:error, reason}, state}
+    end
   end
 end
