@@ -68,25 +68,52 @@ Phase 3 (alias removal) will follow after appropriate bake-in periods.
 **Python/PyPI stream only.** This does NOT change the Elixir-native version
 or create an Elixir tag.
 
+### Tag & push to trigger automated publish
+
+```bash
+git tag codepp/0.0.456 && git push origin codepp/0.0.456
+```
+
+The `.github/workflows/publish-pypi.yml` workflow runs automatically on
+`codepp/*` tag pushes:
+
+1. **Quality gates**: `uv sync --frozen`, ruff lint, pytest, package smoke
+2. **Version validation**: tag suffix must equal `[project].version` in
+   `pyproject.toml` (mismatch fails before any upload)
+3. **Build**: `uv build --sdist --wheel` into `dist/`
+4. **Publish**: `pypa/gh-action-pypi-publish@release/v1` via GitHub OIDC
+   Trusted Publishing (environment: `pypi`)
+
+> **⚠️ NEVER use `v0.0.x` tags for Python releases.** The `v*` tag namespace
+> is reserved for Burrito/Elixir releases (see `burrito-release.yml`).
+> Python releases MUST use `codepp/<version>` (e.g. `codepp/0.0.456`).
+
+### External setup still required
+
+The workflow is in place, but **actual PyPI publishing is blocked** until
+the following external steps are completed:
+
+1. **Create the `codepp` project on PyPI** (first-time only, via
+   <https://pypi.org/manage/account/publishing/>)
+2. **Configure Trusted Publishing on PyPI**: add the GitHub repository as
+   a trusted publisher with environment `pypi` and tag pattern `codepp/*`
+3. **Create the `pypi` environment** in GitHub repo settings
+   (Settings → Environments → New → `pypi`). No secrets are needed;
+   OIDC handles authentication automatically.
+
+See issue `code-puppy-m8o` for the external setup tracker.
+
+### Manual publish (fallback)
+
+If OIDC is unavailable, you can still publish manually:
+
 ```bash
 # Build
-uv build --wheel
+uv build --sdist --wheel
 
 # Publish (requires PyPI credentials or Trusted Publisher)
 uv publish
 ```
-
-> **⚠️ Publish blocker:** PyPI credentials (`~/.pypirc`) and Trusted
-> Publisher (GitHub OIDC) are not currently configured for this repository.
-> Actual `uv publish` cannot be performed until one of the following is
-> set up:
->
-> 1. API token in `~/.pypirc` or `UV_PUBLISH_TOKEN` env var
-> 2. GitHub Actions Trusted Publishing workflow (OIDC to PyPI)
->
-> A follow-up issue tracks the external publishing step.
-
-**Git tag (optional, Python stream):** `codepp/0.0.456`
 
 ---
 

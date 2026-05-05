@@ -49,10 +49,17 @@ For per-commit detail, see `git log`.
 
 ### CI & Release
 
+- **Two tag namespaces** — `v*` tags trigger Burrito/Elixir releases
+  (`burrito-release.yml`); `codepp/*` tags trigger Python/PyPI releases
+  (`publish-pypi.yml`). **Never use `v0.0.x` for Python** or `codepp/x.y.z`
+  for Elixir.
 - **GitHub Actions CI** (`ci.yml`): Python lint/test, Elixir format/compile/test,
   Elixir smoke/escript validation on every push/PR.
 - **Burrito release workflow** (`burrito-release.yml`): tag-triggered builds on
   3 platforms with GitHub Release + SHA256SUMS.txt.
+- **PyPI publish workflow** (`publish-pypi.yml`): tag-triggered (`codepp/*`)
+  OIDC Trusted Publishing via `pypa/gh-action-pypi-publish`. Validates tag
+  version matches `pyproject.toml`, runs quality gates, builds sdist + wheel.
 - **Local release gate** (`scripts/release-gate.sh`): pre-push quality gate
   for Python and Elixir lanes.
 - **Python package smoke** (`scripts/python-package-smoke.sh`): validates
