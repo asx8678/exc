@@ -1,133 +1,214 @@
-# Mana Plugins
+# Code Puppy Plugin Development
 
-Plugins are the primary way to extend Mana's functionality.
+> **Default extension mechanism for the native `pup` runtime.**
 
-## Creating a Plugin
+Plugins are the primary way to extend Code Puppy. For the Burrito native binary
+and the Elixir `pup` CLI, **Elixir plugins implementing `PluginBehaviour` are the
+recommended path**. Python `register_callbacks.py` plugins remain supported for
+the legacy PyPI compatibility package and bridge mode only.
 
-### Basic Structure
+For the full plugin development and migration guide — including Python compat
+details, hook reference, security model, and migration checklist — see
+**[PLUGIN_MIGRATION.md](./PLUGIN_MIGRATION.md)**.
+
+---
+
+## Quick Start: Elixir Plugin
+
+### Builtin Plugin
+
+Create a directory under `priv/plugins/` with a `register_callbacks.ex` file:
+
+```
+priv/plugins/my_feature/
+├── register_callbacks.ex    # required — entry point (preferred, compiles to BEAM)
+└── README.md                # recommended
+```
 
 ```elixir
-defmodule MyPlugin do
-  @moduledoc """
-  My custom Mana plugin.
-  """
-  
-  use Mana.Plugin
-  
+# register_callbacks.ex
+defmodule MyFeature do
+  @moduledoc "My custom Code Puppy plugin."
+  use CodePuppyControl.Plugins.PluginBehaviour
+
+  alias CodePuppyControl.Callbacks
+
   @impl true
-  def name, do: :my_plugin
-  
+  def name, do: "my_feature"
+
   @impl true
-  def version, do: "1.0.0"
-  
+  def description, do: "A sample plugin"
+
   @impl true
-  def init(opts) do
-    # Plugin initialization
-    register_hook(:startup, &on_startup/0)
-    register_hook(:agent_run_end, &on_agent_complete/3)
-    
-    {:ok, opts}
-  end
-  
-  defp on_startup do
-    IO.puts("MyPlugin initialized!")
-  end
-  
-  defp on_agent_complete(agent, result, _opts) do
-    # Log or process agent results
+  def register do
+    Callbacks.register(:startup, fn ->
+      IO.puts("🐾 my_feature loaded!")
+    end)
     :ok
   end
 end
 ```
 
-### Registering Hooks
+### User Plugin
+
+Place the same structure under the user plugins directory:
+
+```
+~/.code_puppy_ex/plugins/my_feature/
+├── register_callbacks.ex    # preferred — compiles to BEAM
+└── register_callbacks.exs   # fallback — evaluated, no BEAM
+```
+
+The loader auto-discovers `register_callbacks.ex` (preferred) and
+`register_callbacks.exs` (fallback) in subdirectories. No manual
+registration, config, or build step required.
+
+---
+
+## Required Callbacks
+
+Every Elixir plugin must implement `PluginBehaviour`:
+
+| Callback | Required | Returns |
+|----------|----------|---------|
+| `name/0` | ✅ Yes | `String.t() \| atom()` |
+| `register/0` | ✅ Yes | `:ok \| {:error, term()}` |
+| `description/0` | No (default `""`) | `String.t()` |
+| `startup/0` | No (default `:ok`) | `:ok` |
+| `shutdown/0` | No (default `:ok`) | `:ok` |
+
+Use `use CodePuppyControl.Plugins.PluginBehaviour` to get default
+implementations for optional callbacks.
+
+> **Important**: `init/1` and `version/0` are NOT part of `PluginBehaviour`.
+> Do not implement them. Register callbacks in `register/0` via
+> `Callbacks.register/2`, not `Plugins.register_hook` (that API does not exist).
+
+---
+
+## Common Patterns
+
+### Custom Slash Command
 
 ```elixir
-# Register at module scope
-register_hook(:pre_tool_call, &validate_tool_call/3)
+defmodule MyFeatureCommand do
+  use CodePuppyControl.Plugins.PluginBehaviour
+  alias CodePuppyControl.Callbacks
 
-# Or during init
-register_hook(:post_tool_call, &log_tool_result/4)
-```
+  @impl true
+  def name, do: "my_feature_command"
 
-## Built-in Plugins
-
-Mana ships with several built-in plugins:
-
-### Logger Plugin
-
-Logs agent execution and tool calls:
-
-```elixir
-config :mana, Mana.Plugins.Logger,
-  level: :info,
-  format: :json
-```
-
-### Metrics Plugin
-
-Collects execution metrics:
-
-```elixir
-config :mana, Mana.Plugins.Metrics,
-  backend: :prometheus
-```
-
-## Publishing Plugins
-
-### Hex Package
-
-1. Create a new Mix project:
-```bash
-mix new mana_plugin_my_feature
-```
-
-2. Add dependency:
-```elixir
-def deps do
-  [
-    {:mana, "~> 0.1.0"}
-  ]
-end
-```
-
-3. Implement `Mana.Plugin.Behaviour`
-
-4. Publish:
-```bash
-mix hex.publish
-```
-
-### Local Plugins
-
-For internal plugins, add to your `lib/`:
-
-```elixir
-# lib/mana_plugins/my_plugin.ex
-defmodule ManaPlugins.MyPlugin do
-  use Mana.Plugin
-  
-  def init(_opts) do
-    Mana.Plugins.register(__MODULE__)
+  @impl true
+  def register do
+    Callbacks.register(:custom_command_help, &__MODULE__.command_help/0)
+    Callbacks.register(:custom_command, &__MODULE__.handle_command/2)
     :ok
   end
+
+  def command_help, do: [{"hello", "Say hello (no model needed)"}]
+
+  def handle_command(_command, "hello"), do: "👋 Hello from my_feature!"
+  def handle_command(_command, _name), do: nil
 end
 ```
 
-Register in your application:
+### Adding to the System Prompt
 
 ```elixir
-ManaPlugins.MyPlugin.init([])
+@impl true
+def register do
+  Callbacks.register(:load_prompt, fn ->
+    "\n\n## My Plugin Instructions\nAlways use type hints."
+  end)
+  :ok
+end
 ```
 
-## Best Practices
+### Registering Tools
 
-1. **Keep hooks focused** - Each hook should do one thing
-2. **Handle errors gracefully** - Never let a plugin crash the system
-3. **Document dependencies** - List required services/config
-4. **Test thoroughly** - Use `Mana.Plugin.Test` helpers
-5. **Follow naming** - Use `mana_plugin_*` prefix for packages
+```elixir
+@impl true
+def register do
+  Callbacks.register(:register_tools, fn ->
+    [%{name: "my_tool", register_func: &my_tool_definition/0}]
+  end)
+  :ok
+end
+```
 
-## Hook Reference
+---
 
-See [HOOKS.md](./HOOKS.md) for the complete list of available hooks.
+## File Extensions: `.ex` vs `.exs`
+
+| Extension | Compilation | BEAM Produced | Use When |
+|-----------|-------------|---------------|----------|
+| `.ex` | `Code.compile_file/1` | ✅ Yes | Production plugins — **preferred** |
+| `.exs` | `Code.eval_file/1` | ❌ No | Quick scripts, prototyping |
+
+When both exist in the same directory, `.ex` wins. All `.exs` files must
+still define a module implementing `PluginBehaviour` — inline scripts
+without a module are not supported.
+
+---
+
+## Security Model
+
+User plugins execute arbitrary code with full system privileges — the same
+trust model as shell scripts or `.bashrc`. This applies to both Elixir and
+Python user plugins.
+
+| Guard | What It Catches |
+|-------|----------------|
+| Path traversal validation | `../` escapes in plugin names |
+| Symlink escape detection | Symlinks pointing outside plugin dir |
+| Canonical path resolution | Symlink chains that escape base dir |
+| Crash isolation (Elixir) | Plugin compile/eval/runtime errors caught |
+
+**There is no sandbox.** Only install plugins from sources you trust.
+
+---
+
+## Conventions
+
+| Convention | Rule |
+|-----------|------|
+| Prefer `.ex` over `.exs` | BEAM files enable hot-code upgrades |
+| Always implement `PluginBehaviour` | Required for discovery and lifecycle |
+| Use `Callbacks.register/2` in `register/0` | Not `Plugins.register_hook` — that doesn't exist |
+| No `init/1` or `version/0` | Not part of the behaviour |
+| Crash isolation is provided | Loader catches errors; host never crashes |
+| Path traversal/symlink guards | Names with `../`, `/`, `\` are rejected |
+| 600-line file cap | Split into submodules if needed |
+| Fail gracefully | Return sensible defaults, not exceptions |
+| `PUP_` prefix for env vars | Legacy `PUPPY_` is deprecated |
+
+---
+
+## Python Plugins (Compatibility Bridge Only)
+
+Python `register_callbacks.py` plugins are supported for the legacy PyPI
+compatibility package and explicit bridge mode (`PUP_RUNTIME=python` /
+`--bridge-mode`). They are **not** the recommended path for new development.
+
+```
+~/.code_puppy/plugins/my_feature/register_callbacks.py
+```
+
+The Python freeze policy (see CONTRIBUTING.md) restricts new feature work
+in `code_puppy/**/*.py`. New plugins should target the Elixir `PluginBehaviour`
+API instead.
+
+For the full Python plugin guide, migration instructions, and hook mapping,
+see **[PLUGIN_MIGRATION.md](./PLUGIN_MIGRATION.md)**.
+
+---
+
+## Related Documentation
+
+| Document | Description |
+|----------|-------------|
+| [PLUGIN_MIGRATION.md](./PLUGIN_MIGRATION.md) | Full guide: Elixir + Python, hook reference, migration |
+| [ADR-006](./adr/ADR-006-elixir-plugin-loader.md) | Elixir plugin loader design decisions |
+| [AGENTS.md](../AGENTS.md) | Contributor guide and hook list |
+| [CONTRIBUTING.md](../CONTRIBUTING.md) | Python compatibility freeze policy |
+| [HOOKS.md](./HOOKS.md) | Shell hook system (Claude Code compatible) |

@@ -403,17 +403,24 @@ If you use `!<command>`, you are explicitly choosing direct local execution.
 ### Plugin trust boundary
 
 Built-in plugins ship with Code Puppy, but **user plugins are fully trusted local code**.
-If you enable the Python compatibility/plugin bridge, Python in `~/.code_puppy/plugins/` is imported and executed during plugin discovery.
-That means user plugins can read files, execute processes, modify configuration, and access any data the local Python bridge process can access.
 
-Only install or keep user plugins you trust at the same level as other local developer tooling.
+- **Elixir user plugins** in `~/.code_puppy_ex/plugins/` are compiled and
+  executed at startup with full system privileges.
+- **Python user plugins** in `~/.code_puppy/plugins/` are imported and executed
+  during plugin discovery (compatibility/bridge mode only).
+
+That means user plugins can read files, execute processes, modify
+configuration, and access any data the host process can access.
+
+Only install or keep user plugins you trust at the same level as other local
+developer tooling.
 
 ### Safe-mode expectations
 
 At the moment, Code Puppy does **not** provide a fully isolated "safe mode" for user plugins.
 If you need a more locked-down session, the safest current approach is:
 
-- remove or rename untrusted directories under `~/.code_puppy/plugins/`
+- remove or rename untrusted directories under `~/.code_puppy_ex/plugins/` (Elixir) or `~/.code_puppy/plugins/` (Python compat)
 - avoid `!<command>` passthrough for sensitive workflows
 - prefer non-yolo execution so agent tool calls can be reviewed
 - use policy rules for `agent_run_shell_command` where appropriate

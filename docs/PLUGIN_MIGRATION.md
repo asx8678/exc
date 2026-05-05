@@ -1,9 +1,11 @@
-# Plugin Migration Guide for Community Authors
+# Plugin Development & Migration Guide
 
-> This guide helps plugin authors write, migrate, and publish plugins for
-> Code Puppy. It covers both the **Python** runtime (`pup`) and the
-> **Elixir** runtime (`pup-ex`), the security model, and practical
-> migration steps.
+> **Elixir plugins are the primary extension mechanism** for the native
+> `pup` runtime (Burrito binary or escript). Python plugins are supported
+> for the legacy PyPI compatibility package and bridge mode only.
+>
+> This guide covers both runtimes, the security model, and practical
+> migration steps for Python→Elixir plugin ports.
 
 ---
 
@@ -28,20 +30,9 @@
 
 ## Quick Start
 
-The fastest way to create a plugin is a single `register_callbacks` file:
+The fastest way to create a plugin depends on your target runtime:
 
-**Python** — `~/.code_puppy/plugins/my_feature/register_callbacks.py`:
-
-```python
-from code_puppy.callbacks import register_callback
-
-def _on_startup():
-    print("my_feature loaded!")
-
-register_callback("startup", _on_startup)
-```
-
-**Elixir** — `~/.code_puppy_ex/plugins/my_feature/register_callbacks.ex`:
+**Elixir (Recommended — native runtime)** — `~/.code_puppy_ex/plugins/my_feature/register_callbacks.ex`:
 
 ```elixir
 defmodule MyFeature do
@@ -66,9 +57,21 @@ defmodule MyFeature do
 end
 ```
 
+**Python (Compatibility / Bridge Mode Only)** — `~/.code_puppy/plugins/my_feature/register_callbacks.py`:
+
+```python
+from code_puppy.callbacks import register_callback
+
+def _on_startup():
+    print("my_feature loaded!")
+
+register_callback("startup", _on_startup)
+```
+
 That's it. The plugin loader auto-discovers `register_callbacks.*` files in
 subdirectories. No manual loader registration, no config, no build step.
-When both `register_callbacks.ex` and `register_callbacks.exs` exist,
+
+For Elixir: when both `register_callbacks.ex` and `register_callbacks.exs` exist,
 `.ex` wins (preferred — compiles to BEAM).
 
 ---
@@ -79,8 +82,8 @@ Code Puppy discovers plugins at startup by scanning well-known directories:
 
 | Runtime | Builtin Location | User Location |
 |---------|-----------------|---------------|
-| Python | `code_puppy/plugins/<name>/register_callbacks.py` | `~/.code_puppy/plugins/<name>/register_callbacks.py` |
-| Elixir | `priv/plugins/<name>/register_callbacks.ex` | `~/.code_puppy_ex/plugins/<name>/register_callbacks.ex` |
+| **Elixir** (default) | `priv/plugins/<name>/register_callbacks.ex` | `~/.code_puppy_ex/plugins/<name>/register_callbacks.ex` |
+| Python (compat) | `code_puppy/plugins/<name>/register_callbacks.py` | `~/.code_puppy/plugins/<name>/register_callbacks.py` |
 
 ### Elixir-Specific: `.ex` vs `.exs`
 
@@ -476,7 +479,8 @@ end
 
 | Scenario | Recommendation |
 |----------|---------------|
-| Python freeze is in effect | Only migrate if the feature is needed in `pup-ex` |
+| **New plugin development** | **Write an Elixir plugin.** Python `register_callbacks.py` is compat-only. |
+| Python freeze is in effect | Only migrate if the feature is needed in the native `pup` runtime |
 | Plugin is Python-only (no Elixir equivalent) | Write a new Elixir plugin; don't port 1:1 |
 | Plugin uses the Elixir bridge | Good candidate — the bridge API is the same |
 | Plugin is simple (few hooks) | Straightforward port |
@@ -497,14 +501,14 @@ end
    | `register_tools` | `:register_tools` | 0 | Tool schema differs |
    | `load_prompt` | `:load_prompt` | 0 | Merge: `:concat_str` |
    | `agent_run_start` | `:agent_run_start` | 3 | `(agent_name, model_name, session_id)` |
-   | `agent_run_end` | `:agent_run_end` | 6 | `(agent_name, model_name, session_id, success, error, response_text)` |
+   | `agent_run_end` | `:agent_run_end` | 7 | `(agent_name, model_name, session_id, success, error, response_text, metadata)` |
    | `stream_event` | `:stream_event` | 3 | Event format may differ |
    | `pre_tool_call` | `:pre_tool_call` | 3 | Blocking semantics differ |
    | `post_tool_call` | `:post_tool_call` | 5 | `(tool_name, tool_args, result, duration_ms, context)` |
    | `run_shell_command` | `:run_shell_command` | 3 | Fail-closed security hook |
    | `file_permission` | `:file_permission` | 6 | Fail-closed security hook |
    | `register_agents` | `:register_agents` | 0 | Merge: `:extend_list` |
-   | `register_model_type` | `:register_model_types` | 0 | **Note plural** in Elixir; merge: `:extend_list` |
+   | `register_model_type` | `:register_model_type` | 0 | Merge: `:extend_list` |
    | `load_model_config` | `:load_model_config` | 2 | Merge: `:update_map` |
    | `load_models_config` | `:load_models_config` | 0 | Merge: `:extend_list` |
    | `get_model_system_prompt` | `:get_model_system_prompt` | 3 | Chained, not merged |
@@ -514,7 +518,7 @@ end
    > `:agent_reload`/1, `:edit_file`/1, `:create_file`/1, `:replace_in_file`/1,
    > `:delete_snippet`/1, `:delete_file`/1, `:register_mcp_catalog_servers`/0,
    > `:register_browser_types`/0, `:register_model_providers`/0,
-   > `:message_history_processor_start`/1, `:message_history_processor_end`/1.
+   > `:message_history_processor_start`/4, `:message_history_processor_end`/5.
    >
    > Arities come from `CodePuppyControl.Callbacks.Hooks`. When porting a
    > Python plugin, always verify the Elixir arity matches your callback
@@ -637,22 +641,22 @@ fails when the hook is triggered and is handled as a callback failure
 | `:invoke_agent` | 1 | `:noop` | Yes | Sub-agent invoked |
 | `:agent_exception` | 2 | `:noop` | Yes | Unhandled agent error |
 | `:agent_run_start` | 3 | `:noop` | Yes | Before agent task |
-| `:agent_run_end` | 6 | `:noop` | Yes | After agent run |
+| `:agent_run_end` | 7 | `:noop` | Yes | After agent run |
 | `:load_prompt` | 0 | `:concat_str` | No | System prompt assembly |
 | `:get_model_system_prompt` | 3 | `:noop` | No | Per-model prompt (chained) |
 | `:run_shell_command` | 3 | `:noop` | Yes | Shell exec (fail-closed) |
-| `:file_permission` | 6 | `:noop` | Yes | File ops (fail-closed) |
+| `:file_permission` | 6 | `:or_bool` | Yes | File ops (fail-closed) |
 | `:pre_tool_call` | 3 | `:noop` | Yes | Before tool executes |
 | `:post_tool_call` | 5 | `:noop` | Yes | After tool finishes |
 | `:custom_command` | 2 | `:noop` | No | Custom `/slash` cmd |
 | `:custom_command_help` | 0 | `:extend_list` | No | `/help` menu |
 | `:register_tools` | 0 | `:extend_list` | No | Tool registration |
 | `:register_agents` | 0 | `:extend_list` | No | Agent catalogue |
-| `:register_model_types` | 0 | `:extend_list` | No | Custom model type (**plural** — differs from Python `register_model_type`) |
+| `:register_model_type` | 0 | `:extend_list` | No | Custom model type (maps from Python `register_model_type`) |
 | `:load_model_config` | 2 | `:update_map` | No | Patch model config |
-| `:load_models_config` | 0 | `:extend_list` | No | Inject models |
+| `:load_models_config` | 0 | `:update_map` | No | Inject models |
 | `:stream_event` | 3 | `:noop` | Yes | Response streaming |
-| `:get_motd` | 0 | `:extend_list` | No | Banner |
+| `:get_motd` | 0 | `:noop` | No | Banner |
 | `:version_check` | 1 | `:noop` | Yes | Check for updates |
 | `:agent_reload` | 1 | `:noop` | No | Agent hot-reload |
 | `:edit_file` | 1 | `:noop` | No | File edit observer |
@@ -663,8 +667,8 @@ fails when the hook is triggered and is handled as a callback failure
 | `:register_mcp_catalog_servers` | 0 | `:extend_list` | No | MCP catalog servers |
 | `:register_browser_types` | 0 | `:extend_list` | No | Browser type providers |
 | `:register_model_providers` | 0 | `:extend_list` | No | Model providers |
-| `:message_history_processor_start` | 1 | `:noop` | Yes | Before msg history processing |
-| `:message_history_processor_end` | 1 | `:noop` | Yes | After msg history processing |
+| `:message_history_processor_start` | 4 | `:noop` | Yes | Before msg history processing |
+| `:message_history_processor_end` | 5 | `:noop` | Yes | After msg history processing |
 
 > **Full Elixir list**: Call `CodePuppyControl.Callbacks.Hooks.all/0` for the
 > authoritative source. `Hooks` declares each hook's expected arity and
@@ -672,6 +676,14 @@ fails when the hook is triggered and is handled as a callback failure
 > A function with the wrong arity will fail when the hook is triggered
 > and is handled as a callback failure (`:callback_failed` sentinel),
 > not at registration time.
+>
+> **Note on arities**: This table reflects the current `Callbacks.Hooks`
+> module. If arities change between releases, `Hooks.all/0` is always
+> the ground truth. When in doubt, run:
+> ```elixir
+> iex -S mix
+> iex> CodePuppyControl.Callbacks.Hooks.all() |> Enum.map(fn {k, v} -> {k, v.arity} end)
+> ```
 
 ---
 
@@ -825,7 +837,7 @@ mix hex.publish
 And installed via:
 ```bash
 # Future command — not yet available
-/pup-ex plugin install my_feature
+/pup plugin install my_feature
 ```
 
 ### Future: pip Packages (Python)

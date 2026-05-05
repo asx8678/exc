@@ -184,7 +184,7 @@ These enable Python→Elixir RPC when the Python CLI is running in bridge mode. 
 
 | # | Blocker | Status | Issue |
 |---|---------|--------|-------|
-| 1 | Python plugins remain documented as the default plugin path in `CONTRIBUTING.md` and some docs | **Open** | Needs explicit Elixir-native plugin docs as default |
+| 1 | Python plugins remain documented as the default plugin path in `CONTRIBUTING.md` and some docs | **Resolved** by `code-puppy-hb7` | Elixir-native plugins now documented as default |
 | 2 | `codepp` PyPI package is the only install method for some users | **Open** | Burrito binary distribution needs parity |
 | 3 | Python bridge mode (`PUP_RUNTIME=python`) is the only way to run Python-side agents/plugins | **By design** | Not a blocker for default cutover; bridge mode is opt-in |
 | 4 | `pup` alias in `pyproject.toml` points to Python CLI | **Planned** | Deprecation plan exists: `docs/release/python-pup-alias-deprecation-plan.md` |

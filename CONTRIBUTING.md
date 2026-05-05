@@ -12,6 +12,7 @@
 
 Code Puppy now treats the Elixir `pup` CLI and `CodePuppyControl` runtime as the default daily-driver path:
 - The Elixir codebase (`elixir/code_puppy_control/`) is where **new runtime development happens**.
+- **New plugin development should target the Elixir `PluginBehaviour` API** (see `docs/PLUGIN_MIGRATION.md`).
 - The Python codebase (`code_puppy/`) is maintained for PyPI compatibility, Python plugins/agents, and explicit bridge mode (`PUP_RUNTIME=python` / `--bridge-mode`).
 - `pup_ex` is a Mix task namespace; there is no separate `pup-ex` executable. Avoid new docs or UX that imply otherwise.
 - Dual-maintenance would fragment effort and reintroduce stale Python-led runtime assumptions.

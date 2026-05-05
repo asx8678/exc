@@ -8,9 +8,51 @@
 
 ## How Plugins Work
 
-Create `code_puppy/plugins/my_feature/register_callbacks.py` (builtin) or `~/.code_puppy/plugins/my_feature/register_callbacks.py` (user):
+### Elixir Plugins (Recommended / Default Runtime)
+
+For the native `pup` runtime (Burrito binary or escript), write Elixir plugins
+implementing `PluginBehaviour`:
+
+**Builtin** — `priv/plugins/my_feature/register_callbacks.ex`:
+
+```elixir
+defmodule MyFeature do
+  use CodePuppyControl.Plugins.PluginBehaviour
+
+  alias CodePuppyControl.Callbacks
+
+  @impl true
+  def name, do: "my_feature"
+
+  @impl true
+  def register do
+    Callbacks.register(:startup, fn ->
+      IO.puts("my_feature loaded!")
+    end)
+    :ok
+  end
+end
+```
+
+**User** — `~/.code_puppy_ex/plugins/my_feature/register_callbacks.ex`:
+
+Same module structure; place under the user plugins directory. The Elixir loader
+auto-discovers `register_callbacks.ex` (preferred, compiles to BEAM) and
+`register_callbacks.exs` (fallback, evaluated at runtime).
+
+> **Security note:** user plugins in `~/.code_puppy_ex/plugins/` execute arbitrary
+> Elixir code with full system privileges — same trust model as Python plugins.
+> Only load plugins from sources you trust. See
+> [docs/PLUGIN_MIGRATION.md](docs/PLUGIN_MIGRATION.md) for full details.
+
+### Python Plugins (Compatibility / Bridge Mode Only)
+
+Python `register_callbacks.py` plugins are supported for the legacy PyPI
+compatibility package and explicit bridge mode (`PUP_RUNTIME=python` / `--bridge-mode`):
 
 ```python
+# code_puppy/plugins/my_feature/register_callbacks.py (builtin)
+# ~/.code_puppy/plugins/my_feature/register_callbacks.py (user)
 from code_puppy.callbacks import register_callback
 
 def _on_startup():
@@ -19,11 +61,16 @@ def _on_startup():
 register_callback("startup", _on_startup)
 ```
 
-That's it. The plugin loader auto-discovers `register_callbacks.py` in subdirs.
+> **⚠️ Python plugins are compatibility-only.** New plugin development should
+> target the Elixir `PluginBehaviour` API. The Python freeze policy (see
+> CONTRIBUTING.md) restricts changes to `code_puppy/**/*.py`.
+>
+> **Security note:** user plugins in `~/.code_puppy/plugins/` are treated as trusted
+> local Python code. They are imported and executed during plugin discovery with
+> the same local privileges as Code Puppy itself. There is currently no isolated
+> safe mode for user plugins, so do not install untrusted plugins.
 
-> **Security note:** user plugins in `~/.code_puppy/plugins/` are treated as trusted local Python code.
-> They are imported and executed during plugin discovery with the same local privileges as Code Puppy itself.
-> There is currently no isolated safe mode for user plugins, so do not install untrusted plugins.
+Full plugin development guide: [docs/PLUGIN_MIGRATION.md](docs/PLUGIN_MIGRATION.md).
 
 ## Runtime Integration & Python Bridge
 
@@ -56,7 +103,8 @@ else:
 
 ## Available Hooks
 
-`register_callback("<hook>", func)` — deduplicated, async hooks accept sync or async functions.
+Elixir: `Callbacks.register(:hook_name, fn)` — see `CodePuppyControl.Callbacks.Hooks` for authoritative arities.
+Python: `register_callback("hook_name", func)` — deduplicated, async hooks accept sync or async functions.
 
 | Hook | When | Signature |
 |------|------|-----------|
@@ -82,7 +130,17 @@ else:
 | `stream_event` | Response streaming | `(event_type, event_data, agent_session_id=None) -> None` |
 | `get_motd` | Banner | `() -> tuple[str, str] \| None` |
 
-Full list + rarely-used hooks: see `code_puppy/callbacks.py` source.
+Full list + rarely-used hooks: see `code_puppy/callbacks.py` (Python) or
+`CodePuppyControl.Callbacks.Hooks` (Elixir — authoritative source).
+
+**Elixir-only hooks** (no Python equivalent): `:version_check`, `:agent_reload`,
+`:edit_file`, `:create_file`, `:replace_in_file`, `:delete_snippet`,
+`:delete_file`, `:register_mcp_catalog_servers`, `:register_browser_types`,
+`:register_model_providers`, `:message_history_processor_start`,
+`:message_history_processor_end`.
+
+See [docs/PLUGIN_MIGRATION.md](docs/PLUGIN_MIGRATION.md) for the complete
+Elixir hook reference with arities and merge strategies.
 
 ## Prompt Assembly Architecture
 
@@ -104,10 +162,11 @@ The system prompt is built in layers by different components. Understanding this
 ## Rules
 
 1. **Plugins over core** — if a hook exists for it, use it
-2. **One `register_callbacks.py` per plugin** — register at module scope
-3. **600-line hard cap** — split into submodules
-4. **Fail gracefully** — never crash the app
-5. **Return `None` from commands you don't own**
+2. **Prefer Elixir plugins** — Elixir `PluginBehaviour` is the default extension mechanism for the native runtime
+3. **One `register_callbacks` file per plugin** — `.ex`/`.exs` (Elixir) or `.py` (Python compat) at module scope
+4. **600-line hard cap** — split into submodules
+5. **Fail gracefully** — never crash the app
+6. **Return `None` / `nil` from commands you don't own**
 
 ## Audit-Driven Development Rules
 
