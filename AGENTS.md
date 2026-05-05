@@ -43,8 +43,8 @@ auto-discovers `register_callbacks.ex` (preferred, compiles to BEAM) and
 > **Security note:** user plugins in `~/.code_puppy_ex/plugins/` execute arbitrary
 > Elixir code with full system privileges — same trust model as Python plugins.
 > Only load plugins from sources you trust. See
-> [docs/PLUGIN_MIGRATION.md](docs/PLUGIN_MIGRATION.md) for full details.
-
+See
+[docs/PYTHON_PLUGIN_COMPATIBILITY.md](docs/PYTHON_PLUGIN_COMPATIBILITY.md) for full details.
 ### Python Plugins (Compatibility / Bridge Mode Only)
 
 Python `register_callbacks.py` plugins are supported for the legacy PyPI
@@ -139,7 +139,7 @@ Full list + rarely-used hooks: see `code_puppy/callbacks.py` (Python) or
 `:register_model_providers`, `:message_history_processor_start`,
 `:message_history_processor_end`.
 
-See [docs/PLUGIN_MIGRATION.md](docs/PLUGIN_MIGRATION.md) for the complete
+See [docs/PLUGIN_HOOK_REFERENCE.md](docs/PLUGIN_HOOK_REFERENCE.md) for the complete
 Elixir hook reference with arities and merge strategies.
 
 ## Prompt Assembly Architecture

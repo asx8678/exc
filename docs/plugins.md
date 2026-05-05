@@ -7,9 +7,11 @@ and the Elixir `pup` CLI, **Elixir plugins implementing `PluginBehaviour` are th
 recommended path**. Python `register_callbacks.py` plugins remain supported for
 the legacy PyPI compatibility package and bridge mode only.
 
-For the full plugin development and migration guide — including Python compat
-details, hook reference, security model, and migration checklist — see
-**[PLUGIN_MIGRATION.md](./PLUGIN_MIGRATION.md)**.
+For the full plugin development and migration guide, see
+**[PLUGIN_MIGRATION.md](./PLUGIN_MIGRATION.md)**. For the complete hook
+reference, see **[PLUGIN_HOOK_REFERENCE.md](./PLUGIN_HOOK_REFERENCE.md)**.
+For Python compatibility details, see
+**[PYTHON_PLUGIN_COMPATIBILITY.md](./PYTHON_PLUGIN_COMPATIBILITY.md)**.
 
 ---
 
@@ -198,8 +200,10 @@ The Python freeze policy (see CONTRIBUTING.md) restricts new feature work
 in `code_puppy/**/*.py`. New plugins should target the Elixir `PluginBehaviour`
 API instead.
 
-For the full Python plugin guide, migration instructions, and hook mapping,
-see **[PLUGIN_MIGRATION.md](./PLUGIN_MIGRATION.md)**.
+For the full Python plugin guide, see
+**[PYTHON_PLUGIN_COMPATIBILITY.md](./PYTHON_PLUGIN_COMPATIBILITY.md)**.
+For the hook mapping and reference, see
+**[PLUGIN_HOOK_REFERENCE.md](./PLUGIN_HOOK_REFERENCE.md)**.
 
 ---
 
@@ -207,7 +211,9 @@ see **[PLUGIN_MIGRATION.md](./PLUGIN_MIGRATION.md)**.
 
 | Document | Description |
 |----------|-------------|
-| [PLUGIN_MIGRATION.md](./PLUGIN_MIGRATION.md) | Full guide: Elixir + Python, hook reference, migration |
+| [PLUGIN_MIGRATION.md](./PLUGIN_MIGRATION.md) | Overview, quick start, Elixir & migration guides |
+| [PLUGIN_HOOK_REFERENCE.md](./PLUGIN_HOOK_REFERENCE.md) | Complete hook tables, merge semantics, Python→Elixir mapping |
+| [PYTHON_PLUGIN_COMPATIBILITY.md](./PYTHON_PLUGIN_COMPATIBILITY.md) | Python compat writing, security model, testing, publishing |
 | [ADR-006](./adr/ADR-006-elixir-plugin-loader.md) | Elixir plugin loader design decisions |
 | [AGENTS.md](../AGENTS.md) | Contributor guide and hook list |
 | [CONTRIBUTING.md](../CONTRIBUTING.md) | Python compatibility freeze policy |
