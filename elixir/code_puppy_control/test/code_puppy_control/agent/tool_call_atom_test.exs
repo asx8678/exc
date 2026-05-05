@@ -17,6 +17,7 @@ defmodule CodePuppyControl.Agent.ToolCallAtomTest do
 
   alias CodePuppyControl.Agent.LLMAdapter
   alias CodePuppyControl.Agent.Loop
+  alias CodePuppyControl.Callbacks
   alias CodePuppyControl.Tool.{Registry, Runner}
 
   # ── Stub tool for Registry-based tests ──────────────────────────────────
@@ -180,6 +181,8 @@ defmodule CodePuppyControl.Agent.ToolCallAtomTest do
     setup do
       # (code_puppy-i1n) Ensure Tool.Registry is alive.
       CodePuppyControl.TestSupport.Reset.ensure_gen_server_started(CodePuppyControl.Tool.Registry)
+      # Defensive: clear any leaked callbacks from other test modules
+      Callbacks.clear()
 
       prev = Application.get_env(:code_puppy_control, :llm_adapter_provider)
       Application.put_env(:code_puppy_control, :llm_adapter_provider, ProviderMock)
@@ -337,6 +340,8 @@ defmodule CodePuppyControl.Agent.ToolCallAtomTest do
     setup do
       # (code_puppy-i1n) Ensure Tool.Registry is alive.
       CodePuppyControl.TestSupport.Reset.ensure_gen_server_started(CodePuppyControl.Tool.Registry)
+      # Defensive: clear any leaked callbacks from other test modules
+      Callbacks.clear()
 
       {:ok, _pid} = LoopMockLLM.start_link()
       :ok = Registry.register(AtomFixTool)
@@ -432,6 +437,8 @@ defmodule CodePuppyControl.Agent.ToolCallAtomTest do
     setup do
       # (code_puppy-i1n) Ensure Tool.Registry is alive.
       CodePuppyControl.TestSupport.Reset.ensure_gen_server_started(CodePuppyControl.Tool.Registry)
+      # Defensive: clear any leaked callbacks from other test modules
+      Callbacks.clear()
 
       Registry.clear()
       Registry.register(AtomFixTool)

@@ -19,6 +19,7 @@ defmodule CodePuppyControl.Callbacks.SecurityTest do
 
   setup do
     Callbacks.clear()
+    on_exit(fn -> Callbacks.clear() end)
     :ok
   end
 
