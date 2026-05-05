@@ -170,8 +170,8 @@ These enable Python→Elixir RPC when the Python CLI is running in bridge mode. 
 | File / Module | Lines | Category | Notes |
 |---------------|-------|----------|-------|
 | `code_puppy/plugins/fast_puppy/register_callbacks.py` | 23 | dead/stale | Stub that says "acceleration removed"; Elixir `fast_puppy.ex` is the canonical version |
-| `code_cuppy/runtime_selector.py` | N/A | **never created** | Planned in `code-puppy-bwt.2` but never implemented — Elixir-only |
-| `code_cuppy/feature_flags.py` | N/A | **never created** | Planned in `code-puppy-djs.4.6` but never implemented — Elixir-only |
+| `code_puppy/runtime_selector.py` | N/A | **never created** | Planned in `code-puppy-bwt.2` but never implemented — Elixir-only |
+| `code_puppy/feature_flags.py` | N/A | **never created** | Planned in `code-puppy-djs.4.6` but never implemented — Elixir-only |
 | `docs/python_dependency_graph.json` | — | stale | Generated from Python tree; low value post-cutover |
 | `docs/triage/phase-h-reality-audit-2026-04-29.md` | — | stale | Superseded by this audit and completed migration phases |
 | `PYTHON_WORKER_SCRIPT` env var | — | deprecated | Legacy env var with deprecation warning; candidate for removal timeline |
@@ -273,7 +273,7 @@ Grouped logically — **not** one per grep hit. These are the actionable outcome
 
 ### Long-term (Python tree removal)
 
-10. **Delete:** `code_cuppy/` tree, `pyproject.toml`, `uv.lock`, `.python-version`
+10. **Delete:** `code_puppy/` tree, `pyproject.toml`, `uv.lock`, `.python-version`
 11. **Delete:** `elixir_bridge/` Python bridge (4,646 lines)
 12. **Simplify:** Remove `PUP_RUNTIME` env var complexity; Elixir is the only runtime
 13. **Update:** `release-gate.sh` drops Python gate steps
