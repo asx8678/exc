@@ -36,28 +36,8 @@ defmodule CodePuppyControl.MixProject do
   end
 
   def application do
-    [
-      mod: {CodePuppyControl.Application, []},
-      # Explicitly list auto-started applications, excluding :erlexec and
-      # :ecto_sqlite3/:exqlite.
-      #
-      # In escript/Burrito builds, erlexec's native port (exec-port) may not
-      # be findable (it looks under a virtual/unusable priv_dir), causing
-      # the entire application startup to fail. By excluding erlexec from
-      # auto-started applications, the supervision tree starts cleanly;
-      # PtyManager lazily attempts Application.ensure_all_started(:erlexec)
-      # on the first create_session/2 call and returns a clear error if
-      # unavailable, allowing ExecutorPty to fall back to standard
-      # execution via System.cmd.
-      #
-      # (code-puppy-be7) Similarly, :ecto_sqlite3/:exqlite are excluded
-      # from auto-start because the exqlite NIF .so cannot be loaded from
-      # the escript zip archive. Repo.start_link/1 is only called when
-      # the Application's build_children/1 decides to include Repo in the
-      # supervision tree (i.e., not in escript mode). Moving these to
-      # included_applications means the beam files are on the code path
-      # but the applications are not auto-started.
-      applications: [
+    base_apps =
+      [
         :kernel,
         :stdlib,
         :elixir,
@@ -77,13 +57,43 @@ defmodule CodePuppyControl.MixProject do
         :finch,
         :xxhash,
         :owl
-      ],
-      # erlexec is included (loaded, beam files on path) but NOT
-      # auto-started. PtyManager starts it lazily.
-      # ecto_sqlite3/exqlite are included but NOT auto-started.
-      # Repo.start_link/1 is only called from the Application supervision
-      # tree when NOT in escript mode. (code-puppy-be7)
-      included_applications: [:erlexec, :ecto_sqlite3, :exqlite, :db_connection, :ecto_sql, :ecto]
+      ]
+
+    # In prod (Burrito/release) mode, the exqlite NIF is available so
+    # DB-dependent apps auto-start. In dev/escript mode, the NIF cannot
+    # load from the zip archive, so these apps must be included-only
+    # (loaded but not auto-started); Application.build_children/1 calls
+    # Application.ensure_all_started(:ecto_sqlite3) lazily when needed.
+    #
+    # (code-puppy-be7) If ecto_sqlite3/exqlite appear in both applications
+    # and included_applications, Mix raises at compile time — hence the
+    # env-conditional split.
+    {db_apps, db_included} =
+      if Mix.env() == :prod do
+        # Burrito/release: NIF is available, auto-start DB apps.
+        # oban already in base_apps; ecto_sqlite3 brings its own deps.
+        {[:ecto_sqlite3, :exqlite, :db_connection, :ecto_sql, :ecto], []}
+      else
+        # Dev/escript: NIF unavailable, include-only until explicitly
+        # started by Application.build_children/1.
+        {[], [:ecto_sqlite3, :exqlite, :db_connection, :ecto_sql, :ecto]}
+      end
+
+    # erlexec is always included-only (loaded, not auto-started).
+    # PtyManager lazily calls Application.ensure_all_started(:erlexec)
+    # on first PTY session; ExecutorPty falls back to System.cmd if
+    # erlexec is unavailable.
+    #
+    # burrito is listed as included_applications so its beam files are
+    # on the code path during `mix release` step execution (the
+    # &Burrito.wrap/1 step needs the module loaded). It has no `mod`
+    # callback so it won't auto-start.
+    included = [:erlexec, :burrito] ++ db_included
+
+    [
+      mod: {CodePuppyControl.Application, []},
+      applications: base_apps ++ db_apps,
+      included_applications: included
     ]
   end
 
