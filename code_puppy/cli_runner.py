@@ -81,14 +81,14 @@ def _warn_if_legacy_pup_alias() -> None:
     """Emit deprecation warning if invoked via the legacy `pup` alias.
 
     Phase 1: opt-in only. The warning fires when BOTH conditions hold:
-    1. PUP_PUP_ALIAS_DEPRECATED is set to a truthy value ("1", "true", "yes")
+    1. PUP_PUP_ALIAS_DEPRECATED is set to a truthy value ("1", "true", "yes", "on")
     2. sys.argv[0] basename matches a known legacy alias (``pup`` or ``pup.exe``)
 
     The warning is emitted before --help/--version handling so that
     `pup --help` also surfaces the deprecation notice.
     """
     env_val = os.environ.get("PUP_PUP_ALIAS_DEPRECATED", "")
-    if env_val.lower() not in ("1", "true", "yes"):
+    if env_val.lower() not in ("1", "true", "yes", "on"):
         return
 
     argv0 = sys.argv[0]

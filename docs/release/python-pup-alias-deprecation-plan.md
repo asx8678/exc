@@ -53,7 +53,7 @@ When invoked as `code-puppy`, `code-puppy.exe`, or any other basename, no warnin
 
 ## Phase 2 — Default-On Warning (Future)
 
-**Issue:** code-puppy-261 (code-puppy-1xm)
+**Issue:** code-puppy-1xm
 **Depends on:** Phase 1 bake-in period (≥1 Python release cycle, ≥2 weeks).
 **Trigger:** Always on; no env var required.
 **Suppress with:** `PUP_PUP_ALIAS_DEPRECATED=0` (explicit opt-out).
@@ -82,7 +82,7 @@ When invoked via `pup` or `pup.exe`:
 
 ## Phase 3 — Alias Removal (Future)
 
-**Issue:** code-puppy-262 (code-puppy-vp0)
+**Issue:** code-puppy-vp0
 **Depends on:** Phase 2 bake-in period (≥2 Python release cycles, ≥4 weeks after Phase 2).
 **Trigger:** The `pup = "code_puppy.main:main_entry"` entry point is removed from `pyproject.toml`.
 

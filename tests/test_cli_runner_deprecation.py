@@ -21,7 +21,6 @@ import warnings
 from importlib import import_module, reload
 
 
-
 def _reload_cli_runner():
     """Force-reload code_puppy.cli_runner so env/argv changes are seen."""
     mod = import_module("code_puppy.cli_runner")
@@ -120,7 +119,7 @@ class TestLegacyPupAliasDeprecation:
 
     def test_warning_emitted_for_truthy_env_values(self, monkeypatch):
         """PUP_PUP_ALIAS_DEPRECATED accepts '1', 'true', 'yes' (case-insensitive)."""
-        for val in ("1", "true", "yes", "True", "YES", "1"):
+        for val in ("1", "true", "yes", "on", "True", "YES", "ON"):
             monkeypatch.setenv("PUP_PUP_ALIAS_DEPRECATED", val)
             monkeypatch.setattr(sys, "argv", ["pup", "--help"])
 
