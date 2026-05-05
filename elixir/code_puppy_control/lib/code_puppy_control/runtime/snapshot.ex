@@ -19,12 +19,25 @@ defmodule CodePuppyControl.Runtime.Snapshot do
 
   # ── Public API ──────────────────────────────────────────────────────────
 
+  @type sup_entry :: %{
+          current: non_neg_integer(),
+          max: non_neg_integer(),
+          utilization: float()
+        }
+
   @type snapshot :: %{
           processes: %{current: non_neg_integer(), limit: non_neg_integer()},
           ports: %{current: non_neg_integer(), limit: non_neg_integer()},
           memory_mb: map(),
           schedulers: map(),
-          supervisors: map(),
+          supervisors: %{
+            python_workers: sup_entry(),
+            mcp_servers: sup_entry(),
+            mcp_clients: sup_entry(),
+            runs: sup_entry(),
+            executors: sup_entry(),
+            agent_states: sup_entry()
+          },
           limits: map(),
           concurrency: map(),
           rate_limiter: map()

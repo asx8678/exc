@@ -144,7 +144,7 @@ defmodule CodePuppyControl.SchedulerTest do
   end
 
   describe "run_task_now/1" do
-    test "enqueues a job for immediate execution" do
+    test "enqueues a job for immediate execution via public API" do
       {:ok, task} =
         Scheduler.create_task(%{
           name: "run-now-test",
@@ -152,26 +152,26 @@ defmodule CodePuppyControl.SchedulerTest do
           prompt: "test prompt"
         })
 
-      # Build the job directly rather than calling run_task_now/1, because
-      # Oban.testing :inline triggers synchronous execution which calls
-      # Manager.await_run/2 — the Elixir executor never auto-completes in
-      # test mode, so inline execution blocks forever. (code-puppy-97t)
-      changeset =
-        CodePuppyControl.Scheduler.Worker.new(%{task_id: task.id},
-          queue: :scheduled,
-          scheduled_at: DateTime.utc_now(),
-          meta: %{
-            task_name: task.name,
-            agent_name: task.agent_name,
-            manual_trigger: true
-          }
-        )
+      # Use with_testing_mode(:manual) to enqueue without inline execution,
+      # which would deadlock via Manager.await_run/2 in test mode.
+      Oban.Testing.with_testing_mode(:manual, fn ->
+        assert {:ok, job} = Scheduler.run_task_now(task)
 
-      assert {:ok, job} = Repo.insert(changeset)
-      assert job.queue == "scheduled"
-      # Oban normalises args internally; accept string or atom key
-      assert Map.get(job.args, "task_id") == task.id or
-               Map.get(job.args, :task_id) == task.id
+        assert job.queue == "scheduled"
+        assert job.worker == "CodePuppyControl.Scheduler.Worker"
+
+        # Oban normalises args internally; accept string or atom key
+        assert Map.get(job.args, "task_id") == task.id or
+                 Map.get(job.args, :task_id) == task.id
+
+        # Verify manual-trigger metadata.
+        # In :manual mode Oban skips JSON round-trip, so meta keys are atoms.
+        assert job.meta == %{
+                 task_name: task.name,
+                 agent_name: task.agent_name,
+                 manual_trigger: true
+               }
+      end)
     end
   end
 
