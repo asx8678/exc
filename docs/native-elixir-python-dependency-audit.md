@@ -193,7 +193,7 @@ These enable Python→Elixir RPC when the Python CLI is running in bridge mode. 
 
 | # | Item | Status |
 |---|------|--------|
-| 1 | `PUP_NO_PYTHON=1` convenience env var | `code-puppy-o4m` (P3, open). `PUP_RUNTIME=elixir` already provides this. Decision: implement or document-and-close. |
+| 1 | `PUP_NO_PYTHON=1` convenience env var | ✅ **Document-and-close** (code-puppy-o4m). `PUP_RUNTIME=elixir` IS the no-Python flag. Adding a separate alias creates env var drift and violates YAGNI. No new env var needed. |
 | 2 | Remove `PYTHON_WORKER_SCRIPT` legacy env var | Tracked in deprecation plan. Low priority. |
 | 3 | Delete `fast_puppy` Python stub | Trivial cleanup; Elixir version is canonical. |
 | 4 | Clean up stale triage docs | Housekeeping only. |
@@ -215,11 +215,13 @@ Grouped logically — **not** one per grep hit. These are the actionable outcome
 
 **Status:** Completed in code-puppy-dh5. All PythonWorker modules now carry bridge-mode-only `@moduledoc` annotations. Health controller, bench task, runtime snapshot, application.ex, stdio_service docs, and ELIXIR_STANDALONE_TRANSPORT.md all updated. No behavior changes — docs/comments/status-labeling only.
 
-### 6.2 Decide `PUP_NO_PYTHON=1`: Implement or Document-and-Close (P3)
+### 6.2 Decide `PUP_NO_PYTHON=1`: Document-and-Close (P3) — ✅ code-puppy-o4m
 
 **Rationale:** Issue `code-puppy-o4m` is already open. `PUP_RUNTIME=elixir` already provides the no-Python guarantee. This is UX/ergonomics only.
 
-**Actions:** Update `code-puppy-o4m` with this audit's finding: recommend **document-and-close** since `PUP_RUNTIME=elixir` is the canonical no-Python flag.
+**Decision:** Do **not** implement `PUP_NO_PYTHON=1`. `PUP_RUNTIME=elixir` is the canonical no-Python selector. Adding a separate env var alias creates env var drift (two ways to do the same thing), violates YAGNI, and would require code changes in `RuntimeSelector` for a redundant code path. The README already states prominently that `PUP_RUNTIME=elixir` is the no-Python flag (lines 101, 129). New env vars must use `PUP_` prefix per convention, but this particular alias is intentionally not added.
+
+**Status:** Closed as document-and-close. No code changes. `PUP_RUNTIME=elixir` IS the no-Python flag.
 
 ### 6.3 Port/Delete Stale `fast_puppy` Python Stub (P4) — ✅ code-puppy-3e5
 

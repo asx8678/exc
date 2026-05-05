@@ -94,7 +94,7 @@ Use these current controls instead:
 | Need | Current control |
 |---|---|
 | **Default daily driver** | **Burrito `code_puppy_control_*` native binary** (recommended) |
-| Force Elixir | `PUP_RUNTIME=elixir` |
+| Force Elixir / run without Python | `PUP_RUNTIME=elixir` (canonical no-Python selector; no `PUP_NO_PYTHON` env var exists) |
 | Dev / smoke testing | `./pup` escript (degraded: no Repo/Oban/Endpoint) |
 | Explicit Python bridge | `PUP_RUNTIME=python` or `--bridge-mode` |
 | Build no-Python confidence | `mix pup_ex.smoke --no-python` |

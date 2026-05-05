@@ -77,7 +77,7 @@ The Elixir runtime (`./pup` CLI and `pup_ex` Mix tasks) uses a **separate home**
 | Variable | Purpose | Default |
 |----------|---------|---------|
 | `PUP_EX_HOME` | Override Elixir home | `~/.code_puppy_ex/` |
-| `PUP_RUNTIME` | Force runtime selector (`auto`, `elixir`, or `python`); set to `python` to activate bridge-worker mode | `auto` (Elixir-first) |
+| `PUP_RUNTIME` | Force runtime selector (`auto`, `elixir`, or `python`); set to `python` to activate bridge-worker mode; set to `elixir` to run without Python (**this is the canonical no-Python flag** — no separate `PUP_NO_PYTHON` env var exists) | `auto` (Elixir-first) |
 | `PUP_PYTHON_WORKER_SCRIPT` | Path to the Python worker script used by the Elixir bridge; required only for explicit `PUP_RUNTIME=python` / `--bridge-mode` flows | — |
 | `PUP_HOME` | Deprecated — logs warning | — |
 | `PUPPY_HOME` | Legacy — logs warning | — |
@@ -278,6 +278,19 @@ Options:
   -p, --prompt PROMPT   Execute a single prompt and exit
   -i, --interactive     Run in interactive mode
   --bridge-mode         Force Python runtime (sets PUP_RUNTIME=python for the session)
+```
+
+### Running without Python (default)
+
+> **No Python is required by default.** The Burrito binary and escript run fully on the BEAM VM. Simply launch `./pup` — `PUP_RUNTIME` defaults to `auto` (Elixir-first).
+> To explicitly guarantee no Python is invoked, set `PUP_RUNTIME=elixir`. There is no separate `PUP_NO_PYTHON` env var; `PUP_RUNTIME=elixir` is the canonical no-Python selector.
+
+```bash
+# Default: no Python needed
+./pup
+
+# Explicitly guarantee no Python
+PUP_RUNTIME=elixir ./pup
 ```
 
 ### Python bridge-worker mode (optional)
