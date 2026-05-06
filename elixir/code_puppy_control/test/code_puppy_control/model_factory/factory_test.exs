@@ -321,4 +321,189 @@ defmodule CodePuppyControl.ModelFactoryTest do
       :ets.delete(:model_configs, "bad-type-model")
     end
   end
+
+  # =====================================================================
+  # list_configured/0 — credential-agnostic model listing
+  # =====================================================================
+
+  describe "list_configured/0" do
+    test "includes a model with :ok status when provider is registered and no credentials required" do
+      :ok = ProviderRegistry.register("temp_ok_provider", OpenAI)
+
+      :ets.insert(
+        :model_configs,
+        {"temp-ok-model", %{"type" => "temp_ok_provider", "name" => "ok-fake"}}
+      )
+
+      configured = ModelFactory.list_configured()
+
+      assert {"temp-ok-model", "temp_ok_provider", :ok} in configured
+    after
+      :ets.delete(:model_configs, "temp-ok-model")
+    end
+
+    test "returns {:missing, [env_var]} when api_key_env references unset env var" do
+      # Ensure the env var is NOT set
+      System.delete_env("PUP_TEST_MISSING_API_KEY")
+
+      :ets.insert(
+        :model_configs,
+        {
+          "temp-missing-model",
+          %{
+            "type" => "custom_openai",
+            "name" => "missing-fake",
+            "api_key_env" => "PUP_TEST_MISSING_API_KEY"
+          }
+        }
+      )
+
+      configured = ModelFactory.list_configured()
+
+      # Find our temp entry and assert the status
+      entry = Enum.find(configured, fn {n, _, _} -> n == "temp-missing-model" end)
+      assert entry != nil
+      assert {_, "custom_openai", {:missing, ["PUP_TEST_MISSING_API_KEY"]}} = entry
+    after
+      :ets.delete(:model_configs, "temp-missing-model")
+      System.delete_env("PUP_TEST_MISSING_API_KEY")
+    end
+
+    test "returns {:unsupported, type} for unregistered provider type" do
+      :ets.insert(
+        :model_configs,
+        {"temp-unsupported-model",
+         %{"type" => "totally_unregistered_diag", "name" => "unsup-fake"}}
+      )
+
+      configured = ModelFactory.list_configured()
+
+      assert {"temp-unsupported-model", "totally_unregistered_diag",
+              {:unsupported, "totally_unregistered_diag"}} in configured
+    after
+      :ets.delete(:model_configs, "temp-unsupported-model")
+    end
+
+    test "returns {:unsupported, _} for non-binary type (e.g. integer) without raising" do
+      :ets.insert(
+        :model_configs,
+        {"temp-nonbin-model", %{"type" => 123, "name" => "nonbin-fake"}}
+      )
+
+      configured = ModelFactory.list_configured()
+
+      entry = Enum.find(configured, fn {n, _, _} -> n == "temp-nonbin-model" end)
+      assert entry != nil
+      assert {_, 123, {:unsupported, 123}} = entry
+    after
+      :ets.delete(:model_configs, "temp-nonbin-model")
+    end
+  end
+
+  # =====================================================================
+  # diagnostic_summary/0 — aggregation of credential states
+  # =====================================================================
+
+  describe "diagnostic_summary/0" do
+    test "classifies temp entries correctly alongside real registry models" do
+      # Register a temp provider
+      :ok = ProviderRegistry.register("temp_diag_ok_provider", OpenAI)
+
+      # Collect baseline counts BEFORE inserting temp entries
+      baseline_summary = ModelFactory.diagnostic_summary()
+      baseline_total = baseline_summary.total
+      baseline_available = baseline_summary.available
+      baseline_unavailable_count = length(baseline_summary.unavailable)
+      baseline_unsupported_count = length(baseline_summary.unsupported)
+
+      # Insert: one OK model (temp registered provider, no creds needed)
+      :ets.insert(
+        :model_configs,
+        {"temp-diag-ok", %{"type" => "temp_diag_ok_provider", "name" => "diag-ok"}}
+      )
+
+      # Insert: one MISSING model (custom_openai with api_key_env)
+      System.delete_env("PUP_TEST_DIAG_MISSING")
+
+      :ets.insert(
+        :model_configs,
+        {"temp-diag-missing",
+         %{
+           "type" => "custom_openai",
+           "name" => "diag-missing",
+           "api_key_env" => "PUP_TEST_DIAG_MISSING"
+         }}
+      )
+
+      # Insert: one UNSUPPORTED model
+      :ets.insert(
+        :model_configs,
+        {"temp-diag-unsupported",
+         %{"type" => "totally_unregistered_diag2", "name" => "diag-unsup"}}
+      )
+
+      summary = ModelFactory.diagnostic_summary()
+
+      # Totals must increase by 3
+      assert summary.total == baseline_total + 3
+
+      # Available must increase by exactly 1 (the OK model)
+      assert summary.available == baseline_available + 1
+
+      # Check our temp entries appear in correct lists
+      ok_found = Enum.find(summary.available_models, fn {n, _} -> n == "temp-diag-ok" end)
+      assert ok_found != nil, "temp-diag-ok should be in available_models"
+
+      missing_found =
+        Enum.find(summary.unavailable, fn {n, _, _} -> n == "temp-diag-missing" end)
+
+      assert missing_found != nil, "temp-diag-missing should be in unavailable"
+      assert {_, "custom_openai", ["PUP_TEST_DIAG_MISSING"]} = missing_found
+
+      unsupported_found =
+        Enum.find(summary.unsupported, fn {n, _} -> n == "temp-diag-unsupported" end)
+
+      assert unsupported_found != nil, "temp-diag-unsupported should be in unsupported"
+      assert {_, "totally_unregistered_diag2"} = unsupported_found
+
+      # Unavailable count unchanged (temp-missing replaces nothing; baseline
+      # had whatever real models, plus our new missing entry)
+      assert length(summary.unavailable) == baseline_unavailable_count + 1
+
+      # Unsupported count increases by 1
+      assert length(summary.unsupported) == baseline_unsupported_count + 1
+    after
+      :ets.delete(:model_configs, "temp-diag-ok")
+      :ets.delete(:model_configs, "temp-diag-missing")
+      :ets.delete(:model_configs, "temp-diag-unsupported")
+      System.delete_env("PUP_TEST_DIAG_MISSING")
+    end
+
+    test "classifies non-binary provider type (e.g. integer) in unsupported without raising" do
+      baseline_summary = ModelFactory.diagnostic_summary()
+      baseline_unsupported_count = length(baseline_summary.unsupported)
+
+      :ets.insert(
+        :model_configs,
+        {"temp-nonbin-diag", %{"type" => 999, "name" => "nonbin-diag-fake"}}
+      )
+
+      summary = ModelFactory.diagnostic_summary()
+
+      # Total increased by 1
+      assert summary.total == baseline_summary.total + 1
+
+      # Available unchanged
+      assert summary.available == baseline_summary.available
+
+      # Non-binary type appears in unsupported list
+      entry = Enum.find(summary.unsupported, fn {n, _} -> n == "temp-nonbin-diag" end)
+      assert entry != nil, "temp-nonbin-diag should be in unsupported"
+      assert {_, 999} = entry
+
+      assert length(summary.unsupported) == baseline_unsupported_count + 1
+    after
+      :ets.delete(:model_configs, "temp-nonbin-diag")
+    end
+  end
 end

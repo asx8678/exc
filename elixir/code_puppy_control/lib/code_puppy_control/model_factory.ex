@@ -166,6 +166,101 @@ defmodule CodePuppyControl.ModelFactory do
   end
 
   @doc """
+  List all configured models regardless of credential status.
+
+  Unlike `list_available/0` which filters to models with valid
+  credentials, this returns every model in the registry with
+  its credential validation result. Useful for diagnostics
+  and the model selector when no models are "available".
+
+  Returns a list of `{model_name, provider_type, credential_status}` tuples
+  where `credential_status` is:
+  - `:ok` — credentials present and valid
+  - `{:missing, [env_var_names]}` — list of env var names that need setting
+  - `{:unsupported, provider_type}` — provider type has no registered module
+
+  ## Examples
+
+      iex> ModelFactory.list_configured()
+      [{"gpt-4o", "openai", :ok}, {"claude-sonnet-4", "anthropic", {:missing, ["ANTHROPIC_API_KEY"]}}]
+  """
+  @spec list_configured() :: [
+          {String.t(), term(), :ok | {:missing, [String.t()]} | {:unsupported, term()}}
+        ]
+  def list_configured do
+    ModelRegistry.get_all_configs()
+    |> Enum.map(fn {name, config} ->
+      provider_type = ModelRegistry.get_model_type(config)
+
+      cred_status =
+        case provider_type do
+          nil ->
+            {:missing, []}
+
+          type ->
+            if ProviderRegistry.supported?(type) do
+              Credentials.validate(type, config)
+            else
+              {:unsupported, type}
+            end
+        end
+
+      {name, provider_type, cred_status}
+    end)
+    |> Enum.sort_by(fn {name, _, _} -> name end)
+  end
+
+  @doc """
+  Produce a diagnostic summary of model availability.
+
+  Returns a map with:
+  - `:total` — total models in the registry
+  - `:available` — count of models with valid credentials
+  - `:unavailable` — list of `{model_name, provider_type, missing_vars}` for
+    models missing credentials (missing_vars is a list of env var names)
+  - `:unsupported` — list of `{model_name, provider_type}` for models whose
+    provider type is not registered (no provider module available)
+  - `:available_models` — list of `{name, type}` for available models
+
+  Useful for `/model` selector UX and troubleshooting.
+
+  ## Examples
+
+      iex> ModelFactory.diagnostic_summary()
+      %{total: 5, available: 1, unavailable: [...], unsupported: [], available_models: [{"gpt-4o", "openai"}]}
+  """
+  @spec diagnostic_summary() :: %{
+          total: non_neg_integer(),
+          available: non_neg_integer(),
+          unavailable: [{String.t(), term(), [String.t()]}],
+          unsupported: [{String.t(), term()}],
+          available_models: [{String.t(), term()}]
+        }
+  def diagnostic_summary do
+    configured = list_configured()
+
+    {available, unavailable, unsupported} =
+      Enum.reduce(configured, {[], [], []}, fn
+        {name, type, :ok}, {avail, unavail, unsup} ->
+          {[{name, type} | avail], unavail, unsup}
+
+        {name, type, {:missing, vars}}, {avail, unavail, unsup} ->
+          {avail, [{name, type, vars} | unavail], unsup}
+
+        {name, type, {:unsupported, _}}, {avail, unavail, unsup} ->
+          {avail, unavail, [{name, type} | unsup]}
+      end)
+
+    %{
+      total: length(configured),
+      available: length(available),
+      unavailable: Enum.reverse(unavailable),
+      unsupported: Enum.reverse(unsupported),
+      available_models: Enum.reverse(available)
+    }
+  end
+
+  @doc """
   Validate that required credentials exist for a model.
 
   Returns `:ok` if all required environment variables are set,

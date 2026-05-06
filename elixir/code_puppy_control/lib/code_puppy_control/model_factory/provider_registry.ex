@@ -164,10 +164,13 @@ defmodule CodePuppyControl.ModelFactory.ProviderRegistry do
       iex> ProviderRegistry.supported?("fantasy_provider")
       false
   """
-  @spec supported?(String.t()) :: boolean()
+  @spec supported?(String.t() | term()) :: boolean()
   def supported?(provider_type) when is_binary(provider_type) do
     match?({:ok, _}, lookup(provider_type))
   end
+
+  @doc false
+  def supported?(_), do: false
 
   @doc """
   Registers a provider type → module mapping at runtime.

@@ -175,6 +175,13 @@ defmodule CodePuppyControl.ModelFactory.ProviderRegistryTest do
       :ok = ProviderRegistry.register("runtime_added", SomeModule)
       assert ProviderRegistry.supported?("runtime_added")
     end
+
+    test "returns false for non-binary argument without crashing" do
+      assert ProviderRegistry.supported?(123) == false
+      assert ProviderRegistry.supported?(%{}) == false
+      assert ProviderRegistry.supported?(:atom_type) == false
+      assert ProviderRegistry.supported?(nil) == false
+    end
   end
 
   # ---------------------------------------------------------------------------

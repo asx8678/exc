@@ -86,6 +86,17 @@ defmodule CodePuppyControl.ModelRegistry do
   alias CodePuppyControl.Config.Isolation
   alias CodePuppyControl.Config.Paths
 
+  # Embed bundled models.json at compile time so escript builds (where
+  # :code.priv_dir/1 is unavailable) always have a base model set without
+  # needing PUP_BUNDLED_MODELS_PATH env var. The @external_resource tag
+  # ensures Mix recompiles this module when the JSON file changes.
+  @bundled_models_path Path.join([__DIR__, "../../priv/models.json"])
+  @external_resource @bundled_models_path
+  @bundled_models_json (case File.read(@bundled_models_path) do
+                          {:ok, content} -> content
+                          {:error, _} -> "{}"
+                        end)
+
   @table :model_configs
 
   # Known model types from Python model_config.py
@@ -370,9 +381,65 @@ defmodule CodePuppyControl.ModelRegistry do
   end
 
   defp load_bundled_models do
-    models_path = bundled_models_path()
+    # 1. PUP_BUNDLED_MODELS_PATH env var override (testing / ops)
+    env_path = System.get_env("PUP_BUNDLED_MODELS_PATH")
 
-    case safe_read_file(models_path) do
+    if env_path != nil and env_path != "" do
+      load_models_from_file(env_path)
+    else
+      # 2. Application env override (tests)
+      app_path = Application.get_env(:code_puppy_control, :bundled_models_path)
+
+      if app_path != nil and app_path != "" do
+        load_models_from_file(app_path)
+      else
+        # 3. :code.priv_dir (works in dev, release, and Burrito builds)
+        #    Returns charlist on success, {:error, _} on failure.
+        case :code.priv_dir(:code_puppy_control) do
+          {:error, _} ->
+            # 4. Escript mode: :code.priv_dir returns error because the
+            #    escript runs from a zip archive. Use the compile-time
+            #    embedded JSON instead.
+            Logger.debug(
+              "ModelRegistry: priv_dir unavailable (escript mode), " <>
+                "using compile-time embedded bundled models"
+            )
+
+            case Jason.decode(@bundled_models_json) do
+              {:ok, config} -> {:ok, config}
+              {:error, reason} -> {:error, {:json_decode_error, reason}}
+            end
+
+          priv_dir when is_list(priv_dir) ->
+            # Try reading from priv_dir (works in dev, release, Burrito).
+            # In escript mode, priv_dir returns a path inside the zip archive
+            # that File.read/1 cannot access (returns :enotdir). When the file
+            # can't be read, fall through to the compile-time embedded JSON.
+            path = Path.join(priv_dir, "models.json")
+
+            case load_models_from_file(path) do
+              {:ok, config} ->
+                {:ok, config}
+
+              {:error, _reason} ->
+                Logger.debug(
+                  "ModelRegistry: priv_dir path #{path} not readable " <>
+                    "(escript mode or missing file), " <>
+                    "falling back to compile-time embedded bundled models"
+                )
+
+                case Jason.decode(@bundled_models_json) do
+                  {:ok, config} -> {:ok, config}
+                  {:error, reason} -> {:error, {:json_decode_error, reason}}
+                end
+            end
+        end
+      end
+    end
+  end
+
+  defp load_models_from_file(path) do
+    case safe_read_file(path) do
       {:ok, content} ->
         case Jason.decode(content) do
           {:ok, config} -> {:ok, config}
@@ -380,32 +447,7 @@ defmodule CodePuppyControl.ModelRegistry do
         end
 
       {:error, reason} ->
-        {:error, {:file_read_error, models_path, reason}}
-    end
-  end
-
-  defp bundled_models_path do
-    # Allow env-var override for testing / ops overrides.
-    # Follows PUP_ prefix convention for core runtime settings.
-    env_path = System.get_env("PUP_BUNDLED_MODELS_PATH")
-
-    if env_path != nil and env_path != "" do
-      env_path
-    else
-      case :code.priv_dir(:code_puppy_control) do
-        {:error, _} ->
-          # Escript mode: priv_dir is not available. Use the path anyway
-          # so the error message is clear; load_bundled_models/0 will
-          # handle the :enoent gracefully.
-          "<escript-no-priv-dir>/priv/models.json"
-
-        priv_dir ->
-          Application.get_env(
-            :code_puppy_control,
-            :bundled_models_path,
-            Path.join(priv_dir, "models.json")
-          )
-      end
+        {:error, {:file_read_error, path, reason}}
     end
   end
 
