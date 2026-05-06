@@ -3,6 +3,42 @@ defmodule CodePuppyControl.Plugins.PackParallelismTest do
 
   alias CodePuppyControl.Plugins.PackParallelism
 
+  # ── Test Helpers ─────────────────────────────────────────────────────
+
+  # Polls PackParallelism.status/0 until every key in `expected` matches
+  # the returned map. Fails with a descriptive message after `deadline_ms`
+  # (default 2 000 ms).  Yields between polls so the GenServer can
+  # process pending messages (e.g. a blocked acquire call from a
+  # Task.async process that has not yet been scheduled).
+  defp wait_until_status(expected, deadline_ms \\ 2_000) do
+    deadline = System.monotonic_time(:millisecond) + deadline_ms
+    poll_status(expected, deadline, deadline_ms)
+  end
+
+  defp poll_status(expected, deadline, deadline_ms) do
+    status = PackParallelism.status()
+    matched = Enum.all?(expected, fn {k, v} -> Map.get(status, k) == v end)
+
+    if matched do
+      :ok
+    else
+      now = System.monotonic_time(:millisecond)
+
+      if now >= deadline do
+        flunk("""
+        wait_until_status timed out after #{deadline_ms} ms
+        Expected: #{inspect(expected)}
+        Got:      #{inspect(status)}
+        """)
+      else
+        # Yield so the scheduler can run other processes (e.g. the
+        # Task.async that is trying to call acquire on the GenServer).
+        :erlang.yield()
+        poll_status(expected, deadline, deadline_ms)
+      end
+    end
+  end
+
   # The GenServer is application-supervised.  Tests must not repeatedly
   # stop the supervised singleton: doing so can trip supervisor restart
   # intensity and leave unrelated async tests without app services.  Keep the
@@ -77,10 +113,8 @@ defmodule CodePuppyControl.Plugins.PackParallelismTest do
           PackParallelism.acquire(timeout: 500)
         end)
 
-      # Give it a moment to queue
-      Process.sleep(50)
-      status = PackParallelism.status()
-      assert status.waiters == 1
+      # Wait deterministically for the waiter to be queued
+      wait_until_status(waiters: 1)
 
       # Release a slot to unblock
       PackParallelism.release()
@@ -136,19 +170,21 @@ defmodule CodePuppyControl.Plugins.PackParallelismTest do
       :ok = PackParallelism.acquire()
       :ok = PackParallelism.acquire()
 
-      # Two waiters
+      # Start first waiter, confirm it is queued before starting the
+      # second.  This guarantees FIFO order even under scheduler jitter.
       task1 =
         Task.async(fn ->
-          PackParallelism.acquire(timeout: 5000)
+          PackParallelism.acquire(timeout: 5_000)
         end)
+
+      wait_until_status(waiters: 1)
 
       task2 =
         Task.async(fn ->
-          PackParallelism.acquire(timeout: 5000)
+          PackParallelism.acquire(timeout: 5_000)
         end)
 
-      Process.sleep(50)
-      assert PackParallelism.status().waiters == 2
+      wait_until_status(waiters: 2)
 
       # Release one slot — should wake task1 first (FIFO)
       PackParallelism.release()
@@ -262,8 +298,7 @@ defmodule CodePuppyControl.Plugins.PackParallelismTest do
           PackParallelism.acquire(timeout: 5000)
         end)
 
-      Process.sleep(50)
-      assert PackParallelism.status().waiters == 1
+      wait_until_status(waiters: 1)
 
       PackParallelism.reset()
 
@@ -404,7 +439,7 @@ defmodule CodePuppyControl.Plugins.PackParallelismTest do
             for _j <- 1..10 do
               case PackParallelism.try_acquire() do
                 :ok ->
-                  Process.sleep(Enum.random(1..5))
+                  :erlang.yield()
                   PackParallelism.release()
                   :pong = PackParallelism.ping()
                   :ok
