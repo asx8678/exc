@@ -39,7 +39,7 @@ defmodule CodePuppyControl.LLM.CredentialsTest do
   # env vars are absent.  Without this sandbox, any test that deletes an
   # env var (e.g. with_env [{"OPENAI_API_KEY", nil}, …]) would read or
   # CREATE the real ~/.code_puppy_ex/ credential store and .machine_secret.
-  # Redirect both paths to a throwaway temp dir.
+  # Redirect both paths and legacy home to throwaway temp dirs.
   setup_all do
     tmp =
       Path.join(
@@ -48,12 +48,22 @@ defmodule CodePuppyControl.LLM.CredentialsTest do
       )
 
     File.mkdir_p!(tmp)
+
+    fake_legacy =
+      Path.join(
+        System.tmp_dir!(),
+        "llm_cred_legacy_#{:erlang.unique_integer([:positive, :monotonic])}"
+      )
+
+    File.mkdir_p!(fake_legacy)
     secret_path = Path.join(tmp, ".machine_secret")
 
     prev_ex_home = System.get_env("PUP_EX_HOME")
     prev_secret = System.get_env("PUP_MACHINE_SECRET_PATH")
+    prev_legacy = Application.get_env(:code_puppy_control, :legacy_home_dir)
     System.put_env("PUP_EX_HOME", tmp)
     System.put_env("PUP_MACHINE_SECRET_PATH", secret_path)
+    Application.put_env(:code_puppy_control, :legacy_home_dir, fake_legacy)
 
     on_exit(fn ->
       case prev_ex_home do
@@ -66,7 +76,13 @@ defmodule CodePuppyControl.LLM.CredentialsTest do
         v -> System.put_env("PUP_MACHINE_SECRET_PATH", v)
       end
 
+      case prev_legacy do
+        nil -> Application.delete_env(:code_puppy_control, :legacy_home_dir)
+        v -> Application.put_env(:code_puppy_control, :legacy_home_dir, v)
+      end
+
       File.rm_rf(tmp)
+      File.rm_rf(fake_legacy)
     end)
 
     :ok
