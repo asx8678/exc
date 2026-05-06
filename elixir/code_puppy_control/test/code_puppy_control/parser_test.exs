@@ -9,6 +9,16 @@ defmodule CodePuppyControl.ParserTest do
     :ok
   end
 
+  # Generates a unique temp file path safe for async tests.
+  # Uses System.unique_integer and System.pid to avoid collisions
+  # across concurrent tests and concurrently running BEAM OS processes.
+  defp temp_file_path(prefix, extension) do
+    unique_int = System.unique_integer([:positive, :monotonic])
+    pid = System.pid()
+    filename = "#{prefix}_#{pid}_#{unique_int}.#{extension}"
+    Path.join(System.tmp_dir!(), filename)
+  end
+
   describe "supported_languages/0" do
     test "returns list of languages" do
       languages = Parser.supported_languages()
@@ -219,7 +229,7 @@ defmodule CodePuppyControl.ParserTest do
   describe "detect_language/1 via extract_symbols_from_file" do
     test "detects Python from .py extension" do
       # Create a temp file
-      path = Path.join(System.tmp_dir!(), "test_#{:rand.uniform(10000)}.py")
+      path = temp_file_path("test", "py")
       File.write!(path, "def foo(): pass")
 
       try do
@@ -231,7 +241,7 @@ defmodule CodePuppyControl.ParserTest do
     end
 
     test "detects Elixir from .ex extension" do
-      path = Path.join(System.tmp_dir!(), "test_#{:rand.uniform(10000)}.ex")
+      path = temp_file_path("test", "ex")
       File.write!(path, "defmodule Foo, do: :bar")
 
       try do
@@ -246,7 +256,7 @@ defmodule CodePuppyControl.ParserTest do
 
   describe "parse_file/2" do
     test "parses a temporary Python file with auto-detected language" do
-      path = Path.join(System.tmp_dir!(), "test_parse_#{:rand.uniform(10000)}.py")
+      path = temp_file_path("test_parse", "py")
       File.write!(path, "def hello():\n pass\n")
 
       try do
@@ -260,7 +270,7 @@ defmodule CodePuppyControl.ParserTest do
     end
 
     test "parses a temporary Elixir file with explicit language" do
-      path = Path.join(System.tmp_dir!(), "test_parse_#{:rand.uniform(10000)}.ex")
+      path = temp_file_path("test_parse", "ex")
       File.write!(path, "defmodule Foo do\n def bar, do: :ok\nend\n")
 
       try do
@@ -276,7 +286,7 @@ defmodule CodePuppyControl.ParserTest do
 
   describe "get_folds_from_file/2" do
     test "extracts fold ranges from a Python file with auto-detected language" do
-      path = Path.join(System.tmp_dir!(), "test_folds_#{:rand.uniform(10000)}.py")
+      path = temp_file_path("test_folds", "py")
       File.write!(path, "def outer():\n def inner():\n pass\n return inner\n")
 
       try do
@@ -290,7 +300,7 @@ defmodule CodePuppyControl.ParserTest do
     end
 
     test "extracts fold ranges from a Python file with explicit language" do
-      path = Path.join(System.tmp_dir!(), "test_folds_#{:rand.uniform(10000)}.py")
+      path = temp_file_path("test_folds", "py")
       File.write!(path, "def outer():\n def inner():\n pass\n return inner\n")
 
       try do
@@ -306,7 +316,7 @@ defmodule CodePuppyControl.ParserTest do
 
   describe "get_highlights_from_file/2" do
     test "extracts highlight captures from a Python file with auto-detected language" do
-      path = Path.join(System.tmp_dir!(), "test_highlights_#{:rand.uniform(10000)}.py")
+      path = temp_file_path("test_highlights", "py")
       File.write!(path, "def hello():\n return \"world\"\n")
 
       try do
@@ -320,7 +330,7 @@ defmodule CodePuppyControl.ParserTest do
     end
 
     test "extracts highlight captures from a Python file with explicit language" do
-      path = Path.join(System.tmp_dir!(), "test_highlights_#{:rand.uniform(10000)}.py")
+      path = temp_file_path("test_highlights", "py")
       File.write!(path, "def hello():\n return \"world\"\n")
 
       try do
