@@ -17,7 +17,7 @@ defmodule CodePuppyControl.LLM.ModelFactoryTest do
   alias CodePuppyControl.ModelFactory
   alias CodePuppyControl.ModelFactory.Handle
   alias CodePuppyControl.ModelRegistry
-  alias CodePuppyControl.LLM.Providers.{OpenAI, Anthropic, Google}
+  alias CodePuppyControl.LLM.Providers.{OpenAI, Anthropic, Google, ChatGPTCodex}
 
   # Helper to save, set, and restore env vars within a test
   defp with_env(vars, fun) do
@@ -351,7 +351,7 @@ defmodule CodePuppyControl.LLM.ModelFactoryTest do
         Enum.each(available, fn {name, type, mod} ->
           assert is_binary(name)
           assert is_binary(type)
-          assert mod in [OpenAI, Anthropic]
+          assert mod in [OpenAI, Anthropic, ChatGPTCodex]
         end)
       end)
     end

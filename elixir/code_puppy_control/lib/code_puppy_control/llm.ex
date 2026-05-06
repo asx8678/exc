@@ -34,6 +34,7 @@ defmodule CodePuppyControl.LLM do
   | `"anthropic"` | `CodePuppyControl.LLM.Providers.Anthropic`|
   | `"custom_openai"` | `CodePuppyControl.LLM.Providers.OpenAI`|
   | `"custom_anthropic"` | `CodePuppyControl.LLM.Providers.Anthropic`|
+  | `"chatgpt_oauth"` | `CodePuppyControl.LLM.Providers.ChatGPTCodex`|
 
   Options are forwarded to the provider. The `:model` option defaults to the
   model name from the registry config.
@@ -64,7 +65,7 @@ defmodule CodePuppyControl.LLM do
     "gemini_oauth" => CodePuppyControl.LLM.Providers.Google,
     "custom_gemini" => CodePuppyControl.LLM.Providers.Google,
     "claude_code" => CodePuppyControl.LLM.Providers.Anthropic,
-    "chatgpt_oauth" => CodePuppyControl.LLM.Providers.OpenAI,
+    "chatgpt_oauth" => CodePuppyControl.LLM.Providers.ChatGPTCodex,
     "groq" => CodePuppyControl.LLM.Providers.Groq,
     "together" => CodePuppyControl.LLM.Providers.Together
   }

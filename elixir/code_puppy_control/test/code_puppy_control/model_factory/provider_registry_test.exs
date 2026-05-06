@@ -2,7 +2,16 @@ defmodule CodePuppyControl.ModelFactory.ProviderRegistryTest do
   use ExUnit.Case, async: false
 
   alias CodePuppyControl.ModelFactory.ProviderRegistry
-  alias CodePuppyControl.LLM.Providers.{OpenAI, Anthropic, Google, Azure, Groq, Together}
+
+  alias CodePuppyControl.LLM.Providers.{
+    OpenAI,
+    Anthropic,
+    Google,
+    Azure,
+    Groq,
+    Together,
+    ChatGPTCodex
+  }
 
   setup do
     CodePuppyControl.TestSupport.Reset.ensure_gen_server_started(ProviderRegistry)
@@ -72,8 +81,8 @@ defmodule CodePuppyControl.ModelFactory.ProviderRegistryTest do
       assert {:ok, Anthropic} = ProviderRegistry.lookup("claude_code")
     end
 
-    test "chatgpt_oauth -> OpenAI" do
-      assert {:ok, OpenAI} = ProviderRegistry.lookup("chatgpt_oauth")
+    test "chatgpt_oauth -> ChatGPTCodex" do
+      assert {:ok, ChatGPTCodex} = ProviderRegistry.lookup("chatgpt_oauth")
     end
 
     test "groq -> Groq" do

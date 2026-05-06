@@ -38,7 +38,7 @@ defmodule CodePuppyControl.ModelFactory do
   | `gemini_oauth`     | ✅ Full  | Gemini OAuth (OpenAI-compat)    |
   | `custom_gemini`    | ✅ Full  | Custom Gemini-compatible        |
   | `claude_code`      | ✅ Full  | Claude Code OAuth bearer auth   |
-  | `chatgpt_oauth`    | ⚠️ Partial | Runtime auth wired; full Codex Responses parity pending |
+  | `chatgpt_oauth`    | ✅ Full  | ChatGPT Codex Responses API     |
   | `round_robin`      | ➡️ Defer | Handled by routing/             |
   """
 

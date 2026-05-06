@@ -8,7 +8,7 @@ defmodule CodePuppyControl.LLMTest do
   use ExUnit.Case, async: false
 
   alias CodePuppyControl.LLM
-  alias CodePuppyControl.LLM.Providers.{OpenAI, Anthropic}
+  alias CodePuppyControl.LLM.Providers.{OpenAI, Anthropic, ChatGPTCodex}
   alias CodePuppyControl.Test.MockLLMHTTP
 
   setup do
@@ -45,7 +45,7 @@ defmodule CodePuppyControl.LLMTest do
 
       # Every entry should map to a known provider module
       Enum.each(providers, fn {_name, mod} ->
-        assert mod in [OpenAI, Anthropic]
+        assert mod in [OpenAI, Anthropic, ChatGPTCodex]
       end)
     end
   end

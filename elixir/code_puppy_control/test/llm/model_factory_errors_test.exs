@@ -79,33 +79,64 @@ defmodule CodePuppyControl.LLM.ModelFactoryErrorsTest do
     end
   end
 
+  # ── Helpers: fully isolated registry ───────────────────────────────────
+
+  # Redirect all config sources (bundled path, Elixir home, legacy home)
+  # so ModelRegistry.reload/0 reads ONLY the paths we control in the test.
+  # This prevents real overlay files (~/.code_puppy/, ~/.code_puppy_ex/)
+  # from being loaded and turning a base-config error into :ok via the
+  # overlay-fallback path in load_all_configs/0.
+  defp with_isolated_registry(fun) do
+    tmp_home = Path.join(System.tmp_dir!(), "pup_ex_iso_#{System.unique_integer()}")
+    File.mkdir_p!(tmp_home)
+
+    saved_bundled = System.get_env("PUP_BUNDLED_MODELS_PATH")
+    saved_home = System.get_env("PUP_EX_HOME")
+    saved_legacy = Application.get_env(:code_puppy_control, :legacy_home_dir)
+
+    try do
+      System.put_env("PUP_EX_HOME", tmp_home)
+      Application.put_env(:code_puppy_control, :legacy_home_dir, tmp_home)
+      fun.()
+    after
+      if saved_bundled do
+        System.put_env("PUP_BUNDLED_MODELS_PATH", saved_bundled)
+      else
+        System.delete_env("PUP_BUNDLED_MODELS_PATH")
+      end
+
+      if saved_home do
+        System.put_env("PUP_EX_HOME", saved_home)
+      else
+        System.delete_env("PUP_EX_HOME")
+      end
+
+      if saved_legacy do
+        Application.put_env(:code_puppy_control, :legacy_home_dir, saved_legacy)
+      else
+        Application.delete_env(:code_puppy_control, :legacy_home_dir)
+      end
+
+      File.rm_rf!(tmp_home)
+      ModelRegistry.reload()
+    end
+  end
+
   # ── Missing Bundled Models File ──────────────────────────────────────
 
   describe "ModelRegistry — file I/O errors" do
     test "returns error when bundled models.json is missing" do
-      # Point registry at a nonexistent path, then reload
-      original_path =
-        Application.get_env(:code_puppy_control, :bundled_models_path)
-
-      try do
-        Application.put_env(
-          :code_puppy_control,
-          :bundled_models_path,
-          "/tmp/nonexistent_models_#{System.unique_integer()}.json"
-        )
+      # Fully isolate the registry: redirect bundled path via env var (highest
+      # priority), redirect both Elixir and legacy overlay dirs, then reload.
+      with_isolated_registry(fn ->
+        nonexistent = "/tmp/nonexistent_models_#{System.unique_integer()}.json"
+        System.put_env("PUP_BUNDLED_MODELS_PATH", nonexistent)
 
         result = ModelRegistry.reload()
         assert {:error, {:file_read_error, _, _}} = result
-      after
-        if original_path do
-          Application.put_env(:code_puppy_control, :bundled_models_path, original_path)
-        else
-          Application.delete_env(:code_puppy_control, :bundled_models_path)
-        end
 
-        # Restore valid state
-        ModelRegistry.reload()
-      end
+        System.delete_env("PUP_BUNDLED_MODELS_PATH")
+      end)
     end
 
     test "returns error for malformed JSON in bundled models file" do
@@ -113,24 +144,15 @@ defmodule CodePuppyControl.LLM.ModelFactoryErrorsTest do
       tmp_path = Path.join(System.tmp_dir!(), "bad_models_#{System.unique_integer()}.json")
       File.write!(tmp_path, "{ invalid json content }")
 
-      original_path =
-        Application.get_env(:code_puppy_control, :bundled_models_path)
-
-      try do
-        Application.put_env(:code_puppy_control, :bundled_models_path, tmp_path)
+      with_isolated_registry(fn ->
+        System.put_env("PUP_BUNDLED_MODELS_PATH", tmp_path)
         result = ModelRegistry.reload()
         assert {:error, {:json_decode_error, _}} = result
-      after
-        File.rm(tmp_path)
 
-        if original_path do
-          Application.put_env(:code_puppy_control, :bundled_models_path, original_path)
-        else
-          Application.delete_env(:code_puppy_control, :bundled_models_path)
-        end
+        System.delete_env("PUP_BUNDLED_MODELS_PATH")
+      end)
 
-        ModelRegistry.reload()
-      end
+      File.rm(tmp_path)
     end
 
     test "gracefully handles malformed JSON in extra models overlay" do
@@ -145,9 +167,11 @@ defmodule CodePuppyControl.LLM.ModelFactoryErrorsTest do
       File.write!(extra_path, "not valid json")
 
       saved_home = System.get_env("PUP_EX_HOME")
+      saved_legacy = Application.get_env(:code_puppy_control, :legacy_home_dir)
 
       try do
         System.put_env("PUP_EX_HOME", tmp_home)
+        Application.put_env(:code_puppy_control, :legacy_home_dir, tmp_home)
 
         log =
           ExUnit.CaptureLog.capture_log(fn ->
@@ -164,6 +188,12 @@ defmodule CodePuppyControl.LLM.ModelFactoryErrorsTest do
           System.put_env("PUP_EX_HOME", saved_home)
         else
           System.delete_env("PUP_EX_HOME")
+        end
+
+        if saved_legacy do
+          Application.put_env(:code_puppy_control, :legacy_home_dir, saved_legacy)
+        else
+          Application.delete_env(:code_puppy_control, :legacy_home_dir)
         end
 
         File.rm_rf!(tmp_home)
@@ -396,11 +426,8 @@ defmodule CodePuppyControl.LLM.ModelFactoryErrorsTest do
       File.write!(tmp_path, "{}")
       File.chmod!(tmp_path, 0o000)
 
-      original_path =
-        Application.get_env(:code_puppy_control, :bundled_models_path)
-
-      try do
-        Application.put_env(:code_puppy_control, :bundled_models_path, tmp_path)
+      with_isolated_registry(fn ->
+        System.put_env("PUP_BUNDLED_MODELS_PATH", tmp_path)
         result = ModelRegistry.reload()
 
         # On most systems, root can still read 000 files; handle both outcomes
@@ -411,18 +438,12 @@ defmodule CodePuppyControl.LLM.ModelFactoryErrorsTest do
           # Other errno
           {:error, {:file_read_error, ^tmp_path, _}} -> :ok
         end
-      after
-        File.chmod!(tmp_path, 0o644)
-        File.rm(tmp_path)
 
-        if original_path do
-          Application.put_env(:code_puppy_control, :bundled_models_path, original_path)
-        else
-          Application.delete_env(:code_puppy_control, :bundled_models_path)
-        end
+        System.delete_env("PUP_BUNDLED_MODELS_PATH")
+      end)
 
-        ModelRegistry.reload()
-      end
+      File.chmod!(tmp_path, 0o644)
+      File.rm(tmp_path)
     end
   end
 
@@ -430,31 +451,19 @@ defmodule CodePuppyControl.LLM.ModelFactoryErrorsTest do
 
   describe "ModelRegistry — general exception handling" do
     test "reload succeeds after transient errors are fixed" do
-      # First, break the config path
-      original_path =
-        Application.get_env(:code_puppy_control, :bundled_models_path)
-
-      try do
-        Application.put_env(
-          :code_puppy_control,
-          :bundled_models_path,
-          "/tmp/nonexistent_#{System.unique_integer()}.json"
-        )
+      with_isolated_registry(fn ->
+        # First, break the config path
+        nonexistent = "/tmp/nonexistent_#{System.unique_integer()}.json"
+        System.put_env("PUP_BUNDLED_MODELS_PATH", nonexistent)
 
         assert {:error, _} = ModelRegistry.reload()
 
-        # Now restore valid config
-        Application.delete_env(:code_puppy_control, :bundled_models_path)
-        assert :ok = ModelRegistry.reload()
-      after
-        if original_path do
-          Application.put_env(:code_puppy_control, :bundled_models_path, original_path)
-        else
-          Application.delete_env(:code_puppy_control, :bundled_models_path)
-        end
+        # Now restore valid config by removing the override
+        System.delete_env("PUP_BUNDLED_MODELS_PATH")
 
-        ModelRegistry.reload()
-      end
+        # After restoring, reload should succeed (embedded JSON or real files)
+        assert :ok = ModelRegistry.reload()
+      end)
     end
   end
 

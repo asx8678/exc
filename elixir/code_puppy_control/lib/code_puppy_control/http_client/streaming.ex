@@ -68,6 +68,10 @@ defmodule CodePuppyControl.HttpClient.Streaming do
 
     initial_acc = %{status: nil, headers: [], body_parts: []}
 
+    # Finch.stream/5 wraps the callback return in {:cont, result} before
+    # delegating to stream_while/5, so the callback must return the plain
+    # accumulator — NOT {:cont, acc}.  Returning {:cont, acc} would nest
+    # the accumulator into {:cont, {:cont, map}} on every chunk.
     result =
       Finch.stream(
         req,
@@ -75,18 +79,18 @@ defmodule CodePuppyControl.HttpClient.Streaming do
         initial_acc,
         fn
           {:status, status}, acc ->
-            {:cont, %{acc | status: status}}
+            %{acc | status: status}
 
           {:headers, resp_headers}, acc ->
-            {:cont, %{acc | headers: resp_headers}}
+            %{acc | headers: resp_headers}
 
           {:data, data}, acc ->
             if acc.status in 200..299 do
               send(parent, {ref, {:data, data}})
-              {:cont, acc}
+              acc
             else
               # Non-2xx: accumulate body instead of streaming to parent
-              {:cont, %{acc | body_parts: [data | acc.body_parts]}}
+              %{acc | body_parts: [data | acc.body_parts]}
             end
         end,
         pool_timeout: pool_timeout,

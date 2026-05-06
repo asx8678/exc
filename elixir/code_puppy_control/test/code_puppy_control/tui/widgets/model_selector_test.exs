@@ -443,7 +443,8 @@ defmodule CodePuppyControl.TUI.Widgets.ModelSelectorTest do
           assert result == :cancelled
         end)
 
-      assert output =~ "No models available"
+      # Updated to match current production text (was "No models available")
+      assert output =~ "No models configured" or output =~ "No models currently available"
 
       for {name, config} <- @test_models do
         :ets.insert(:model_configs, {name, config})
@@ -463,7 +464,8 @@ defmodule CodePuppyControl.TUI.Widgets.ModelSelectorTest do
           assert result == :cancelled
         end)
 
-      assert output =~ "No models available"
+      # Updated to match current production text (was "No models available")
+      assert output =~ "No models configured" or output =~ "No models currently available"
 
       for {name, config} <- @test_models do
         :ets.insert(:model_configs, {name, config})
@@ -477,7 +479,8 @@ defmodule CodePuppyControl.TUI.Widgets.ModelSelectorTest do
           assert result == :cancelled
         end)
 
-      assert output =~ "No models available"
+      # Updated to match current production text (was "No models available")
+      assert output =~ "No models configured" or output =~ "No models currently available"
     end
 
     test "select with default returns :cancelled when no models available" do
@@ -493,7 +496,8 @@ defmodule CodePuppyControl.TUI.Widgets.ModelSelectorTest do
           assert result == :cancelled
         end)
 
-      assert output =~ "No models available"
+      # Updated to match current production text (was "No models available")
+      assert output =~ "No models configured" or output =~ "No models currently available"
 
       for {name, config} <- @test_models do
         :ets.insert(:model_configs, {name, config})

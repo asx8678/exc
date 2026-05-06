@@ -39,18 +39,22 @@ defmodule CodePuppyControl.Config.ModelsTest do
   #
   # We must also override PUP_EX_HOME so that data_dir() (used by
   # Paths.extra_models_file etc.) resolves to a temp directory with
-  # no overlay model files. Otherwise, real overlay files in
-  # ~/.code_puppy/ still contribute models after reload.
+  # no overlay model files. AND we must redirect the legacy home dir
+  # (~/.code_puppy) so that legacy overlay files (chatgpt_models.json,
+  # claude_models.json, etc.) are not loaded either. Otherwise, real
+  # overlay files still contribute models after reload.
   defp with_empty_registry(fun) do
     File.write!(@empty_models_json, "{}")
     original_models_env = System.get_env("PUP_BUNDLED_MODELS_PATH")
     original_home_env = System.get_env("PUP_EX_HOME")
+    original_legacy_home = Application.get_env(:code_puppy_control, :legacy_home_dir)
 
     empty_data_dir = Path.join(@tmp_dir, "empty_data_#{:erlang.unique_integer([:positive])}")
     File.mkdir_p!(empty_data_dir)
 
     System.put_env("PUP_BUNDLED_MODELS_PATH", @empty_models_json)
     System.put_env("PUP_EX_HOME", empty_data_dir)
+    Application.put_env(:code_puppy_control, :legacy_home_dir, empty_data_dir)
 
     try do
       :ok = CodePuppyControl.ModelRegistry.reload()
@@ -68,6 +72,12 @@ defmodule CodePuppyControl.Config.ModelsTest do
         System.put_env("PUP_EX_HOME", original_home_env)
       else
         System.delete_env("PUP_EX_HOME")
+      end
+
+      if original_legacy_home do
+        Application.put_env(:code_puppy_control, :legacy_home_dir, original_legacy_home)
+      else
+        Application.delete_env(:code_puppy_control, :legacy_home_dir)
       end
 
       :ok = CodePuppyControl.ModelRegistry.reload()
@@ -106,6 +116,7 @@ defmodule CodePuppyControl.Config.ModelsTest do
   defp restore_registry_env do
     System.delete_env("PUP_BUNDLED_MODELS_PATH")
     System.delete_env("PUP_EX_HOME")
+    Application.delete_env(:code_puppy_control, :legacy_home_dir)
 
     try do
       CodePuppyControl.ModelRegistry.reload()

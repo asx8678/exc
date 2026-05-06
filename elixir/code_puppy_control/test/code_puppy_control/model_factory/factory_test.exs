@@ -3,7 +3,7 @@ defmodule CodePuppyControl.ModelFactoryTest do
 
   alias CodePuppyControl.ModelFactory
   alias CodePuppyControl.ModelFactory.{Handle, ProviderRegistry}
-  alias CodePuppyControl.LLM.Providers.{OpenAI, Anthropic}
+  alias CodePuppyControl.LLM.Providers.{OpenAI, Anthropic, ChatGPTCodex}
 
   setup do
     ProviderRegistry.reset_for_test()
@@ -122,7 +122,7 @@ defmodule CodePuppyControl.ModelFactoryTest do
       available = ModelFactory.list_available()
 
       Enum.each(available, fn {_name, _type, mod} ->
-        assert mod in [OpenAI, Anthropic]
+        assert mod in [OpenAI, Anthropic, ChatGPTCodex]
       end)
     end
 

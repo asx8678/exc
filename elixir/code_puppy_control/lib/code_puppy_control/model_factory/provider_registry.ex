@@ -43,12 +43,20 @@ defmodule CodePuppyControl.ModelFactory.ProviderRegistry do
   | `gemini_oauth`     | `CodePuppyControl.LLM.Providers.Google`            |
   | `custom_gemini`    | `CodePuppyControl.LLM.Providers.Google`            |
   | `claude_code`      | `CodePuppyControl.LLM.Providers.Anthropic`         |
-  | `chatgpt_oauth`    | `CodePuppyControl.LLM.Providers.OpenAI`            |
+  | `chatgpt_oauth`    | `CodePuppyControl.LLM.Providers.ChatGPTCodex`      |
   | `groq`             | `CodePuppyControl.LLM.Providers.Groq`              |
   | `together`         | `CodePuppyControl.LLM.Providers.Together`          |
   """
 
-  alias CodePuppyControl.LLM.Providers.{OpenAI, Anthropic, Google, Azure, Groq, Together}
+  alias CodePuppyControl.LLM.Providers.{
+    OpenAI,
+    Anthropic,
+    Google,
+    Azure,
+    Groq,
+    Together,
+    ChatGPTCodex
+  }
 
   @registry_name __MODULE__
 
@@ -66,7 +74,7 @@ defmodule CodePuppyControl.ModelFactory.ProviderRegistry do
     "gemini_oauth" => Google,
     "custom_gemini" => Google,
     "claude_code" => Anthropic,
-    "chatgpt_oauth" => OpenAI,
+    "chatgpt_oauth" => ChatGPTCodex,
     "groq" => Groq,
     "together" => Together
   }

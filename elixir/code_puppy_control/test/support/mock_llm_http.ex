@@ -373,4 +373,153 @@ defmodule CodePuppyControl.Test.MockLLMHTTP do
   defdelegate together_stream_fixture(opts), to: __MODULE__, as: :openai_stream_fixture
   defdelegate azure_chat_fixture(opts), to: __MODULE__, as: :openai_chat_fixture
   defdelegate azure_stream_fixture(opts), to: __MODULE__, as: :openai_stream_fixture
+
+  # ── ChatGPT Codex (Responses-style) Fixtures ──────────────────────────────
+
+  @doc """
+  ChatGPT Codex streaming fixture using Responses API SSE format.
+
+  Emits `response.output_text.delta` events for text content and
+  a `response.completed` event with the final response.
+  """
+  def chatgpt_codex_stream_fixture(opts \\ []) do
+    chunks = Keyword.get(opts, :chunks, ["Hello", " there", "!"])
+    model = Keyword.get(opts, :model, "gpt-5.4")
+    id = Keyword.get(opts, :id, "resp_test123")
+
+    # Text delta events
+    text_events =
+      Enum.with_index(chunks)
+      |> Enum.map(fn {text, _idx} ->
+        data = %{
+          "type" => "response.output_text.delta",
+          "output_index" => 0,
+          "delta" => text
+        }
+
+        "data: #{Jason.encode!(data)}\n\n"
+      end)
+
+    # Response completed event
+    full_text = Enum.join(chunks)
+
+    completed = %{
+      "type" => "response.completed",
+      "response" => %{
+        "id" => id,
+        "object" => "response",
+        "model" => model,
+        "status" => "completed",
+        "output" => [
+          %{
+            "type" => "message",
+            "role" => "assistant",
+            "content" => [%{"type" => "output_text", "text" => full_text}]
+          }
+        ],
+        "usage" => %{
+          "input_tokens" => 10,
+          "output_tokens" => length(chunks)
+        }
+      }
+    }
+
+    (text_events ++ ["data: #{Jason.encode!(completed)}\n\n", "data: [DONE]\n\n"])
+    |> Enum.join()
+  end
+
+  @doc """
+  ChatGPT Codex streaming fixture with tool call events.
+
+  Emits `response.output_item.added`, `response.function_call_arguments.delta`,
+  `response.function_call_arguments.done`, and `response.completed` events.
+  """
+  def chatgpt_codex_tool_stream_fixture(opts \\ []) do
+    model = Keyword.get(opts, :model, "gpt-5.4")
+    id = Keyword.get(opts, :id, "resp_tool123")
+    tool_name = Keyword.get(opts, :tool_name, "get_weather")
+    call_id = Keyword.get(opts, :call_id, "call_codex_abc")
+    arguments = Keyword.get(opts, :arguments, ~s({"location": "Boston"}))
+
+    events = [
+      # Function call announcement
+      %{
+        "type" => "response.output_item.added",
+        "output_index" => 0,
+        "item" => %{
+          "type" => "function_call",
+          "call_id" => call_id,
+          "name" => tool_name,
+          "arguments" => ""
+        }
+      },
+      # Argument deltas
+      %{
+        "type" => "response.function_call_arguments.delta",
+        "output_index" => 0,
+        "call_id" => call_id,
+        "name" => tool_name,
+        "delta" => arguments
+      },
+      # Arguments done
+      %{
+        "type" => "response.function_call_arguments.done",
+        "output_index" => 0,
+        "call_id" => call_id,
+        "name" => tool_name,
+        "arguments" => arguments
+      },
+      # Response completed
+      %{
+        "type" => "response.completed",
+        "response" => %{
+          "id" => id,
+          "object" => "response",
+          "model" => model,
+          "status" => "completed",
+          "output" => [
+            %{
+              "type" => "function_call",
+              "call_id" => call_id,
+              "id" => call_id,
+              "name" => tool_name,
+              "arguments" => arguments
+            }
+          ],
+          "usage" => %{
+            "input_tokens" => 10,
+            "output_tokens" => 50
+          }
+        }
+      }
+    ]
+
+    (Enum.map(events, fn ev -> "data: #{Jason.encode!(ev)}\n\n" end) ++ ["data: [DONE]\n\n"])
+    |> Enum.join()
+  end
+
+  @doc """
+  ChatGPT Codex error streaming fixture.
+
+  Emits a `response.failed` event for error scenarios.
+  """
+  def chatgpt_codex_error_stream_fixture(opts \\ []) do
+    error_type = Keyword.get(opts, :error_type, "response.failed")
+    status = Keyword.get(opts, :status, 404)
+    body = Keyword.get(opts, :body, "Not Found")
+
+    case error_type do
+      # Non-2xx — will be handled at HTTP level, not SSE level
+      :http_error ->
+        ""
+
+      "response.failed" ->
+        event = %{"type" => "response.failed", "response" => %{"status" => "failed"}}
+        "data: #{Jason.encode!(event)}\n\ndata: [DONE]\n\n"
+
+      "error" ->
+        event = %{"type" => "error", "error" => %{"message" => body, "code" => to_string(status)}}
+        "data: #{Jason.encode!(event)}\n\ndata: [DONE]\n\n"
+    end
+  end
 end
