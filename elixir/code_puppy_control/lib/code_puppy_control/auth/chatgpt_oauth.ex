@@ -245,6 +245,23 @@ defmodule CodePuppyControl.Auth.ChatGptOAuth do
   @spec token_storage_path() :: String.t()
   def token_storage_path, do: Path.join(auth_dir(), "chatgpt_oauth.json")
 
+  @doc """
+  Path to the legacy OAuth token file in the Python pup's home.
+
+  READ-ONLY fallback path. Used by `load_stored_tokens/0` when the primary
+  Elixir token file doesn't exist. Never written to — complies with ADR-003.
+  """
+  @spec legacy_token_storage_path() :: String.t()
+  def legacy_token_storage_path do
+    # Use Application.get_env to allow test overrides, matching the pattern
+    # in ModelFactory.Credentials.legacy_home_dir/0.
+    legacy_home =
+      Application.get_env(:code_puppy_control, :legacy_home_dir) ||
+        Paths.legacy_home_dir()
+
+    Path.join(legacy_home, "chatgpt_oauth.json")
+  end
+
   @doc "Path to the auth directory."
   @spec auth_dir() :: String.t()
   def auth_dir, do: Path.join(Paths.home_dir(), "auth")
@@ -259,24 +276,79 @@ defmodule CodePuppyControl.Auth.ChatGptOAuth do
     :ok
   end
 
-  @doc "Load stored OAuth tokens from disk."
+  @doc """
+  Load stored OAuth tokens from disk.
+
+  Resolution order:
+  1. Primary Elixir token file (`~/.code_puppy_ex/auth/chatgpt_oauth.json`)
+  2. READ-ONLY fallback to legacy Python home (`~/.code_puppy/chatgpt_oauth.json`)
+
+  This is a runtime bridge, NOT an import. Tokens are never written to the
+  legacy home — ADR-003 compliance is maintained.
+  """
   @spec load_stored_tokens() :: map() | nil
   def load_stored_tokens do
-    path = token_storage_path()
+    # Try primary Elixir token file first
+    case read_token_file(token_storage_path()) do
+      {:ok, tokens} when is_map(tokens) ->
+        tokens
 
+      _ ->
+        # Fallback to legacy Python home (READ-ONLY)
+        read_legacy_token_fallback()
+    end
+  end
+
+  # Read and decode a token file. Returns {:ok, map} or {:error, reason}.
+  defp read_token_file(path) do
     case File.read(path) do
+      {:ok, data} ->
+        case Jason.decode(data) do
+          {:ok, decoded} when is_map(decoded) -> {:ok, decoded}
+          {:error, _} -> {:error, :invalid_json}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  # READ-ONLY fallback to legacy Python home. Uses Isolation.read_only_legacy/1
+  # when the path is under the real legacy home to satisfy ADR-003 compliance.
+  # For test override paths (outside legacy home), uses File.read/1 directly.
+  defp read_legacy_token_fallback do
+    legacy_path = legacy_token_storage_path()
+    Logger.debug("Primary token file absent, trying legacy fallback: #{legacy_path}")
+
+    result =
+      if Paths.in_legacy_home?(legacy_path) do
+        # Real legacy home — use sanctioned read-only path
+        Isolation.read_only_legacy(legacy_path)
+      else
+        # Test override path — read directly
+        File.read(legacy_path)
+      end
+
+    case result do
       {:ok, data} ->
         case Jason.decode(data) do
           {:ok, decoded} when is_map(decoded) -> decoded
           _ -> nil
         end
 
-      {:error, _reason} ->
+      {:error, _} ->
         nil
     end
   end
 
-  @doc "Clear stored OAuth tokens."
+  @doc """
+  Clear stored OAuth tokens from the Elixir home.
+
+  WARNING: After clearing, `load_stored_tokens/0` will fall back to
+  the legacy token file (`~/.code_puppy/chatgpt_oauth.json`) if it
+  exists. To fully disable ChatGPT OAuth while a legacy token is
+  present, you must also remove the legacy token file.
+  """
   @spec clear_stored_tokens() :: :ok
   def clear_stored_tokens do
     path = token_storage_path()

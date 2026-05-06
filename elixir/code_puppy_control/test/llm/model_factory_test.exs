@@ -37,8 +37,9 @@ defmodule CodePuppyControl.LLM.ModelFactoryTest do
     end
   end
 
-  # Helper to isolate PUP_EX_HOME + PUP_MACHINE_SECRET_PATH to a temp dir.
-  # Optionally writes a ChatGPT OAuth token file when chatgpt_tokens: is provided.
+  # Helper to isolate PUP_EX_HOME + PUP_MACHINE_SECRET_PATH + legacy_home_dir
+  # to temp dirs. Optionally writes a ChatGPT OAuth token file when
+  # chatgpt_tokens: is provided.
   #
   # Usage:
   #   with_pup_ex_home([], fn -> ... end)                      # empty home, no tokens
@@ -50,7 +51,15 @@ defmodule CodePuppyControl.LLM.ModelFactoryTest do
         "mf_home_#{:erlang.unique_integer([:positive, :monotonic])}"
       )
 
+    # Separate fake legacy dir to isolate from real ~/.code_puppy
+    fake_legacy =
+      Path.join(
+        System.tmp_dir!(),
+        "mf_home_legacy_#{:erlang.unique_integer([:positive, :monotonic])}"
+      )
+
     File.mkdir_p!(tmp_dir)
+    File.mkdir_p!(fake_legacy)
 
     # Optionally write ChatGPT OAuth tokens into auth/chatgpt_oauth.json
     if token_data = Keyword.get(opts, :chatgpt_tokens) do
@@ -63,8 +72,10 @@ defmodule CodePuppyControl.LLM.ModelFactoryTest do
 
     prev_ex_home = System.get_env("PUP_EX_HOME")
     prev_secret = System.get_env("PUP_MACHINE_SECRET_PATH")
+    prev_legacy = Application.get_env(:code_puppy_control, :legacy_home_dir)
     System.put_env("PUP_EX_HOME", tmp_dir)
     System.put_env("PUP_MACHINE_SECRET_PATH", secret_path)
+    Application.put_env(:code_puppy_control, :legacy_home_dir, fake_legacy)
 
     try do
       fun.()
@@ -78,6 +89,13 @@ defmodule CodePuppyControl.LLM.ModelFactoryTest do
         nil -> System.delete_env("PUP_MACHINE_SECRET_PATH")
         v -> System.put_env("PUP_MACHINE_SECRET_PATH", v)
       end
+
+      case prev_legacy do
+        nil -> Application.delete_env(:code_puppy_control, :legacy_home_dir)
+        v -> Application.put_env(:code_puppy_control, :legacy_home_dir, v)
+      end
+
+      File.rm_rf(fake_legacy)
 
       File.rm_rf(tmp_dir)
     end

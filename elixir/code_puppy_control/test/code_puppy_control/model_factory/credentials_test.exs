@@ -14,6 +14,9 @@ defmodule CodePuppyControl.ModelFactory.CredentialsTest do
   # touch the real files.  (Newer describe blocks override PUP_EX_HOME
   # to their own temp dirs, which is fine — on_exit restores in LIFO
   # order, so the real env is always restored last.)
+  #
+  # Also redirect legacy_home_dir to isolate from real ~/.code_puppy
+  # (needed for ChatGPT OAuth legacy token fallback tests).
   setup_all do
     tmp =
       Path.join(
@@ -21,13 +24,22 @@ defmodule CodePuppyControl.ModelFactory.CredentialsTest do
         "mf_cred_sandbox_#{:erlang.unique_integer([:positive, :monotonic])}"
       )
 
+    fake_legacy =
+      Path.join(
+        System.tmp_dir!(),
+        "mf_cred_sandbox_legacy_#{:erlang.unique_integer([:positive, :monotonic])}"
+      )
+
     File.mkdir_p!(tmp)
+    File.mkdir_p!(fake_legacy)
     secret_path = Path.join(tmp, ".machine_secret")
 
     prev_ex_home = System.get_env("PUP_EX_HOME")
     prev_secret = System.get_env("PUP_MACHINE_SECRET_PATH")
+    prev_legacy = Application.get_env(:code_puppy_control, :legacy_home_dir)
     System.put_env("PUP_EX_HOME", tmp)
     System.put_env("PUP_MACHINE_SECRET_PATH", secret_path)
+    Application.put_env(:code_puppy_control, :legacy_home_dir, fake_legacy)
 
     on_exit(fn ->
       case prev_ex_home do
@@ -40,7 +52,13 @@ defmodule CodePuppyControl.ModelFactory.CredentialsTest do
         v -> System.put_env("PUP_MACHINE_SECRET_PATH", v)
       end
 
+      case prev_legacy do
+        nil -> Application.delete_env(:code_puppy_control, :legacy_home_dir)
+        v -> Application.put_env(:code_puppy_control, :legacy_home_dir, v)
+      end
+
       File.rm_rf(tmp)
+      File.rm_rf(fake_legacy)
     end)
 
     :ok
@@ -573,11 +591,21 @@ defmodule CodePuppyControl.ModelFactory.CredentialsTest do
           "oauth_test_#{:erlang.unique_integer([:positive, :monotonic])}"
         )
 
+      # Separate fake legacy dir to isolate from real ~/.code_puppy
+      fake_legacy =
+        Path.join(
+          System.tmp_dir!(),
+          "oauth_test_legacy_#{:erlang.unique_integer([:positive, :monotonic])}"
+        )
+
       File.mkdir_p!(tmp_dir)
+      File.mkdir_p!(fake_legacy)
 
       # Redirect paths for both OAuth modules
       prev_ex_home = System.get_env("PUP_EX_HOME")
+      prev_legacy = Application.get_env(:code_puppy_control, :legacy_home_dir)
       System.put_env("PUP_EX_HOME", tmp_dir)
+      Application.put_env(:code_puppy_control, :legacy_home_dir, fake_legacy)
 
       on_exit(fn ->
         case prev_ex_home do
@@ -585,7 +613,13 @@ defmodule CodePuppyControl.ModelFactory.CredentialsTest do
           v -> System.put_env("PUP_EX_HOME", v)
         end
 
+        case prev_legacy do
+          nil -> Application.delete_env(:code_puppy_control, :legacy_home_dir)
+          v -> Application.put_env(:code_puppy_control, :legacy_home_dir, v)
+        end
+
         File.rm_rf(tmp_dir)
+        File.rm_rf(fake_legacy)
       end)
 
       {:ok, tmp_dir: tmp_dir}
@@ -670,6 +704,108 @@ defmodule CodePuppyControl.ModelFactory.CredentialsTest do
 
       result = Credentials.validate("chatgpt_oauth", %{})
       assert {:missing, ["CHATGPT_ACCOUNT_ID"]} = result
+    end
+  end
+
+  # ==========================================================================
+  # Legacy ChatGPT OAuth Token Fallback Tests (READ-ONLY bridge)
+  # ==========================================================================
+
+  describe "chatgpt_oauth with legacy token fallback" do
+    setup do
+      # Create separate temp dirs for Elixir home and legacy home
+      ex_home =
+        Path.join(
+          System.tmp_dir!(),
+          "mf_chatgpt_oauth_legacy_ex_#{:erlang.unique_integer([:positive, :monotonic])}"
+        )
+
+      legacy_home =
+        Path.join(
+          System.tmp_dir!(),
+          "mf_chatgpt_oauth_legacy_#{:erlang.unique_integer([:positive, :monotonic])}"
+        )
+
+      File.mkdir_p!(ex_home)
+      File.mkdir_p!(legacy_home)
+      secret_path = Path.join(ex_home, ".machine_secret")
+
+      prev_ex_home = System.get_env("PUP_EX_HOME")
+      prev_secret = System.get_env("PUP_MACHINE_SECRET_PATH")
+      prev_legacy = Application.get_env(:code_puppy_control, :legacy_home_dir)
+
+      System.put_env("PUP_EX_HOME", ex_home)
+      System.put_env("PUP_MACHINE_SECRET_PATH", secret_path)
+      Application.put_env(:code_puppy_control, :legacy_home_dir, legacy_home)
+
+      on_exit(fn ->
+        case prev_ex_home do
+          nil -> System.delete_env("PUP_EX_HOME")
+          v -> System.put_env("PUP_EX_HOME", v)
+        end
+
+        case prev_secret do
+          nil -> System.delete_env("PUP_MACHINE_SECRET_PATH")
+          v -> System.put_env("PUP_MACHINE_SECRET_PATH", v)
+        end
+
+        case prev_legacy do
+          nil -> Application.delete_env(:code_puppy_control, :legacy_home_dir)
+          v -> Application.put_env(:code_puppy_control, :legacy_home_dir, v)
+        end
+
+        File.rm_rf(ex_home)
+        File.rm_rf(legacy_home)
+      end)
+
+      {:ok, ex_home: ex_home, legacy_home: legacy_home}
+    end
+
+    test "validate returns :ok using legacy token with access_token and account_id", %{
+      legacy_home: legacy_home
+    } do
+      # Write token to legacy location (no Elixir token)
+      token_data = %{"access_token" => "legacy-token-xyz", "account_id" => "acct-legacy"}
+      File.write!(Path.join(legacy_home, "chatgpt_oauth.json"), Jason.encode!(token_data))
+
+      # Should validate successfully from legacy fallback
+      assert :ok = Credentials.validate("chatgpt_oauth", %{})
+    end
+
+    test "validate prefers Elixir token over legacy", %{
+      ex_home: ex_home,
+      legacy_home: legacy_home
+    } do
+      # Write different tokens to both locations
+      File.write!(
+        Path.join(legacy_home, "chatgpt_oauth.json"),
+        Jason.encode!(%{"access_token" => "legacy", "account_id" => "acct-legacy"})
+      )
+
+      auth_dir = Path.join(ex_home, "auth")
+      File.mkdir_p!(auth_dir)
+
+      File.write!(
+        Path.join(auth_dir, "chatgpt_oauth.json"),
+        Jason.encode!(%{"access_token" => "ex-token", "account_id" => "acct-ex"})
+      )
+
+      # Both validate, but we verify the Elixir token is loaded by checking
+      # load_stored_tokens returns the Elixir version
+      assert :ok = Credentials.validate("chatgpt_oauth", %{})
+      loaded = CodePuppyControl.Auth.ChatGptOAuth.load_stored_tokens()
+      assert loaded["access_token"] == "ex-token"
+    end
+
+    test "validate returns missing when legacy token has no account_id", %{
+      legacy_home: legacy_home
+    } do
+      # Write legacy token without account_id
+      token_data = %{"access_token" => "legacy-token-xyz"}
+      File.write!(Path.join(legacy_home, "chatgpt_oauth.json"), Jason.encode!(token_data))
+
+      # Should fail validation
+      assert {:missing, ["CHATGPT_ACCOUNT_ID"]} = Credentials.validate("chatgpt_oauth", %{})
     end
   end
 
