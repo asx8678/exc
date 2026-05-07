@@ -47,10 +47,10 @@ defmodule CodePuppyControl.CLI.Smoke do
     and is not built by default — see `scripts/build-burrito.sh
     --host-only` and `scripts/smoke-packaged.sh --with-burrito`).
 
-  ## No-Python mode
+  ## Native-only mode
 
-  When `no_python: true` is passed, the smoke runner validates that
-  the CLI works without Python installed:
+  When `native_only: true` is passed, the smoke runner validates that
+  the CLI works in its native Elixir-only mode without Python installed:
 
     - For packaged probes (escript/burrito), sanitizes `PATH` to
       exclude `python3`/`python` and passes `PUP_SMOKE_PROBE=1`
@@ -70,10 +70,10 @@ defmodule CodePuppyControl.CLI.Smoke do
     * `:burrito` — `boolean()`; if `true`, also run the `:burrito` phase
       (off by default; deterministically skips when no artifact is
       available so CI without a Zig toolchain stays green).
-    * `:no_python` — `boolean()`; if `true`, run all phases with a
+    * `:native_only` — `boolean()`; if `true`, run all phases with a
       sanitized PATH that excludes `python3`/`python` to validate
-      the Python-free runtime guarantee (off by default; see
-      code-puppy-osy, code-puppy-3o7.6).
+      the native-only runtime guarantee (off by default; see
+      code-puppy-3o7.5.3, code-puppy-3o7.6).
 
   ## Determinism guarantees
 
@@ -98,7 +98,8 @@ defmodule CodePuppyControl.CLI.Smoke do
   require Logger
 
   @type status :: :pass | :fail | :skip
-  @type phase_name :: :parser | :run_mode | :sandbox | :one_shot | :escript | :burrito
+  @type phase_name ::
+          :parser | :run_mode | :sandbox | :one_shot | :blocked_interpreter | :escript | :burrito
   @type phase_result :: %{
           phase: phase_name,
           status: status,
@@ -114,7 +115,7 @@ defmodule CodePuppyControl.CLI.Smoke do
         }
 
   @default_phases [:parser, :run_mode, :sandbox, :one_shot]
-  @optional_phases [:escript, :burrito]
+  @optional_phases [:blocked_interpreter, :escript, :burrito]
   @all_phases @default_phases ++ @optional_phases
 
   @doc "Phases run when no `:phases` option is given."
@@ -155,14 +156,14 @@ defmodule CodePuppyControl.CLI.Smoke do
   """
   @spec run_phases(keyword(), map()) :: result()
   def run_phases(opts, sandbox) when is_map(sandbox) do
-    no_python = Keyword.get(opts, :no_python, false)
+    native_only = Keyword.get(opts, :native_only, false)
 
-    # When no_python is enabled, the no_python env helpers are
+    # When native_only is enabled, the native_only env helpers are
     # invoked (no-op in native-only runtime, code-puppy-3o7.6).
-    runtime_snapshot = if no_python, do: save_no_python_env(), else: nil
+    runtime_snapshot = if native_only, do: save_native_only_env(), else: nil
 
-    if no_python do
-      apply_no_python_env()
+    if native_only do
+      apply_native_only_env()
     end
 
     started_at = System.monotonic_time(:millisecond)
@@ -175,8 +176,8 @@ defmodule CodePuppyControl.CLI.Smoke do
       after
         # Always restore env vars even if a phase raises unexpectedly,
         # so the test/app environment does not leak.
-        if no_python and runtime_snapshot do
-          restore_no_python_env(runtime_snapshot)
+        if native_only and runtime_snapshot do
+          restore_native_only_env(runtime_snapshot)
         end
       end
 
@@ -208,12 +209,21 @@ defmodule CodePuppyControl.CLI.Smoke do
   defp run_phase(:run_mode, _sandbox, _opts), do: Phases.run_mode()
   defp run_phase(:sandbox, sandbox, _opts), do: Phases.sandbox(sandbox)
   defp run_phase(:one_shot, sandbox, _opts), do: Phases.one_shot(sandbox)
+  defp run_phase(:blocked_interpreter, _sandbox, _opts), do: Phases.blocked_interpreter()
 
   defp run_phase(:escript, sandbox, opts),
-    do: Phases.escript(no_python: Keyword.get(opts, :no_python, false), sandbox_dir: sandbox.dir)
+    do:
+      Phases.escript(
+        native_only: Keyword.get(opts, :native_only, false),
+        sandbox_dir: sandbox.dir
+      )
 
   defp run_phase(:burrito, sandbox, opts),
-    do: Phases.burrito(no_python: Keyword.get(opts, :no_python, false), sandbox_dir: sandbox.dir)
+    do:
+      Phases.burrito(
+        native_only: Keyword.get(opts, :native_only, false),
+        sandbox_dir: sandbox.dir
+      )
 
   defp run_phase(other, _sandbox, _opts) do
     %{
@@ -395,16 +405,16 @@ defmodule CodePuppyControl.CLI.Smoke do
   defp restore_env(key, nil), do: System.delete_env(key)
   defp restore_env(key, value), do: System.put_env(key, value)
 
-  # ── No-Python env helpers ──────────────────────────────────────────
+  # ── Native-only env helpers ──────────────────────────────────────────
   #
   # The native-only runtime no longer uses PUP_RUNTIME or Python worker
-  # script env vars. These helpers preserve the no_python option interface
+  # script env vars. These helpers preserve the native_only option interface
   # for backward compatibility with smoke test phases, but no longer
-  # manipulate those env vars. (code-puppy-3o7.6)
+  # manipulate those env vars. (code-puppy-3o7.6, code-puppy-3o7.5.3)
 
-  defp save_no_python_env, do: %{}
-  defp apply_no_python_env, do: :ok
-  defp restore_no_python_env(_snapshot), do: :ok
+  defp save_native_only_env, do: %{}
+  defp apply_native_only_env, do: :ok
+  defp restore_native_only_env(_snapshot), do: :ok
 
   @doc """
   Build a sanitized environment map for packaged CLI probes.
@@ -415,8 +425,8 @@ defmodule CodePuppyControl.CLI.Smoke do
   Note: PUP_RUNTIME, PUP_PYTHON_WORKER_SCRIPT, and PYTHON_WORKER_SCRIPT
   are no longer included — the native-only runtime does not use them.
   """
-  @spec no_python_packaged_env(keyword()) :: list({String.t(), String.t() | nil})
-  def no_python_packaged_env(_opts \\ []) do
+  @spec native_only_packaged_env(keyword()) :: list({String.t(), String.t() | nil})
+  def native_only_packaged_env(_opts \\ []) do
     # For escript/burrito probes, we need the full OTP toolchain on PATH
     # (erl, escript, etc.) but must exclude python3/python.  Filter
     # python from the system PATH rather than using a tiny sanitized
@@ -434,7 +444,7 @@ defmodule CodePuppyControl.CLI.Smoke do
   # Filter python3/python from the system PATH by removing directories
   # that contain a python3 or python executable.  This preserves all
   # other tools (erl, escript, sh, etc.) while ensuring the packaged
-  # CLI can't accidentally use Python.
+  # CLI runs in native-only mode without Python.
   defp filter_python_from_path do
     system_path = System.get_env("PATH") || ""
 

@@ -123,11 +123,11 @@ jobs:
         # current script uses only portable POSIX constructs.
         run: ./scripts/build-burrito.sh --host-only
 
-      # ── No-Python smoke gate ────────────────────────────────────────
+      # ── Native-only smoke gate ───────────────────────────────────
       # Validates that the packaged Burrito binary starts, shows
       # help/version, and works without Python installed.
-      # This is the release gate for the Python-free runtime guarantee.
-      # Refs: code-puppy-osy
+      # This is the release gate for the native-only runtime guarantee.
+      # Refs: code-puppy-osy, code-puppy-3o7.5.3
 
       - name: Install Mix and compile for smoke (macOS/Linux)
         if: runner.os != 'Windows'
@@ -142,14 +142,14 @@ jobs:
           mix deps.get
           mix compile
 
-      - name: No-Python Burrito smoke (macOS/Linux)
+      - name: Native-only Burrito smoke (macOS/Linux)
         if: runner.os != 'Windows'
-        run: mix pup_ex.smoke --burrito --no-python --phase burrito
+        run: mix pup_ex.smoke --burrito --native-only --phase burrito
 
-      - name: No-Python Burrito smoke (Windows)
+      - name: Native-only Burrito smoke (Windows)
         if: runner.os == 'Windows'
         shell: bash
-        run: mix pup_ex.smoke --burrito --no-python --phase burrito
+        run: mix pup_ex.smoke --burrito --native-only --phase burrito
 
       # ── Windows Authenticode signing ────────────────────────────────
       # Skipped silently if secrets are absent; the workflow still

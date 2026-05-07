@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # pre-push — tracked native hook
-# Elixir: compile + fast tests | Python: ruff + smoke import
-# Last sync: 2026-05-05
+# Elixir: compile + fast tests | Native-only guards
+# Last sync: 2026-05-07
 #
 # Fast-test excludes: :slow, :integration, :property
 #   - :property covers StreamData/ExUnitProperties generative tests (100
@@ -11,6 +11,10 @@
 # Uses NUL-delimited git output + bash arrays to avoid unsafe filename handling.
 # Handles new branches (0000… remote sha) by computing range via merge-base.
 # Compatible with Bash 3.2 (macOS default).
+#
+# Note: Python pre-push checks removed (code-puppy-3o7.5.1). The legacy
+# Python product was deleted in epic E (code-puppy-3o7.8). No .py files
+# should be tracked; the native-only guards catch reintroduction.
 
 set -euo pipefail
 
@@ -97,14 +101,10 @@ done
 
 # --- classify files ---------------------------------------------------------
 
-py_files=()
 elixir_files=()
 review_files=()
 
 for f in ${deduped[@]:+"${deduped[@]}"}; do
-  if [[ "$f" == *.py ]]; then
-    py_files+=( "$f" )
-  fi
   if grep -qE '^elixir/.*\.(ex|exs)$' <<<"$f"; then
     elixir_files+=( "$f" )
   fi
@@ -117,47 +117,24 @@ done
 
 failed=0
 
-# --- Python checks (BLOCKING) ----------------------------------------------
+# --- Native-only guard (BLOCKING) ------------------------------------------
+# Quick check: no .py files should be introduced via this push.
+# The full guard script runs in CI; this is a fast pre-push check.
 
-if [[ ${#py_files[@]} -gt 0 ]]; then
-  if command -v uv >/dev/null 2>&1; then
-    ruff_cmd=(uv run ruff)
-  else
-    ruff_cmd=(ruff)
+py_introduced=()
+for f in ${deduped[@]:+"${deduped[@]}"}; do
+  if [[ "$f" == *.py ]]; then
+    py_introduced+=( "$f" )
   fi
+done
 
-  echo '--- python-ruff ---'
-  info "ruff check on ${#py_files[@]} Python file(s) ..."
-  if ! "${ruff_cmd[@]}" check -- "${py_files[@]}"; then
-    warn 'ruff check failed'
-    failed=1
-  else
-    pass 'ruff check OK'
-  fi
-
-  code_puppy_files=()
-  for f in "${py_files[@]}"; do
-    [[ "$f" == code_puppy/* ]] && code_puppy_files+=( "$f" )
+if [[ ${#py_introduced[@]} -gt 0 ]]; then
+  echo '--- native-only-guard ---'
+  warn "${#py_introduced[@]} .py file(s) introduced (legacy Python product deleted in code-puppy-3o7.8):"
+  for f in "${py_introduced[@]}"; do
+    warn "  $f"
   done
-
-  if [[ ${#code_puppy_files[@]} -gt 0 ]]; then
-    echo '--- python-smoke-import ---'
-    info 'Python smoke import check ...'
-    smoke_ok=0
-    if command -v uv >/dev/null 2>&1; then
-      uv run python -c "import code_puppy; import code_puppy.agents.agent_pack_leader" && smoke_ok=1
-    else
-      python -c "import code_puppy; import code_puppy.agents.agent_pack_leader" && smoke_ok=1
-    fi
-    if [[ "$smoke_ok" -ne 1 ]]; then
-      warn 'Python smoke import failed'
-      failed=1
-    else
-      pass 'Python smoke import OK'
-    fi
-  fi
-else
-  pass 'No Python files changed — skipping Python checks'
+  failed=1
 fi
 
 # --- Elixir checks (BLOCKING) ----------------------------------------------
