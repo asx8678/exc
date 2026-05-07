@@ -224,7 +224,7 @@ Tests must prevent "drift" from implementation changes:
 | Ignoring error paths | Explicit error case coverage |
 | Stale comment assertions | `pytest --doctest-modules` |
 
-**CI Gate**: Plugin tests should be run explicitly via `mix test` or CI. The pre-push hook runs format + compile only (code-puppy-c1r); it does NOT run `mix test` (too slow, risk of side-effect commits).
+**CI Gate**: Plugin tests should be run explicitly via `mix test` or CI. The pre-push hook runs format + compile only (code-puppy-c1r); it does NOT run `mix test` (too slow, risk of side-effect commits). Advisory LLM review via `review-tests.sh` is opt-in (`PUP_PRE_PUSH_REVIEW=1`).
 
 ```elixir
 # CORRECT: Test the invariant, not the implementation

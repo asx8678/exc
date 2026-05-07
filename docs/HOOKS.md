@@ -11,14 +11,19 @@ This repo uses native Git hooks (no external dependencies).
 - Native-only guard (`.py` file introduction check)
 - Elixir format check on changed `.ex`/`.exs` files
 - Elixir compile (warnings-as-errors) on changed `.ex`/`.exs` files
-- Test file review (advisory, non-blocking)
+- Test file review via LLM sub-agents (**opt-in only** — set `PUP_PRE_PUSH_REVIEW=1`)
 
-> **No tests are run in pre-push.** The hook is bounded and side-effect-free
-> (code-puppy-c1r). Run `mix test` explicitly or rely on CI / `release-gate.sh`.
+> **No tests are run in pre-push.** The hook is bounded (<10s) and
+> side-effect-free (code-puppy-c1r). Run `mix test` explicitly or rely on
+> CI / `release-gate.sh`.
 >
 > Previously, pre-push ran `mix test --exclude slow/integration/property` which
 > caused 60s+ timeouts and, due to cwd leakage in git_auto_commit tests,
 > could create rogue commits in the real repo.
+>
+> **Advisory review is opt-in** because `review-tests.sh` invokes LLM sub-agents
+> (`code-puppy --agent`) which take ~3 minutes and require network/LLM
+> credentials. Enable with `PUP_PRE_PUSH_REVIEW=1 git push`.
 
 ## Smart fallbacks
 

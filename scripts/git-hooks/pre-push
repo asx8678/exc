@@ -4,9 +4,11 @@
 # Last sync: 2026-05-07
 #
 # Design goals (code-puppy-c1r):
-#   - Bounded execution: compile + format only; NO mix test (too slow,
+#   - Bounded execution (<10s): compile + format only; NO mix test (too slow,
 #     risked 60s+ timeout and rogue commits from test side-effects)
 #   - Side-effect-free: cannot create commits or mutate repo state
+#   - No LLM/network dependency by default: advisory review (review-tests.sh)
+#     invokes LLM sub-agents; opt in with PUP_PRE_PUSH_REVIEW=1
 #   - Test suite: run explicitly via `mix test`, CI, or release-gate.sh
 #
 # Uses NUL-delimited git output + bash arrays to avoid unsafe filename handling.
@@ -172,19 +174,34 @@ else
   pass 'No Elixir files changed — skipping Elixir checks'
 fi
 
-# --- test-review (ADVISORY — does not block) --------------------------------
+# --- test-review (OPT-IN — disabled by default) ------------------------------
+# Advisory review via LLM sub-agents (elixir-code-critic, qa-kitten).
+# DISABLED by default because it invokes `code-puppy --agent` which is slow
+# (~3 min) and requires network/LLM credentials. Enable explicitly with:
+#
+#   PUP_PRE_PUSH_REVIEW=1 git push
+#
+# Or set permanently in ~/.bashrc:
+#   export PUP_PRE_PUSH_REVIEW=1
 
-if [[ ${#review_files[@]} -gt 0 ]]; then
-  echo '--- test-review (advisory) ---'
-  info "Reviewing ${#review_files[@]} test file(s) ..."
-  if [[ -x "$PROJECT_ROOT/scripts/review-tests.sh" ]]; then
-    "$PROJECT_ROOT/scripts/review-tests.sh" "${review_files[@]}" || \
-      warn 'Review found issues (advisory — push continues)'
+if [[ "${PUP_PRE_PUSH_REVIEW:-0}" == "1" ]]; then
+  if [[ ${#review_files[@]} -gt 0 ]]; then
+    echo '--- test-review (advisory, opt-in) ---'
+    info "Reviewing ${#review_files[@]} test file(s) via LLM agents ..."
+    if [[ -x "$PROJECT_ROOT/scripts/review-tests.sh" ]]; then
+      "$PROJECT_ROOT/scripts/review-tests.sh" "${review_files[@]}" || \
+        warn 'Review found issues (advisory — push continues)'
+    else
+      info 'review-tests.sh not found — skipping'
+    fi
   else
-    info 'review-tests.sh not found — skipping'
+    pass 'No test files changed — skipping test review'
   fi
 else
-  pass 'No test files changed — skipping test review'
+  # Skipped by default — explain how to enable
+  if [[ ${#review_files[@]} -gt 0 ]]; then
+    info 'Skipping advisory test review (set PUP_PRE_PUSH_REVIEW=1 to enable)'
+  fi
 fi
 
 # --- final verdict ---------------------------------------------------------
