@@ -5,11 +5,21 @@ defmodule CodePuppyControl.Tools.FileModifications.DeleteSnippetEnhancedTest do
 
   alias CodePuppyControl.Tools.FileModifications.DeleteSnippet
 
-  @tmp_dir System.tmp_dir!()
+  setup do
+    tmp_dir =
+      Path.join(
+        System.tmp_dir!(),
+        "delete_snippet_enhanced_test_#{System.unique_integer([:positive, :monotonic])}"
+      )
+
+    File.mkdir_p!(tmp_dir)
+    on_exit(fn -> File.rm_rf!(tmp_dir) end)
+    %{tmp_dir: tmp_dir}
+  end
 
   describe "invoke/2 with BOM handling" do
-    test "preserves BOM after snippet deletion" do
-      path = Path.join(@tmp_dir, "del_snippet_bom_#{:erlang.unique_integer([:positive])}.txt")
+    test "preserves BOM after snippet deletion", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "bom_test.txt")
       bom = <<0xEF, 0xBB, 0xBF>>
       File.write!(path, bom <> "line 1\nREMOVE ME\nline 3")
 
@@ -22,12 +32,10 @@ defmodule CodePuppyControl.Tools.FileModifications.DeleteSnippetEnhancedTest do
       assert result.success == true
       # BOM should be preserved
       assert File.read!(path) == bom <> "line 1\n\nline 3"
-
-      File.rm(path)
     end
 
-    test "handles file without BOM" do
-      path = Path.join(@tmp_dir, "del_snippet_no_bom_#{:erlang.unique_integer([:positive])}.txt")
+    test "handles file without BOM", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "no_bom_test.txt")
       File.write!(path, "line 1\nREMOVE ME\nline 3")
 
       args = %{
@@ -38,21 +46,13 @@ defmodule CodePuppyControl.Tools.FileModifications.DeleteSnippetEnhancedTest do
       assert {:ok, result} = DeleteSnippet.invoke(args, %{})
       assert result.success == true
       assert File.read!(path) == "line 1\n\nline 3"
-
-      File.rm(path)
     end
   end
 
   describe "invoke/2 with symlink protection" do
-    test "refuses to delete snippet from a symlink" do
-      target =
-        Path.join(
-          @tmp_dir,
-          "del_snippet_symlink_target_#{:erlang.unique_integer([:positive])}.txt"
-        )
-
-      link =
-        Path.join(@tmp_dir, "del_snippet_symlink_link_#{:erlang.unique_integer([:positive])}.txt")
+    test "refuses to delete snippet from a symlink", %{tmp_dir: tmp_dir} do
+      target = Path.join(tmp_dir, "symlink_target.txt")
+      link = Path.join(tmp_dir, "symlink_link.txt")
 
       File.write!(target, "foo bar baz")
       File.ln_s!(target, link)
@@ -66,16 +66,12 @@ defmodule CodePuppyControl.Tools.FileModifications.DeleteSnippetEnhancedTest do
       assert result.message =~ "symlink"
       # Target should be unmodified
       assert File.read!(target) == "foo bar baz"
-
-      File.rm(target)
-      File.rm(link)
     end
   end
 
   describe "invoke/2 with post-edit validation" do
-    test "attaches syntax warning for invalid Elixir after deletion" do
-      path =
-        Path.join(@tmp_dir, "del_snippet_validation_#{:erlang.unique_integer([:positive])}.ex")
+    test "attaches syntax warning for invalid Elixir after deletion", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "validation_test.ex")
 
       File.write!(path, "defmodule Foo do\n  BAD SYNTAX\n  def bar, do: :baz\nend")
 
@@ -88,14 +84,12 @@ defmodule CodePuppyControl.Tools.FileModifications.DeleteSnippetEnhancedTest do
       result = DeleteSnippet.invoke(args, %{})
       # May succeed or fail depending on exact match; either way no crash
       assert match?({:ok, _}, result) or match?({:error, _}, result)
-
-      File.rm(path)
     end
   end
 
   describe "invoke/2 with whitespace stripping" do
-    test "strips surplus blank lines after deletion" do
-      path = Path.join(@tmp_dir, "del_snippet_ws_#{:erlang.unique_integer([:positive])}.txt")
+    test "strips surplus blank lines after deletion", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "ws_test.txt")
       File.write!(path, "line 1\nline 2\nline 3")
 
       args = %{
@@ -109,8 +103,6 @@ defmodule CodePuppyControl.Tools.FileModifications.DeleteSnippetEnhancedTest do
       # Should not have surplus blank lines from the deletion
       assert content == "line 1\nline 3" or content == "line 1line 3" or
                not String.contains?(content, "line 2")
-
-      File.rm(path)
     end
   end
 end

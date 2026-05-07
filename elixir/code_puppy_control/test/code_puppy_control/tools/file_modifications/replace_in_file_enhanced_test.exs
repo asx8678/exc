@@ -5,11 +5,21 @@ defmodule CodePuppyControl.Tools.FileModifications.ReplaceInFileEnhancedTest do
 
   alias CodePuppyControl.Tools.FileModifications.ReplaceInFile
 
-  @tmp_dir System.tmp_dir!()
+  setup do
+    tmp_dir =
+      Path.join(
+        System.tmp_dir!(),
+        "replace_in_file_enhanced_test_#{System.unique_integer([:positive, :monotonic])}"
+      )
+
+    File.mkdir_p!(tmp_dir)
+    on_exit(fn -> File.rm_rf!(tmp_dir) end)
+    %{tmp_dir: tmp_dir}
+  end
 
   describe "invoke/2 with BOM handling" do
-    test "preserves BOM after replacement" do
-      path = Path.join(@tmp_dir, "replace_bom_test_#{:erlang.unique_integer([:positive])}.txt")
+    test "preserves BOM after replacement", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "bom_test.txt")
       bom = <<0xEF, 0xBB, 0xBF>>
       File.write!(path, bom <> "hello world")
 
@@ -22,12 +32,10 @@ defmodule CodePuppyControl.Tools.FileModifications.ReplaceInFileEnhancedTest do
       assert result.success == true
       # BOM should be preserved
       assert File.read!(path) == bom <> "hello universe"
-
-      File.rm(path)
     end
 
-    test "handles file without BOM" do
-      path = Path.join(@tmp_dir, "replace_no_bom_test_#{:erlang.unique_integer([:positive])}.txt")
+    test "handles file without BOM", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "no_bom_test.txt")
       File.write!(path, "hello world")
 
       args = %{
@@ -39,14 +47,12 @@ defmodule CodePuppyControl.Tools.FileModifications.ReplaceInFileEnhancedTest do
       assert result.success == true
       # No BOM should be added
       assert File.read!(path) == "hello universe"
-
-      File.rm(path)
     end
   end
 
   describe "invoke/2 with whitespace stripping" do
-    test "strips surplus blank lines from LLM output" do
-      path = Path.join(@tmp_dir, "replace_ws_test_#{:erlang.unique_integer([:positive])}.txt")
+    test "strips surplus blank lines from LLM output", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "ws_test.txt")
       File.write!(path, "line 1\nline 2\nline 3\n")
 
       args = %{
@@ -62,18 +68,13 @@ defmodule CodePuppyControl.Tools.FileModifications.ReplaceInFileEnhancedTest do
       # Original had 0 trailing blank lines after content, LLM added 4
       # These should be stripped back to match original
       refute String.ends_with?(content, "\n\n\n\n\n")
-
-      File.rm(path)
     end
   end
 
   describe "invoke/2 with symlink protection" do
-    test "refuses to replace in a symlink" do
-      target =
-        Path.join(@tmp_dir, "replace_symlink_target_#{:erlang.unique_integer([:positive])}.txt")
-
-      link =
-        Path.join(@tmp_dir, "replace_symlink_link_#{:erlang.unique_integer([:positive])}.txt")
+    test "refuses to replace in a symlink", %{tmp_dir: tmp_dir} do
+      target = Path.join(tmp_dir, "symlink_target.txt")
+      link = Path.join(tmp_dir, "symlink_link.txt")
 
       File.write!(target, "foo bar baz")
       File.ln_s!(target, link)
@@ -87,15 +88,12 @@ defmodule CodePuppyControl.Tools.FileModifications.ReplaceInFileEnhancedTest do
       assert result.message =~ "symlink"
       # Target should be unmodified
       assert File.read!(target) == "foo bar baz"
-
-      File.rm(target)
-      File.rm(link)
     end
   end
 
   describe "invoke/2 with post-edit validation" do
-    test "attaches syntax warning for invalid Elixir after replacement" do
-      path = Path.join(@tmp_dir, "replace_validation_#{:erlang.unique_integer([:positive])}.ex")
+    test "attaches syntax warning for invalid Elixir after replacement", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "validation_test.ex")
       File.write!(path, "defmodule Foo do\n  def bar, do: :baz\nend")
 
       args = %{
@@ -107,12 +105,10 @@ defmodule CodePuppyControl.Tools.FileModifications.ReplaceInFileEnhancedTest do
       assert result.success == true
       # Should have syntax_warning for invalid Elixir
       assert Map.has_key?(result, :syntax_warning)
-
-      File.rm(path)
     end
 
-    test "no syntax warning for valid replacement" do
-      path = Path.join(@tmp_dir, "replace_valid_#{:erlang.unique_integer([:positive])}.ex")
+    test "no syntax warning for valid replacement", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "valid_test.ex")
       File.write!(path, "def foo, do: :bar")
 
       args = %{
@@ -123,14 +119,12 @@ defmodule CodePuppyControl.Tools.FileModifications.ReplaceInFileEnhancedTest do
       assert {:ok, result} = ReplaceInFile.invoke(args, %{})
       assert result.success == true
       refute Map.has_key?(result, :syntax_warning)
-
-      File.rm(path)
     end
   end
 
   describe "invoke/2 with fuzzy matching" do
-    test "uses fuzzy match when exact match fails" do
-      path = Path.join(@tmp_dir, "replace_fuzzy_#{:erlang.unique_integer([:positive])}.txt")
+    test "uses fuzzy match when exact match fails", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "fuzzy_test.txt")
       File.write!(path, "line 1\n  indented\nline 3")
 
       # LLM might add/remove minor whitespace — fuzzy matching handles this
@@ -142,8 +136,6 @@ defmodule CodePuppyControl.Tools.FileModifications.ReplaceInFileEnhancedTest do
       # Should succeed via fuzzy match (JW >= 0.95)
       result = ReplaceInFile.invoke(args, %{})
       assert match?({:ok, _}, result)
-
-      File.rm(path)
     end
   end
 end

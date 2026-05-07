@@ -5,6 +5,18 @@ defmodule CodePuppyControl.Tools.FileModifications.ValidationTest do
 
   alias CodePuppyControl.Tools.FileModifications.Validation
 
+  setup do
+    tmp_dir =
+      Path.join(
+        System.tmp_dir!(),
+        "validation_test_#{System.unique_integer([:positive, :monotonic])}"
+      )
+
+    File.mkdir_p!(tmp_dir)
+    on_exit(fn -> File.rm_rf!(tmp_dir) end)
+    %{tmp_dir: tmp_dir}
+  end
+
   describe "validatable_extension?/1" do
     test "recognizes Elixir extensions" do
       assert Validation.validatable_extension?("/tmp/file.ex") == true
@@ -62,38 +74,24 @@ defmodule CodePuppyControl.Tools.FileModifications.ValidationTest do
       assert Validation.maybe_attach_warning(result, "/tmp/test.py") == result
     end
 
-    test "adds syntax_warning for invalid Elixir syntax" do
-      path =
-        Path.join(
-          System.tmp_dir!(),
-          "validation_test_#{:erlang.unique_integer([:positive])}.ex"
-        )
-
+    test "adds syntax_warning for invalid Elixir syntax", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "invalid_test.ex")
       File.write!(path, "defmodule Foo do\n  def bar(\nend")
 
       result = %{success: true, path: path}
       result = Validation.maybe_attach_warning(result, path)
 
       assert Map.has_key?(result, :syntax_warning)
-
-      File.rm(path)
     end
 
-    test "does not add warning for valid Elixir syntax" do
-      path =
-        Path.join(
-          System.tmp_dir!(),
-          "validation_valid_test_#{:erlang.unique_integer([:positive])}.ex"
-        )
-
+    test "does not add warning for valid Elixir syntax", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "valid_test.ex")
       File.write!(path, "def foo, do: :bar")
 
       result = %{success: true, path: path}
       result = Validation.maybe_attach_warning(result, path)
 
       refute Map.has_key?(result, :syntax_warning)
-
-      File.rm(path)
     end
   end
 

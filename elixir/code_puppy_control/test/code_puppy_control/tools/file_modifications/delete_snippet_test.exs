@@ -5,7 +5,17 @@ defmodule CodePuppyControl.Tools.FileModifications.DeleteSnippetTest do
 
   alias CodePuppyControl.Tools.FileModifications.DeleteSnippet
 
-  @tmp_dir System.tmp_dir!()
+  setup do
+    tmp_dir =
+      Path.join(
+        System.tmp_dir!(),
+        "delete_snippet_test_#{System.unique_integer([:positive, :monotonic])}"
+      )
+
+    File.mkdir_p!(tmp_dir)
+    on_exit(fn -> File.rm_rf!(tmp_dir) end)
+    %{tmp_dir: tmp_dir}
+  end
 
   describe "name/0" do
     test "returns :delete_snippet" do
@@ -22,8 +32,8 @@ defmodule CodePuppyControl.Tools.FileModifications.DeleteSnippetTest do
   end
 
   describe "invoke/2" do
-    test "removes first occurrence of snippet" do
-      path = Path.join(@tmp_dir, "del_snippet_test_#{:rand.uniform(10000)}.txt")
+    test "removes first occurrence of snippet", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "snippet_test.txt")
       File.write!(path, "line 1\nREMOVE ME\nline 3")
 
       args = %{
@@ -35,12 +45,10 @@ defmodule CodePuppyControl.Tools.FileModifications.DeleteSnippetTest do
       assert result.success == true
       assert result.changed == true
       assert File.read!(path) == "line 1\n\nline 3"
-
-      File.rm(path)
     end
 
-    test "removes only the first occurrence" do
-      path = Path.join(@tmp_dir, "del_snippet_first_test_#{:rand.uniform(10000)}.txt")
+    test "removes only the first occurrence", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "first_test.txt")
       File.write!(path, "aaa xxx bbb xxx ccc")
 
       args = %{
@@ -52,12 +60,10 @@ defmodule CodePuppyControl.Tools.FileModifications.DeleteSnippetTest do
       assert result.success == true
       # Only first " xxx " removed
       assert File.read!(path) == "aaabbb xxx ccc"
-
-      File.rm(path)
     end
 
-    test "fails when snippet not found" do
-      path = Path.join(@tmp_dir, "del_snippet_notfound_test_#{:rand.uniform(10000)}.txt")
+    test "fails when snippet not found", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "notfound_test.txt")
       File.write!(path, "nothing to remove here")
 
       args = %{
@@ -67,12 +73,10 @@ defmodule CodePuppyControl.Tools.FileModifications.DeleteSnippetTest do
 
       assert {:error, result} = DeleteSnippet.invoke(args, %{})
       assert result.message =~ "not found"
-
-      File.rm(path)
     end
 
-    test "fails with empty snippet" do
-      path = Path.join(@tmp_dir, "del_snippet_empty_test_#{:rand.uniform(10000)}.txt")
+    test "fails with empty snippet", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "empty_test.txt")
       File.write!(path, "content")
 
       args = %{
@@ -82,13 +86,11 @@ defmodule CodePuppyControl.Tools.FileModifications.DeleteSnippetTest do
 
       assert {:error, reason} = DeleteSnippet.invoke(args, %{})
       assert reason =~ "empty"
-
-      File.rm(path)
     end
 
-    test "fails on non-existent file" do
+    test "fails on non-existent file", %{tmp_dir: tmp_dir} do
       args = %{
-        "file_path" => "/tmp/nonexistent_#{:rand.uniform(10000)}.txt",
+        "file_path" => Path.join(tmp_dir, "nonexistent.txt"),
         "snippet" => "anything"
       }
 
@@ -96,8 +98,8 @@ defmodule CodePuppyControl.Tools.FileModifications.DeleteSnippetTest do
       assert result.message =~ "not found"
     end
 
-    test "generates diff" do
-      path = Path.join(@tmp_dir, "del_snippet_diff_test_#{:rand.uniform(10000)}.txt")
+    test "generates diff", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "diff_test.txt")
       File.write!(path, "keep this\nremove that\nkeep this too")
 
       args = %{
@@ -107,8 +109,6 @@ defmodule CodePuppyControl.Tools.FileModifications.DeleteSnippetTest do
 
       assert {:ok, result} = DeleteSnippet.invoke(args, %{})
       assert result.diff =~ "-remove that"
-
-      File.rm(path)
     end
   end
 

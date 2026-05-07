@@ -5,7 +5,17 @@ defmodule CodePuppyControl.Tools.FileModifications.ReplaceInFileTest do
 
   alias CodePuppyControl.Tools.FileModifications.ReplaceInFile
 
-  @tmp_dir System.tmp_dir!()
+  setup do
+    tmp_dir =
+      Path.join(
+        System.tmp_dir!(),
+        "replace_in_file_test_#{System.unique_integer([:positive, :monotonic])}"
+      )
+
+    File.mkdir_p!(tmp_dir)
+    on_exit(fn -> File.rm_rf!(tmp_dir) end)
+    %{tmp_dir: tmp_dir}
+  end
 
   describe "name/0" do
     test "returns :replace_in_file" do
@@ -25,8 +35,8 @@ defmodule CodePuppyControl.Tools.FileModifications.ReplaceInFileTest do
   end
 
   describe "invoke/2 with valid replacements list" do
-    test "applies single replacement" do
-      path = Path.join(@tmp_dir, "replace_test_#{:rand.uniform(10000)}.txt")
+    test "applies single replacement", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "replace_test.txt")
       File.write!(path, "hello world")
 
       args = %{
@@ -38,12 +48,10 @@ defmodule CodePuppyControl.Tools.FileModifications.ReplaceInFileTest do
       assert result.success == true
       assert result.changed == true
       assert File.read!(path) == "hello universe"
-
-      File.rm(path)
     end
 
-    test "applies multiple replacements sequentially" do
-      path = Path.join(@tmp_dir, "replace_multi_test_#{:rand.uniform(10000)}.txt")
+    test "applies multiple replacements sequentially", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "replace_multi_test.txt")
       File.write!(path, "a b c")
 
       args = %{
@@ -58,12 +66,10 @@ defmodule CodePuppyControl.Tools.FileModifications.ReplaceInFileTest do
       assert {:ok, result} = ReplaceInFile.invoke(args, %{})
       assert result.success == true
       assert File.read!(path) == "x y z"
-
-      File.rm(path)
     end
 
-    test "handles empty replacements list gracefully" do
-      path = Path.join(@tmp_dir, "replace_empty_test_#{:rand.uniform(10000)}.txt")
+    test "handles empty replacements list gracefully", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "replace_empty_test.txt")
       File.write!(path, "unchanged")
 
       args = %{
@@ -77,12 +83,10 @@ defmodule CodePuppyControl.Tools.FileModifications.ReplaceInFileTest do
       result = ReplaceInFile.invoke(args, %{})
       # Either validation error or no-change result
       assert match?({:ok, _}, result) or match?({:error, _}, result)
-
-      File.rm(path)
     end
 
-    test "returns no-change when text already matches" do
-      path = Path.join(@tmp_dir, "replace_same_test_#{:rand.uniform(10000)}.txt")
+    test "returns no-change when text already matches", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "replace_same_test.txt")
       File.write!(path, "already correct")
 
       args = %{
@@ -93,13 +97,11 @@ defmodule CodePuppyControl.Tools.FileModifications.ReplaceInFileTest do
       assert {:ok, result} = ReplaceInFile.invoke(args, %{})
       assert result.success == true
       assert result.changed == false
-
-      File.rm(path)
     end
 
-    test "fails on non-existent file" do
+    test "fails on non-existent file", %{tmp_dir: tmp_dir} do
       args = %{
-        "file_path" => "/tmp/nonexistent_file_#{:rand.uniform(10000)}.txt",
+        "file_path" => Path.join(tmp_dir, "nonexistent_file.txt"),
         "replacements" => [%{"old_str" => "foo", "new_str" => "bar"}]
       }
 
@@ -107,8 +109,8 @@ defmodule CodePuppyControl.Tools.FileModifications.ReplaceInFileTest do
       assert result.message =~ "not found"
     end
 
-    test "generates diff on successful replacement" do
-      path = Path.join(@tmp_dir, "replace_diff_test_#{:rand.uniform(10000)}.txt")
+    test "generates diff on successful replacement", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "replace_diff_test.txt")
       File.write!(path, "line 1\nline 2\nline 3\n")
 
       args = %{
@@ -119,8 +121,6 @@ defmodule CodePuppyControl.Tools.FileModifications.ReplaceInFileTest do
       assert {:ok, result} = ReplaceInFile.invoke(args, %{})
       assert result.diff =~ "-line 2"
       assert result.diff =~ "+modified"
-
-      File.rm(path)
     end
   end
 
@@ -135,8 +135,8 @@ defmodule CodePuppyControl.Tools.FileModifications.ReplaceInFileTest do
       assert reason =~ "list"
     end
 
-    test "rejects replacement item without old_str" do
-      path = Path.join(@tmp_dir, "replace_bad_test_#{:rand.uniform(10000)}.txt")
+    test "rejects replacement item without old_str", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "replace_bad_test.txt")
       File.write!(path, "content")
 
       args = %{
@@ -146,12 +146,10 @@ defmodule CodePuppyControl.Tools.FileModifications.ReplaceInFileTest do
 
       assert {:error, reason} = ReplaceInFile.invoke(args, %{})
       assert reason =~ "old_str"
-
-      File.rm(path)
     end
 
-    test "rejects replacement item without new_str" do
-      path = Path.join(@tmp_dir, "replace_bad2_test_#{:rand.uniform(10000)}.txt")
+    test "rejects replacement item without new_str", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "replace_bad2_test.txt")
       File.write!(path, "content")
 
       args = %{
@@ -161,8 +159,6 @@ defmodule CodePuppyControl.Tools.FileModifications.ReplaceInFileTest do
 
       assert {:error, reason} = ReplaceInFile.invoke(args, %{})
       assert reason =~ "new_str"
-
-      File.rm(path)
     end
   end
 

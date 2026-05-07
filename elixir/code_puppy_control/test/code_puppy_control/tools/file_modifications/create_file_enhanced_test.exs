@@ -5,11 +5,21 @@ defmodule CodePuppyControl.Tools.FileModifications.CreateFileEnhancedTest do
 
   alias CodePuppyControl.Tools.FileModifications.CreateFile
 
-  @tmp_dir System.tmp_dir!()
+  setup do
+    tmp_dir =
+      Path.join(
+        System.tmp_dir!(),
+        "create_file_enhanced_test_#{System.unique_integer([:positive, :monotonic])}"
+      )
+
+    File.mkdir_p!(tmp_dir)
+    on_exit(fn -> File.rm_rf!(tmp_dir) end)
+    %{tmp_dir: tmp_dir}
+  end
 
   describe "invoke/2 with BOM handling" do
-    test "preserves BOM when overwriting existing file" do
-      path = Path.join(@tmp_dir, "create_bom_test_#{:erlang.unique_integer([:positive])}.txt")
+    test "preserves BOM when overwriting existing file", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "bom_test.txt")
       bom = <<0xEF, 0xBB, 0xBF>>
       File.write!(path, bom <> "original content")
 
@@ -23,12 +33,10 @@ defmodule CodePuppyControl.Tools.FileModifications.CreateFileEnhancedTest do
       assert result.success == true
       # BOM should be preserved
       assert File.read!(path) == bom <> "new content"
-
-      File.rm(path)
     end
 
-    test "handles file without BOM correctly" do
-      path = Path.join(@tmp_dir, "create_no_bom_test_#{:erlang.unique_integer([:positive])}.txt")
+    test "handles file without BOM correctly", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "no_bom_test.txt")
       File.write!(path, "no bom here")
 
       args = %{
@@ -41,14 +49,12 @@ defmodule CodePuppyControl.Tools.FileModifications.CreateFileEnhancedTest do
       assert result.success == true
       # No BOM should be added
       assert File.read!(path) == "updated content"
-
-      File.rm(path)
     end
   end
 
   describe "invoke/2 with whitespace stripping" do
-    test "strips surplus leading blank lines from LLM output" do
-      path = Path.join(@tmp_dir, "create_ws_test_#{:erlang.unique_integer([:positive])}.txt")
+    test "strips surplus leading blank lines from LLM output", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "ws_test.txt")
       File.write!(path, "line 1\nline 2\n")
 
       args = %{
@@ -62,12 +68,10 @@ defmodule CodePuppyControl.Tools.FileModifications.CreateFileEnhancedTest do
       # Surplus leading blank lines should be stripped
       content = File.read!(path)
       refute String.starts_with?(content, "\n\n\n")
-
-      File.rm(path)
     end
 
-    test "preserves original leading blank lines" do
-      path = Path.join(@tmp_dir, "create_ws_preserve_#{:erlang.unique_integer([:positive])}.txt")
+    test "preserves original leading blank lines", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "ws_preserve_test.txt")
       File.write!(path, "\nline 1\nline 2\n")
 
       args = %{
@@ -81,17 +85,13 @@ defmodule CodePuppyControl.Tools.FileModifications.CreateFileEnhancedTest do
       # Original had 1 leading blank line, so 1 is preserved
       content = File.read!(path)
       assert String.starts_with?(content, "\n")
-
-      File.rm(path)
     end
   end
 
   describe "invoke/2 with symlink protection" do
-    test "refuses to overwrite a symlink" do
-      target =
-        Path.join(@tmp_dir, "create_symlink_target_#{:erlang.unique_integer([:positive])}.txt")
-
-      link = Path.join(@tmp_dir, "create_symlink_link_#{:erlang.unique_integer([:positive])}.txt")
+    test "refuses to overwrite a symlink", %{tmp_dir: tmp_dir} do
+      target = Path.join(tmp_dir, "symlink_target.txt")
+      link = Path.join(tmp_dir, "symlink_link.txt")
 
       File.write!(target, "target content")
       File.ln_s!(target, link)
@@ -106,20 +106,11 @@ defmodule CodePuppyControl.Tools.FileModifications.CreateFileEnhancedTest do
       assert result.message =~ "symlink"
       # Target should be unmodified
       assert File.read!(target) == "target content"
-
-      File.rm(target)
-      File.rm(link)
     end
 
-    test "refuses to create a new file at a symlink path" do
-      target =
-        Path.join(
-          @tmp_dir,
-          "create_symlink_new_target_#{:erlang.unique_integer([:positive])}.txt"
-        )
-
-      link =
-        Path.join(@tmp_dir, "create_symlink_new_link_#{:erlang.unique_integer([:positive])}.txt")
+    test "refuses to create a new file at a symlink path", %{tmp_dir: tmp_dir} do
+      target = Path.join(tmp_dir, "symlink_new_target.txt")
+      link = Path.join(tmp_dir, "symlink_new_link.txt")
 
       File.write!(target, "target content")
       File.ln_s!(target, link)
@@ -133,15 +124,12 @@ defmodule CodePuppyControl.Tools.FileModifications.CreateFileEnhancedTest do
       assert {:error, result} = CreateFile.invoke(args, %{})
       # Either "already exists" or "symlink" — both are correct rejections
       assert result.success == false
-
-      File.rm(target)
-      File.rm(link)
     end
   end
 
   describe "invoke/2 with post-edit validation" do
-    test "attaches syntax warning for invalid Elixir code" do
-      path = Path.join(@tmp_dir, "create_validation_#{:erlang.unique_integer([:positive])}.ex")
+    test "attaches syntax warning for invalid Elixir code", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "validation_test.ex")
 
       args = %{
         "file_path" => path,
@@ -152,12 +140,10 @@ defmodule CodePuppyControl.Tools.FileModifications.CreateFileEnhancedTest do
       assert result.success == true
       # Should have syntax_warning for invalid Elixir
       assert Map.has_key?(result, :syntax_warning)
-
-      File.rm(path)
     end
 
-    test "no syntax warning for valid Elixir code" do
-      path = Path.join(@tmp_dir, "create_valid_ex_#{:erlang.unique_integer([:positive])}.ex")
+    test "no syntax warning for valid Elixir code", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "valid_ex_test.ex")
 
       args = %{
         "file_path" => path,
@@ -167,12 +153,10 @@ defmodule CodePuppyControl.Tools.FileModifications.CreateFileEnhancedTest do
       assert {:ok, result} = CreateFile.invoke(args, %{})
       assert result.success == true
       refute Map.has_key?(result, :syntax_warning)
-
-      File.rm(path)
     end
 
-    test "no syntax warning for non-code extensions" do
-      path = Path.join(@tmp_dir, "create_txt_#{:erlang.unique_integer([:positive])}.txt")
+    test "no syntax warning for non-code extensions", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "plain_text.txt")
 
       args = %{
         "file_path" => path,
@@ -182,8 +166,6 @@ defmodule CodePuppyControl.Tools.FileModifications.CreateFileEnhancedTest do
       assert {:ok, result} = CreateFile.invoke(args, %{})
       assert result.success == true
       refute Map.has_key?(result, :syntax_warning)
-
-      File.rm(path)
     end
   end
 end

@@ -5,7 +5,17 @@ defmodule CodePuppyControl.Tools.FileModifications.CreateFileTest do
 
   alias CodePuppyControl.Tools.FileModifications.CreateFile
 
-  @tmp_dir System.tmp_dir!()
+  setup do
+    tmp_dir =
+      Path.join(
+        System.tmp_dir!(),
+        "create_file_test_#{System.unique_integer([:positive, :monotonic])}"
+      )
+
+    File.mkdir_p!(tmp_dir)
+    on_exit(fn -> File.rm_rf!(tmp_dir) end)
+    %{tmp_dir: tmp_dir}
+  end
 
   describe "name/0" do
     test "returns :create_file" do
@@ -32,8 +42,8 @@ defmodule CodePuppyControl.Tools.FileModifications.CreateFileTest do
   end
 
   describe "invoke/2" do
-    test "creates a new file successfully" do
-      path = Path.join(@tmp_dir, "create_file_test_#{:rand.uniform(10000)}.txt")
+    test "creates a new file successfully", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "new_file.txt")
 
       args = %{
         "file_path" => path,
@@ -46,15 +56,10 @@ defmodule CodePuppyControl.Tools.FileModifications.CreateFileTest do
       assert result.path == path
       assert File.exists?(path)
       assert File.read!(path) == "Hello, world!"
-
-      File.rm(path)
     end
 
-    test "creates parent directories" do
-      subdir =
-        Path.join(@tmp_dir, "create_test_#{:erlang.unique_integer([:positive, :monotonic])}")
-
-      path = Path.join([subdir, "nested", "file.txt"])
+    test "creates parent directories", %{tmp_dir: tmp_dir} do
+      path = Path.join([tmp_dir, "nested", "file.txt"])
 
       args = %{
         "file_path" => path,
@@ -64,12 +69,10 @@ defmodule CodePuppyControl.Tools.FileModifications.CreateFileTest do
       assert {:ok, result} = CreateFile.invoke(args, %{})
       assert result.success == true
       assert File.exists?(path)
-
-      File.rm_rf!(subdir)
     end
 
-    test "fails when file exists and overwrite is false" do
-      path = Path.join(@tmp_dir, "create_file_exists_test.txt")
+    test "fails when file exists and overwrite is false", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "exists_test.txt")
       File.write!(path, "original")
 
       args = %{
@@ -81,12 +84,10 @@ defmodule CodePuppyControl.Tools.FileModifications.CreateFileTest do
       assert result.success == false
       assert result.message =~ "already exists"
       assert File.read!(path) == "original"
-
-      File.rm(path)
     end
 
-    test "overwrites when overwrite is true" do
-      path = Path.join(@tmp_dir, "create_file_overwrite_test.txt")
+    test "overwrites when overwrite is true", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "overwrite_test.txt")
       File.write!(path, "original")
 
       args = %{
@@ -99,12 +100,10 @@ defmodule CodePuppyControl.Tools.FileModifications.CreateFileTest do
       assert result.success == true
       assert result.changed == true
       assert File.read!(path) == "new content"
-
-      File.rm(path)
     end
 
-    test "returns no diff when overwriting with same content" do
-      path = Path.join(@tmp_dir, "create_file_same_test.txt")
+    test "returns no diff when overwriting with same content", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "same_content_test.txt")
       File.write!(path, "same content")
 
       args = %{
@@ -116,12 +115,10 @@ defmodule CodePuppyControl.Tools.FileModifications.CreateFileTest do
       assert {:ok, result} = CreateFile.invoke(args, %{})
       assert result.success == true
       assert result.changed == false
-
-      File.rm(path)
     end
 
-    test "returns diff showing changes" do
-      path = Path.join(@tmp_dir, "create_file_diff_test.txt")
+    test "returns diff showing changes", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "diff_test.txt")
       File.write!(path, "line 1\nline 2\n")
 
       args = %{
@@ -133,8 +130,6 @@ defmodule CodePuppyControl.Tools.FileModifications.CreateFileTest do
       assert {:ok, result} = CreateFile.invoke(args, %{})
       assert result.diff =~ "-line 2"
       assert result.diff =~ "+modified"
-
-      File.rm(path)
     end
   end
 

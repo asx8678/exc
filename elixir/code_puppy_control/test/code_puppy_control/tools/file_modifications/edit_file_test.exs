@@ -5,7 +5,17 @@ defmodule CodePuppyControl.Tools.FileModifications.EditFileTest do
 
   alias CodePuppyControl.Tools.FileModifications.EditFile
 
-  @tmp_dir System.tmp_dir!()
+  setup do
+    tmp_dir =
+      Path.join(
+        System.tmp_dir!(),
+        "edit_file_test_#{System.unique_integer([:positive, :monotonic])}"
+      )
+
+    File.mkdir_p!(tmp_dir)
+    on_exit(fn -> File.rm_rf!(tmp_dir) end)
+    %{tmp_dir: tmp_dir}
+  end
 
   describe "name/0" do
     test "returns :edit_file" do
@@ -25,8 +35,8 @@ defmodule CodePuppyControl.Tools.FileModifications.EditFileTest do
   end
 
   describe "invoke/2 with content payload" do
-    test "creates file with content" do
-      path = Path.join(@tmp_dir, "edit_content_test_#{:rand.uniform(10000)}.txt")
+    test "creates file with content", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "content_test.txt")
 
       args = %{
         "file_path" => path,
@@ -36,14 +46,12 @@ defmodule CodePuppyControl.Tools.FileModifications.EditFileTest do
       assert {:ok, result} = EditFile.invoke(args, %{})
       assert result.success == true
       assert File.read!(path) == "hello from edit_file"
-
-      File.rm(path)
     end
   end
 
   describe "invoke/2 with replacements payload" do
-    test "applies replacements" do
-      path = Path.join(@tmp_dir, "edit_replace_test_#{:rand.uniform(10000)}.txt")
+    test "applies replacements", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "replace_test.txt")
       File.write!(path, "foo bar baz")
 
       args = %{
@@ -54,14 +62,12 @@ defmodule CodePuppyControl.Tools.FileModifications.EditFileTest do
       assert {:ok, result} = EditFile.invoke(args, %{})
       assert result.success == true
       assert File.read!(path) == "foo qux baz"
-
-      File.rm(path)
     end
   end
 
   describe "invoke/2 with delete_snippet payload" do
-    test "deletes snippet from file" do
-      path = Path.join(@tmp_dir, "edit_delete_test_#{:rand.uniform(10000)}.txt")
+    test "deletes snippet from file", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "delete_test.txt")
       File.write!(path, "line 1\nremove this\nline 3")
 
       args = %{
@@ -72,8 +78,6 @@ defmodule CodePuppyControl.Tools.FileModifications.EditFileTest do
       assert {:ok, result} = EditFile.invoke(args, %{})
       assert result.success == true
       assert File.read!(path) == "line 1\nline 3"
-
-      File.rm(path)
     end
   end
 

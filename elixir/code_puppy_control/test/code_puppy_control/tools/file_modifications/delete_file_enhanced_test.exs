@@ -5,21 +5,22 @@ defmodule CodePuppyControl.Tools.FileModifications.DeleteFileEnhancedTest do
 
   alias CodePuppyControl.Tools.FileModifications.DeleteFile
 
-  @tmp_dir System.tmp_dir!()
+  setup do
+    tmp_dir =
+      Path.join(
+        System.tmp_dir!(),
+        "delete_file_enhanced_test_#{System.unique_integer([:positive, :monotonic])}"
+      )
+
+    File.mkdir_p!(tmp_dir)
+    on_exit(fn -> File.rm_rf!(tmp_dir) end)
+    %{tmp_dir: tmp_dir}
+  end
 
   describe "invoke/2 with symlink protection" do
-    test "refuses to delete a symlink" do
-      target =
-        Path.join(
-          @tmp_dir,
-          "delete_symlink_target_#{:erlang.unique_integer([:positive])}.txt"
-        )
-
-      link =
-        Path.join(
-          @tmp_dir,
-          "delete_symlink_link_#{:erlang.unique_integer([:positive])}.txt"
-        )
+    test "refuses to delete a symlink", %{tmp_dir: tmp_dir} do
+      target = Path.join(tmp_dir, "symlink_target.txt")
+      link = Path.join(tmp_dir, "symlink_link.txt")
 
       File.write!(target, "target content")
       File.ln_s!(target, link)
@@ -30,19 +31,12 @@ defmodule CodePuppyControl.Tools.FileModifications.DeleteFileEnhancedTest do
       assert result.message =~ "symlink"
       assert File.exists?(target)
       assert File.read!(target) == "target content"
-
-      File.rm(target)
-      File.rm(link)
     end
   end
 
   describe "invoke/2 with summary diff" do
-    test "generates summary diff with lines and bytes" do
-      path =
-        Path.join(
-          @tmp_dir,
-          "delete_summary_#{:erlang.unique_integer([:positive])}.txt"
-        )
+    test "generates summary diff with lines and bytes", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "summary_test.txt")
 
       content = Enum.map_join(1..50, "\n", &"line #{&1}")
       File.write!(path, content)
@@ -55,13 +49,8 @@ defmodule CodePuppyControl.Tools.FileModifications.DeleteFileEnhancedTest do
       assert result.diff =~ "bytes"
     end
 
-    test "does NOT include deleted_content field" do
-      path =
-        Path.join(
-          @tmp_dir,
-          "delete_no_deleted_content_#{:erlang.unique_integer([:positive])}.txt"
-        )
-
+    test "does NOT include deleted_content field", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "no_deleted_content_test.txt")
       File.write!(path, "some content")
 
       args = %{"file_path" => path}
@@ -72,27 +61,21 @@ defmodule CodePuppyControl.Tools.FileModifications.DeleteFileEnhancedTest do
   end
 
   describe "invoke/2 edge cases" do
-    test "fails on non-existent file" do
-      args = %{
-        "file_path" => "/tmp/nonexistent_#{:erlang.unique_integer([:positive])}.txt"
-      }
+    test "fails on non-existent file", %{tmp_dir: tmp_dir} do
+      args = %{"file_path" => Path.join(tmp_dir, "nonexistent.txt")}
 
       assert {:error, result} = DeleteFile.invoke(args, %{})
       assert result.message =~ "not found"
     end
 
-    test "refuses to delete directories" do
-      path =
-        Path.join(@tmp_dir, "delete_dir_test_#{:erlang.unique_integer([:positive])}")
-
+    test "refuses to delete directories", %{tmp_dir: tmp_dir} do
+      path = Path.join(tmp_dir, "dir_test")
       File.mkdir_p!(path)
 
       args = %{"file_path" => path}
 
       assert {:error, result} = DeleteFile.invoke(args, %{})
       assert result.message =~ "Cannot delete directory"
-
-      File.rmdir(path)
     end
   end
 
