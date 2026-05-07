@@ -81,14 +81,18 @@ defmodule CodePuppyControl.Agent.LLMAdapterResponseTest do
       assert tc.arguments == %{"path" => "a.ex"}
     end
 
-    test "tool_call with nil id gets empty string default" do
+    test "tool_call with nil id gets generated safe ID (be7 sanitize)" do
+      # (code_puppy-be7) Empty/nil tool_call IDs are never persisted — a
+      # deterministic safe ID is generated instead so history cannot carry
+      # empty tool_call_id values (rejected by some provider APIs).
       msgs = [%{"role" => "user", "content" => "run"}]
       tool_calls = [%{id: nil, name: "read_file", arguments: %{}}]
       ProviderMock.set_response(%{id: "r1", content: "", tool_calls: tool_calls})
 
       assert {:ok, resp} = LLMAdapter.stream_chat(msgs, [], [model: "test"], fn _ -> :ok end)
       [tc] = resp.tool_calls
-      assert tc.id == ""
+      # Generated ID format: "call_<name>_<unique_integer>"
+      assert tc.id =~ ~r/^call_read_file_\d+$/
     end
 
     test "response with both text and tool_calls" do
