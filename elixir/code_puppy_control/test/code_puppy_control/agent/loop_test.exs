@@ -205,10 +205,11 @@ defmodule CodePuppyControl.Agent.LoopTest do
           max_turns: 3
         )
 
-      assert :ok = Loop.run_until_done(pid, 10_000)
+      assert {:error, :max_turns_reached} = Loop.run_until_done(pid, 10_000)
 
       state = Loop.get_state(pid)
       assert state.turn_number == 3
+      assert state.completed == false
 
       GenServer.stop(pid)
     end

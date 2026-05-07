@@ -354,7 +354,7 @@ defmodule CodePuppyControl.Agent.CompactionIntegrationTest do
           max_turns: 3
         )
 
-      :ok = Loop.run_until_done(pid, 10_000)
+      {:error, :max_turns_reached} = Loop.run_until_done(pid, 10_000)
 
       events = collect_events(500)
 

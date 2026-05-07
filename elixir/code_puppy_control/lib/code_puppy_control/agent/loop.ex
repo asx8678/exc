@@ -352,7 +352,7 @@ defmodule CodePuppyControl.Agent.Loop do
       Events.run_completed(state.run_id, state.session_id, %{reason: :max_turns_reached, turns: n})
     )
 
-    {:ok, state}
+    {:error, :max_turns_reached, state}
   end
 
   defp run_loop(state) do
