@@ -142,7 +142,7 @@ defmodule CodePuppyControl.Run.State do
   end
 
   @doc """
-  Records a request sent to the Python worker.
+  Records a request sent to the executor.
   """
   @spec record_request(String.t(), map()) :: :ok
   def record_request(run_id, request) do
@@ -150,7 +150,7 @@ defmodule CodePuppyControl.Run.State do
   end
 
   @doc """
-  Records a response received from the Python worker.
+  Records a response received from the executor.
   """
   @spec record_response(String.t(), term()) :: :ok
   def record_response(run_id, response) do
@@ -340,12 +340,6 @@ defmodule CodePuppyControl.Run.State do
 
     Logger.info("Run #{state.run_id} cancelled: #{inspect(reason)}")
     {:noreply, touch(new_state)}
-  end
-
-  @impl true
-  def handle_info({:python_notification, _run_id, message}, state) do
-    # Handle notifications from Python worker
-    handle_executor_message(message, state)
   end
 
   @impl true

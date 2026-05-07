@@ -22,7 +22,7 @@ defmodule CodePuppyControl.Runtime.Limits do
 
   ## Resolution Order (highest priority first)
 
-  1. Per-key env var (e.g. `PUP_MAX_PYTHON_WORKERS`) — parsed as integer, must be >= 1
+  1. Per-key env var (e.g. `PUP_MAX_MCP_SERVERS`) — parsed as integer, must be >= 1
   2. `Application.get_env(:code_puppy_control, :limits, [])` keyword list
   3. Profile defaults (selected by `PUP_PROFILE`, default `:laptop`)
 

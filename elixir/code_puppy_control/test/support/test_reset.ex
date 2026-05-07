@@ -238,17 +238,6 @@ defmodule CodePuppyControl.TestSupport.Reset do
       reset_with_restart(RuntimeState, :reset_autosave_id, [])
       safe_cast(RuntimeState, :reset_session_model)
 
-      # FeatureFlags: reset all flags to false (code_puppy-djs.4)
-      reset_with_restart(CodePuppyControl.FeatureFlags, :reset_all, [])
-
-      # Rollout: reset counters and clear rollout percentages (code_puppy-djs.6)
-      safe_call(CodePuppyControl.Rollout, :reset_counters)
-
-      for cap <- CodePuppyControl.FeatureFlags.capabilities() do
-        safe_call(CodePuppyControl.Rollout, :set_percentage, [cap, 0])
-        safe_call(CodePuppyControl.Rollout, :set_error_threshold, [cap, 0.10])
-      end
-
       # ModelPacks: reset current pack to default "single"
       safe_call(CodePuppyControl.ModelPacks, :set_current_pack, ["single"])
 
