@@ -23,8 +23,8 @@ defmodule Mix.Tasks.PupEx.Smoke do
       mix pup_ex.smoke --escript      # also probe the built escript
       mix pup_ex.smoke --burrito      # also probe the built Burrito binary
       mix pup_ex.smoke --escript --burrito --json
-      mix pup_ex.smoke --no-python          # validate Python-free runtime
-      mix pup_ex.smoke --no-python --escript # no-Python + escript probe
+      mix pup_ex.smoke --native-only          # validate native-only runtime
+      mix pup_ex.smoke --native-only --escript # native-only + escript probe
 
   ## Phases
 
@@ -32,21 +32,24 @@ defmodule Mix.Tasks.PupEx.Smoke do
   - `run_mode`  — `CLI.resolve_run_mode/1` routes deterministically
   - `sandbox`   — `Paths.home_dir/0` resolves under the tmp sandbox
   - `one_shot`  — `OneShot.run/1` end-to-end with `Smoke.MockLLM`
+  - `blocked_interpreter` — validates native-only PATH excludes python3/python
   - `escript`   — opt-in via `--escript`; spawns `pup --version` and
                   `pup --help` against the built escript
   - `burrito`   — opt-in via `--burrito`; spawns the host-built
                   Burrito binary with `--version` and `--help`
                   (auto-skips if `burrito_out/<host>` is missing)
 
-  ## No-Python mode
+  ## Native-only mode
 
-  When `--no-python` is passed, the smoke runner validates the
-  Python-free runtime guarantee: packaged probes (escript/burrito)
+  When `--native-only` is passed, the smoke runner validates the
+  native-only runtime guarantee: packaged probes (escript/burrito)
   are spawned with a sanitized `PATH` that excludes `python3`/
   `python`.  This proves the packaged CLI starts and shows
   help/version without Python installed.
 
-  Refs: code-puppy-osy
+  `--no-python` is accepted as a deprecated alias for `--native-only`.
+
+  Refs: code-puppy-3o7.5.3
 
   ## Exit codes
 
@@ -73,6 +76,7 @@ defmodule Mix.Tasks.PupEx.Smoke do
     phase: :keep,
     escript: :boolean,
     burrito: :boolean,
+    native_only: :boolean,
     no_python: :boolean
   ]
 
@@ -165,8 +169,8 @@ defmodule Mix.Tasks.PupEx.Smoke do
         else: runner_opts
 
     runner_opts =
-      if Keyword.get(opts, :no_python, false),
-        do: Keyword.put(runner_opts, :no_python, true),
+      if Keyword.get(opts, :native_only, false) or Keyword.get(opts, :no_python, false),
+        do: Keyword.put(runner_opts, :native_only, true),
         else: runner_opts
 
     runner_opts
@@ -180,6 +184,8 @@ defmodule Mix.Tasks.PupEx.Smoke do
       "sandbox" -> :sandbox
       "one_shot" -> :one_shot
       "one-shot" -> :one_shot
+      "blocked_interpreter" -> :blocked_interpreter
+      "blocked-interpreter" -> :blocked_interpreter
       "escript" -> :escript
       "burrito" -> :burrito
       other -> raise_invalid_phase(other)
@@ -208,7 +214,7 @@ defmodule Mix.Tasks.PupEx.Smoke do
     Mix.shell().info("""
 
     Usage:
-      mix pup_ex.smoke [--json] [--phase NAME ...] [--escript] [--burrito] [--no-python]
+      mix pup_ex.smoke [--json] [--phase NAME ...] [--escript] [--burrito] [--native-only]
 
     Phases (default if none given): #{Enum.map_join(Smoke.default_phases(), ", ", &Atom.to_string/1)}
     All phases:                     #{Enum.map_join(Smoke.all_phases(), ", ", &Atom.to_string/1)}

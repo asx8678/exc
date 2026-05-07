@@ -456,31 +456,31 @@ defmodule CodePuppyControl.CLI.SmokeTest do
   end
 
   # ---------------------------------------------------------------------------
-  # No-Python mode (code-puppy-osy)
+  # Native-only mode (code-puppy-3o7.5.3)
   # ---------------------------------------------------------------------------
 
-  describe "no-python mode" do
+  describe "native-only mode" do
     setup do
       {:ok, _} = Application.ensure_all_started(:code_puppy_control)
       :ok
     end
 
-    test "passes in-process phases with no_python: true" do
-      result = Smoke.run(phases: [:parser, :run_mode, :sandbox, :one_shot], no_python: true)
+    test "passes in-process phases with native_only: true" do
+      result = Smoke.run(phases: [:parser, :run_mode, :sandbox, :one_shot], native_only: true)
 
       assert result.status == :pass, """
-      Smoke.run(no_python: true) did not pass.
+      Smoke.run(native_only: true) did not pass.
       result: #{inspect(result, pretty: true)}
       """
     end
 
-    test "no_python_packaged_env includes PUP_SMOKE_PROBE" do
-      env = Smoke.no_python_packaged_env()
+    test "native_only_packaged_env includes PUP_SMOKE_PROBE" do
+      env = Smoke.native_only_packaged_env()
       assert List.keyfind(env, "PUP_SMOKE_PROBE", 0) == {"PUP_SMOKE_PROBE", "1"}
     end
 
-    test "no_python_packaged_env filters python from PATH" do
-      env = Smoke.no_python_packaged_env(sandbox_dir: nil)
+    test "native_only_packaged_env filters python from PATH" do
+      env = Smoke.native_only_packaged_env(sandbox_dir: nil)
 
       {"PATH", path} = List.keyfind(env, "PATH", 0)
 
@@ -489,24 +489,48 @@ defmodule CodePuppyControl.CLI.SmokeTest do
 
       for dir <- path_dirs do
         refute File.exists?(Path.join(dir, "python3")),
-               "no_python PATH should not include python3 in #{dir}"
+               "native_only PATH should not include python3 in #{dir}"
 
         refute File.exists?(Path.join(dir, "python")),
-               "no_python PATH should not include python in #{dir}"
+               "native_only PATH should not include python in #{dir}"
       end
     end
 
-    test "no_python mode does not corrupt env when a phase fails" do
+    test "native_only mode does not corrupt env when a phase fails" do
       # Pass an unknown phase that will produce a :fail result.
       # The smoke runner should still complete without crashing.
       result =
-        Smoke.run_phases([no_python: true, phases: [:unknown_phase_xyz]], %{
+        Smoke.run_phases([native_only: true, phases: [:unknown_phase_xyz]], %{
           dir: "/tmp/fake_sandbox"
         })
 
       # Result should be a map with :fail status
       assert is_map(result)
       assert result.status == :fail
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Blocked-interpreter phase (code-puppy-3o7.5.6)
+  # ---------------------------------------------------------------------------
+
+  describe "blocked_interpreter phase" do
+    setup do
+      {:ok, _} = Application.ensure_all_started(:code_puppy_control)
+      :ok
+    end
+
+    test "blocked_interpreter phase passes when python is filtered from PATH" do
+      result = Smoke.run(phases: [:blocked_interpreter], native_only: true)
+
+      assert result.status == :pass, """
+      Smoke.run(phases: [:blocked_interpreter], native_only: true) did not pass.
+      result: #{inspect(result, pretty: true)}
+      """
+    end
+
+    test "blocked_interpreter phase is available as an opt-in phase" do
+      assert :blocked_interpreter in Smoke.all_phases()
     end
   end
 

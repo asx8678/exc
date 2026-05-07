@@ -160,7 +160,7 @@ SMOKE_ENV=(
   CONDA_PREFIX=
 )
 
-info "sanitized env: PUP_RUNTIME=elixir, Python/DB/secret vars unset"
+info "sanitized env: native-only runtime, Python/DB/secret vars unset"
 
 # ── Smoke checks ──────────────────────────────────────────────────────────
 FAILURES=0

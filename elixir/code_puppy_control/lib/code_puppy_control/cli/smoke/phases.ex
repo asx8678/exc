@@ -282,12 +282,63 @@ defmodule CodePuppyControl.CLI.Smoke.Phases do
     Application.put_env(:code_puppy_control, :repl_llm_module, prev)
   end
 
+  # ── Phase: blocked_interpreter ──────────────────────────────────────
+  # Validates that the native-only runtime works when python/python3
+  # are explicitly removed from PATH. This is the code-puppy-3o7.5.6
+  # blocked-interpreter PATH smoke test.
+
+  @doc false
+  @spec blocked_interpreter() :: phase_result()
+  def blocked_interpreter do
+    env = Smoke.native_only_packaged_env()
+    {"PATH", filtered_path} = List.keyfind(env, "PATH", 0)
+
+    # Verify python3 and python are NOT on the filtered PATH
+    path_dirs = String.split(filtered_path, ":")
+
+    python3_dirs =
+      Enum.filter(path_dirs, fn dir ->
+        File.exists?(Path.join(dir, "python3"))
+      end)
+
+    python_dirs =
+      Enum.filter(path_dirs, fn dir ->
+        File.exists?(Path.join(dir, "python"))
+      end)
+
+    cond do
+      python3_dirs != [] ->
+        %{
+          phase: :blocked_interpreter,
+          status: :fail,
+          detail: "python3 found on filtered PATH in directories: #{inspect(python3_dirs)}",
+          metrics: %{python3_dirs: python3_dirs, path_dir_count: length(path_dirs)}
+        }
+
+      python_dirs != [] ->
+        %{
+          phase: :blocked_interpreter,
+          status: :fail,
+          detail: "python found on filtered PATH in directories: #{inspect(python_dirs)}",
+          metrics: %{python_dirs: python_dirs, path_dir_count: length(path_dirs)}
+        }
+
+      true ->
+        %{
+          phase: :blocked_interpreter,
+          status: :pass,
+          detail: "native-only PATH excludes python3/python (#{length(path_dirs)} dirs retained)",
+          metrics: %{path_dir_count: length(path_dirs)}
+        }
+    end
+  end
+
   # ── Phase: escript (opt-in) ───────────────────────────────────────────
 
   @doc false
   @spec escript(keyword()) :: phase_result()
   def escript(opts \\ []) do
-    no_python = Keyword.get(opts, :no_python, false)
+    native_only = Keyword.get(opts, :native_only, false)
     sandbox_dir = Keyword.get(opts, :sandbox_dir)
 
     candidates = [
@@ -308,7 +359,7 @@ defmodule CodePuppyControl.CLI.Smoke.Phases do
         }
 
       path ->
-        probe_packaged_cli(:escript, path, no_python: no_python, sandbox_dir: sandbox_dir)
+        probe_packaged_cli(:escript, path, native_only: native_only, sandbox_dir: sandbox_dir)
     end
   end
 
@@ -323,12 +374,12 @@ defmodule CodePuppyControl.CLI.Smoke.Phases do
   @doc false
   @spec burrito(keyword()) :: phase_result()
   def burrito(opts \\ []) do
-    no_python = Keyword.get(opts, :no_python, false)
+    native_only = Keyword.get(opts, :native_only, false)
     sandbox_dir = Keyword.get(opts, :sandbox_dir)
 
     case BurritoArtifact.find_burrito_artifact() do
       {:ok, path} ->
-        probe_packaged_cli(:burrito, path, no_python: no_python, sandbox_dir: sandbox_dir)
+        probe_packaged_cli(:burrito, path, native_only: native_only, sandbox_dir: sandbox_dir)
 
       {:skip, reason, metrics} ->
         %{
@@ -379,12 +430,12 @@ defmodule CodePuppyControl.CLI.Smoke.Phases do
   # `~/.code_puppy_ex/`) and `PUP_SMOKE_PROBE=1` so callees can
   # detect-and-shortcircuit if they ever need to.
   defp probe_packaged_cli(phase, path, opts) do
-    no_python = Keyword.get(opts, :no_python, false)
+    native_only = Keyword.get(opts, :native_only, false)
     sandbox_dir = Keyword.get(opts, :sandbox_dir)
 
     env =
-      if no_python do
-        Smoke.no_python_packaged_env(sandbox_dir: sandbox_dir)
+      if native_only do
+        Smoke.native_only_packaged_env(sandbox_dir: sandbox_dir)
       else
         packaged_cli_env()
       end

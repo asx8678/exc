@@ -7,10 +7,8 @@
 set -euo pipefail
 
 SCRIPT_NAME="$(basename "${BASH_SOURCE[0]}")"
-SKIP_PYTHON=false
 SKIP_ELIXIR=false
 WITH_BURRITO=false
-PYTHON_DIST=false
 RUN_INTEGRATION=false
 RUN_E2E=false
 FAILED=0
@@ -25,24 +23,19 @@ Usage:
   ${SCRIPT_NAME} [options]
 
 Default gates:
-  Python:
-    uv sync --frozen
-    uv run ruff check code_puppy tests scripts
-    uv run pytest tests
-
   Elixir (from elixir/code_puppy_control):
     mix format --check-formatted
     mix compile --warnings-as-errors
     mix test
     mix pup_ex.smoke
     ./scripts/smoke-packaged.sh
+  Native-only guards:
+    ./scripts/ci-guards/no-python-files-guard.sh
+    ./scripts/ci-guards/no-python-refs-guard.sh
 
 Options:
-  --skip-python    Skip Python dependency/lint/test gates
   --skip-elixir    Skip Elixir format/compile/test/smoke gates
   --with-burrito   Pass --with-burrito through to packaged smoke
-  --python-dist    Also run Python package artifact smoke
-                   (builds wheel, installs in temp venv, verifies entry points)
   --integration    Also run: mix test --only integration
   --e2e            Also run: mix test --only e2e
   --help, -h       Show this help
@@ -50,8 +43,8 @@ Options:
 Notes:
   - This script does not require live LLM credentials.
   - Packaged Burrito smoke is opt-in because it depends on host Zig/Burrito tooling.
-  - Python artifact smoke is opt-in because it builds/installs a wheel.
-  - Use --skip-python --skip-elixir to validate argument parsing and summary output.
+  - Python gates have been removed (code-puppy-3o7.5.1): the legacy Python
+    product was deleted in epic E (code-puppy-3o7.8).
 HELP
 }
 
@@ -84,7 +77,7 @@ find_repo_root() {
 
   local dir="$start_dir"
   while [[ "$dir" != "/" ]]; do
-    if [[ -f "$dir/pyproject.toml" && -f "$dir/elixir/code_puppy_control/mix.exs" ]]; then
+    if [[ -f "$dir/elixir/code_puppy_control/mix.exs" ]]; then
       printf '%s\n' "$dir"
       return 0
     fi
@@ -146,41 +139,20 @@ run_step() {
   fi
 }
 
-run_python_gate() {
-  if [[ "$SKIP_PYTHON" == "true" ]]; then
-    record_skip "Python gate" "--skip-python"
-    return 0
+run_native_only_guards() {
+  info "Running native-only guards..."
+  local guard_dir="$REPO_ROOT/scripts/ci-guards"
+
+  if [[ -x "$guard_dir/no-python-files-guard.sh" ]]; then
+    run_step "No-Python-files guard" "$REPO_ROOT" "$guard_dir/no-python-files-guard.sh"
+  else
+    record_skip "No-Python-files guard" "guard script not found"
   fi
 
-  if [[ ! -f "$REPO_ROOT/pyproject.toml" ]]; then
-    record_failure "Python gate" "pyproject.toml not found under ${REPO_ROOT}"
-    return 0
-  fi
-
-  if ! command -v uv >/dev/null 2>&1; then
-    record_failure "Python toolchain" "uv not found on PATH"
-    record_skip "Python lint" "uv unavailable"
-    record_skip "Python tests" "uv unavailable"
-    return 0
-  fi
-
-  run_step "Python dependencies" "$REPO_ROOT" uv sync --frozen
-  if [[ "$LAST_STATUS" -ne 0 ]]; then
-    record_skip "Python lint" "uv sync failed"
-    record_skip "Python tests" "uv sync failed"
-    return 0
-  fi
-
-  run_step "Python lint" "$REPO_ROOT" uv run ruff check code_puppy tests scripts
-  run_step "Python tests" "$REPO_ROOT" uv run pytest tests
-
-  if [[ "$PYTHON_DIST" == "true" ]]; then
-    local smoke_script="$REPO_ROOT/scripts/python-package-smoke.sh"
-    if [[ -x "$smoke_script" ]]; then
-      run_step "Python artifact smoke" "$REPO_ROOT" "$smoke_script"
-    else
-      record_failure "Python artifact smoke" "$smoke_script not found or not executable"
-    fi
+  if [[ -x "$guard_dir/no-python-refs-guard.sh" ]]; then
+    run_step "No-Python-refs guard" "$REPO_ROOT" "$guard_dir/no-python-refs-guard.sh"
+  else
+    record_skip "No-Python-refs guard" "guard script not found"
   fi
 }
 
@@ -278,10 +250,8 @@ print_summary() {
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --skip-python) SKIP_PYTHON=true; shift ;;
     --skip-elixir) SKIP_ELIXIR=true; shift ;;
     --with-burrito) WITH_BURRITO=true; shift ;;
-    --python-dist) PYTHON_DIST=true; shift ;;
     --integration) RUN_INTEGRATION=true; shift ;;
     --e2e) RUN_E2E=true; shift ;;
     --help|-h) usage; exit 0 ;;
@@ -300,6 +270,6 @@ if ! REPO_ROOT="$(find_repo_root "$SCRIPT_DIR")"; then
 fi
 
 info "repo root: ${REPO_ROOT}"
-run_python_gate
+run_native_only_guards
 run_elixir_gate
 print_summary
