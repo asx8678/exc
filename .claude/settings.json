@@ -11,19 +11,6 @@
         "matcher": ""
       }
     ],
-    "PreToolUse": [
-      {
-        "hooks": [
-          {
-            "command": "python3 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/block-sed.py\"",
-            "enabled": false,
-            "timeout": 5000,
-            "type": "command"
-          }
-        ],
-        "matcher": "Bash || agent_run_shell_command"
-      }
-    ],
     "SessionStart": [
       {
         "hooks": [
