@@ -1,4 +1,11 @@
 defmodule CodePuppyControl.TUI.SyntaxTest do
+  @moduledoc """
+  Tests for TUI Syntax highlighting.
+
+  Note (ADR-005): Python syntax highlighting references exercise
+  Python-as-data display — no Python runtime is required or implied.
+  The Syntax module performs static keyword highlighting in Elixir.
+  """
   use ExUnit.Case, async: true
 
   alias CodePuppyControl.TUI.Syntax

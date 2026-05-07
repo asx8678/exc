@@ -101,7 +101,7 @@ defmodule CodePuppyControl.Messaging.CoreTest do
             "part_kind" => "tool-call",
             "tool_name" => "read_file",
             "tool_call_id" => "call_123",
-            "args" => %{"file_path" => "test.py"}
+            "args" => %{"file_path" => "test.rs"}
           },
           %{"part_kind" => "text", "content" => "Here's the file"}
         ]
@@ -115,7 +115,7 @@ defmodule CodePuppyControl.Messaging.CoreTest do
             "part_kind" => "tool-call",
             "tool_name" => "read_file",
             "tool_call_id" => "call_123",
-            "args" => %{"file_path" => "test.py"}
+            "args" => %{"file_path" => "test.rs"}
           },
           %{"part_kind" => "text", "content" => "Here's the file"}
         ]
@@ -345,7 +345,7 @@ defmodule CodePuppyControl.Messaging.CoreTest do
 
     test "complex messages with tool calls round-trip" do
       messages = [
-        text_msg("Read file test.py"),
+        text_msg("Read file test.rs"),
         %{
           "kind" => "response",
           "role" => "assistant",
@@ -354,11 +354,11 @@ defmodule CodePuppyControl.Messaging.CoreTest do
               "part_kind" => "tool-call",
               "tool_name" => "read_file",
               "tool_call_id" => "call_abc123",
-              "args" => %{"file_path" => "test.py"}
+              "args" => %{"file_path" => "test.rs"}
             }
           ]
         },
-        tool_return_msg("call_abc123", "def hello():\n    pass\n"),
+        tool_return_msg("call_abc123", "fn hello() {\n    // pass\n}\n"),
         text_msg("Here's the file content...")
       ]
 
@@ -371,7 +371,7 @@ defmodule CodePuppyControl.Messaging.CoreTest do
       assert tool_call["part_kind"] == "tool-call"
       assert tool_call["tool_name"] == "read_file"
       assert tool_call["tool_call_id"] == "call_abc123"
-      assert tool_call["args"]["file_path"] == "test.py"
+      assert tool_call["args"]["file_path"] == "test.rs"
 
       tool_return = restored |> Enum.at(2) |> Map.get("parts") |> hd()
       assert tool_return["part_kind"] == "tool-return"

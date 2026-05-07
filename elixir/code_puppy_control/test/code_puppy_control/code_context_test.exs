@@ -1,6 +1,10 @@
 defmodule CodePuppyControl.CodeContextTest do
   @moduledoc """
   Tests for the CodeContext module.
+
+  Note (ADR-005): .py fixtures in this test exercise Python-as-data source
+  parsing via the Elixir-native Leex/Yecc parser — no Python runtime is
+  required or implied. See ADR-005 for the Python Source Parsing Policy.
   """
 
   use CodePuppyControl.StatefulCase

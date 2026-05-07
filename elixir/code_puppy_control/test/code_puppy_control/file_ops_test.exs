@@ -1,6 +1,10 @@
 defmodule CodePuppyControl.FileOpsTest do
   @moduledoc """
-  Tests for FileOps module - ported from Python file_operations tests.
+  Tests for FileOps module — ported from legacy Python file_operations tests.
+
+  Note: .py fixture references have been replaced with .rs (Rust) equivalents
+  per ADR-005 (Python source parsing is KEEP as data; generic .py fixtures
+  should not imply Python runtime/product support).
   """
 
   use ExUnit.Case
@@ -22,7 +26,10 @@ defmodule CodePuppyControl.FileOpsTest do
       "defmodule Test do\n def hello do\n :world\n end\nend"
     )
 
-    File.write!(Path.join(@test_dir, "file3.py"), "# TODO: implement this\ndef main():\n pass")
+    File.write!(
+      Path.join(@test_dir, "file3.rs"),
+      "// TODO: implement this\nfn main() {\n    // pass\n}"
+    )
 
     # Create subdirectory with more files
     subdir = Path.join(@test_dir, "subdir")
@@ -51,12 +58,12 @@ defmodule CodePuppyControl.FileOpsTest do
     test "lists files in a directory (shallow)", %{test_dir: dir} do
       assert {:ok, files} = FileOps.list_files(dir, recursive: false)
 
-      # Should have file1.txt, file2.ex, file3.py, subdir (but not .hidden by default)
+      # Should have file1.txt, file2.ex, file3.rs, subdir (but not .hidden by default)
       paths = Enum.map(files, & &1.path)
 
       assert "file1.txt" in paths
       assert "file2.ex" in paths
-      assert "file3.py" in paths
+      assert "file3.rs" in paths
       assert "subdir" in paths
       refute ".hidden" in paths
 
@@ -164,10 +171,10 @@ defmodule CodePuppyControl.FileOpsTest do
       assert length(matches) >= 1
       assert Enum.all?(matches, fn m -> String.ends_with?(m.file, ".ex") end)
 
-      # *.py should match .py files only
-      assert {:ok, py_matches} = FileOps.grep("def", dir, file_pattern: "*.py")
-      assert length(py_matches) >= 1
-      assert Enum.all?(py_matches, fn m -> String.ends_with?(m.file, ".py") end)
+      # *.rs should match .rs files only
+      assert {:ok, rs_matches} = FileOps.grep("fn", dir, file_pattern: "*.rs")
+      assert length(rs_matches) >= 1
+      assert Enum.all?(rs_matches, fn m -> String.ends_with?(m.file, ".rs") end)
 
       # *.txt should not find defmodule
       assert {:ok, txt_matches} = FileOps.grep("defmodule", dir, file_pattern: "*.txt")
@@ -229,7 +236,7 @@ defmodule CodePuppyControl.FileOpsTest do
       paths = [
         Path.join(dir, "file1.txt"),
         Path.join(dir, "file2.ex"),
-        Path.join(dir, "file3.py")
+        Path.join(dir, "file3.rs")
       ]
 
       assert {:ok, results} = FileOps.read_files(paths)
@@ -303,7 +310,7 @@ defmodule CodePuppyControl.FileOpsTest do
 
     test "allows safe paths", %{test_dir: dir} do
       refute FileOps.sensitive_path?(Path.join(dir, "file1.txt"))
-      refute FileOps.sensitive_path?("/home/user/project/main.py")
+      refute FileOps.sensitive_path?("/home/user/project/main.rs")
     end
 
     test "blocks .env files except examples" do

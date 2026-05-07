@@ -87,8 +87,8 @@ defmodule CodePuppyControl.Config.PresetsTest do
     end
   end
 
-  describe "preset values — parity with Python" do
-    test "basic preset values match Python config_presets.py" do
+  describe "preset values — canonical parity" do
+    test "basic preset values match canonical preset definitions" do
       basic = Presets.get_preset("basic")
       assert basic.values["yolo_mode"] == "false"
       assert basic.values["enable_pack_agents"] == "false"
@@ -98,7 +98,7 @@ defmodule CodePuppyControl.Config.PresetsTest do
       assert basic.values["enable_streaming"] == "true"
     end
 
-    test "semi preset values match Python config_presets.py" do
+    test "semi preset values match canonical preset definitions" do
       semi = Presets.get_preset("semi")
       assert semi.values["yolo_mode"] == "false"
       assert semi.values["enable_pack_agents"] == "false"
@@ -108,7 +108,7 @@ defmodule CodePuppyControl.Config.PresetsTest do
       assert semi.values["enable_streaming"] == "true"
     end
 
-    test "full preset values match Python config_presets.py" do
+    test "full preset values match canonical preset definitions" do
       full = Presets.get_preset("full")
       assert full.values["yolo_mode"] == "true"
       assert full.values["enable_pack_agents"] == "true"
@@ -118,7 +118,7 @@ defmodule CodePuppyControl.Config.PresetsTest do
       assert full.values["enable_streaming"] == "true"
     end
 
-    test "pack preset values match Python config_presets.py" do
+    test "pack preset values match canonical preset definitions" do
       pack = Presets.get_preset("pack")
       assert pack.values["yolo_mode"] == "false"
       assert pack.values["enable_pack_agents"] == "true"

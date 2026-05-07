@@ -34,7 +34,7 @@ defmodule CodePuppyControl.Tools.FileModifications.ValidationTest do
 
     test "does NOT advertise validation for extensions without parsers" do
       # These have no actual validation logic in this module
-      assert Validation.validatable_extension?("/tmp/file.py") == false
+      assert Validation.validatable_extension?("/tmp/file.rb") == false
       assert Validation.validatable_extension?("/tmp/file.js") == false
       assert Validation.validatable_extension?("/tmp/file.ts") == false
       assert Validation.validatable_extension?("/tmp/file.tsx") == false
@@ -69,9 +69,9 @@ defmodule CodePuppyControl.Tools.FileModifications.ValidationTest do
     end
 
     test "passes through for code extensions without parsers (fail-open)" do
-      result = %{success: true, path: "/tmp/test.py"}
+      result = %{success: true, path: "/tmp/test.rb"}
 
-      assert Validation.maybe_attach_warning(result, "/tmp/test.py") == result
+      assert Validation.maybe_attach_warning(result, "/tmp/test.rb") == result
     end
 
     test "adds syntax_warning for invalid Elixir syntax", %{tmp_dir: tmp_dir} do
@@ -98,7 +98,7 @@ defmodule CodePuppyControl.Tools.FileModifications.ValidationTest do
   describe "validate_file/2" do
     test "returns :ok for non-validatable extensions (fail-open)" do
       assert {:ok, :valid} = Validation.validate_file("/tmp/test.txt", "anything")
-      assert {:ok, :valid} = Validation.validate_file("/tmp/test.py", "print('hi')")
+      assert {:ok, :valid} = Validation.validate_file("/tmp/test.rb", "puts 'hi'")
       assert {:ok, :valid} = Validation.validate_file("/tmp/test.js", "var x = 1")
     end
 

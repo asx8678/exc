@@ -1,4 +1,11 @@
 defmodule CodePuppyControl.Parsing.Lexers.PythonLexerTest do
+  @moduledoc """
+  Tests for the PythonLexer Leex-based lexer.
+
+  Note (ADR-005): This test exercises Python-as-data source tokenizing
+  via the Elixir-native Leex lexer — no Python runtime is required or
+  implied. The PythonLexer is a static data lexer per ADR-005.
+  """
   use ExUnit.Case, async: true
 
   alias CodePuppyControl.Parsing.Lexers.PythonLexer

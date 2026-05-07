@@ -1,9 +1,13 @@
 defmodule CodePuppyControl.GitignoreTest do
   @moduledoc """
-  Tests for Gitignore module - ported from Python gitignore tests.
+  Tests for Gitignore module — ported from legacy Python gitignore tests.
 
   Tests pattern parsing, matching, directory walking, and integration
   with FileOps list_files and grep_search.
+
+  Note (ADR-005): Python .gitignore patterns (e.g., __pycache__/, *.pyc) are
+  standard data that the gitignore parser must handle regardless of Python
+  runtime presence — no Python runtime is required or implied.
   """
 
   use ExUnit.Case
@@ -136,8 +140,8 @@ defmodule CodePuppyControl.GitignoreTest do
     end
 
     test "exact path matching" do
-      assert Gitignore.pattern_match?("src/main.py", "src/main.py")
-      refute Gitignore.pattern_match?("src/main.py", "src/lib/main.py")
+      assert Gitignore.pattern_match?("src/main.rs", "src/main.rs")
+      refute Gitignore.pattern_match?("src/main.rs", "src/lib/main.rs")
     end
   end
 
@@ -187,7 +191,7 @@ defmodule CodePuppyControl.GitignoreTest do
 
     test "patterns with multiple wildcards" do
       assert Gitignore.pattern_match?("*.*", "file.txt")
-      assert Gitignore.pattern_match?("test_*.py", "test_main.py")
+      assert Gitignore.pattern_match?("test_*.rs", "test_main.rs")
       assert Gitignore.pattern_match?("*.min.*", "app.min.js")
     end
   end
@@ -259,7 +263,7 @@ defmodule CodePuppyControl.GitignoreTest do
       assert Gitignore.ignored?(matcher, "debug.log")
       assert Gitignore.ignored?(matcher, "error.log")
       assert Gitignore.ignored?(matcher, "build")
-      refute Gitignore.ignored?(matcher, "src/main.py")
+      refute Gitignore.ignored?(matcher, "src/main.rs")
       refute Gitignore.ignored?(matcher, "README.md")
     end
 
@@ -333,8 +337,8 @@ defmodule CodePuppyControl.GitignoreTest do
       File.mkdir_p!(Path.join(dir, "build"))
       File.mkdir_p!(Path.join(dir, "node_modules/some-package"))
 
-      File.write!(Path.join(dir, "src/main.py"), "print('hello')")
-      File.write!(Path.join(dir, "src/utils.py"), "def helper(): pass")
+      File.write!(Path.join(dir, "src/main.rs"), "fn main() { }")
+      File.write!(Path.join(dir, "src/utils.rs"), "fn helper() { }")
       File.write!(Path.join(dir, "build/output.js"), "console.log('built')")
       File.write!(Path.join(dir, "node_modules/some-package/index.js"), "module.exports = {}")
       File.write!(Path.join(dir, "README.md"), "# Project")
@@ -355,8 +359,8 @@ defmodule CodePuppyControl.GitignoreTest do
       paths = Enum.map(files, & &1.path)
 
       # Should include source files
-      assert "src/main.py" in paths
-      assert "src/utils.py" in paths
+      assert "src/main.rs" in paths
+      assert "src/utils.rs" in paths
       assert "README.md" in paths
 
       # Should NOT include gitignored files
@@ -372,7 +376,7 @@ defmodule CodePuppyControl.GitignoreTest do
       paths = Enum.map(files, & &1.path)
 
       # Should include gitignored files (debug.log is gitignored by *.log, not by Constants)
-      assert "src/main.py" in paths
+      assert "src/main.rs" in paths
       assert "debug.log" in paths
 
       # Note: build/ and node_modules/ are in Constants.ignored_dirs() so they're
@@ -392,7 +396,7 @@ defmodule CodePuppyControl.GitignoreTest do
       paths = Enum.map(files, & &1.path)
 
       # Now build and node_modules should be visible
-      assert "src/main.py" in paths
+      assert "src/main.rs" in paths
       assert "build/output.js" in paths
       assert "node_modules/some-package/index.js" in paths
       assert "debug.log" in paths
@@ -405,7 +409,7 @@ defmodule CodePuppyControl.GitignoreTest do
       paths = Enum.map(files, & &1.path)
 
       # Both gitignored and custom ignored should be excluded
-      refute "src/main.py" in paths
+      refute "src/main.rs" in paths
       refute "build/output.js" in paths
       assert "README.md" in paths
     end
@@ -449,8 +453,8 @@ defmodule CodePuppyControl.GitignoreTest do
       File.mkdir_p!(Path.join(dir, "src"))
       File.mkdir_p!(Path.join(dir, "build"))
 
-      File.write!(Path.join(dir, "src/main.py"), "def main(): pass")
-      File.write!(Path.join(dir, "src/utils.py"), "def helper(): pass")
+      File.write!(Path.join(dir, "src/main.rs"), "fn main() { }")
+      File.write!(Path.join(dir, "src/utils.rs"), "fn helper() { }")
       File.write!(Path.join(dir, "build/bundle.js"), "function main() {}")
 
       File.write!(Path.join(dir, ".gitignore"), "build/\n")
@@ -459,10 +463,10 @@ defmodule CodePuppyControl.GitignoreTest do
     end
 
     test "excludes gitignored files from grep by default", %{test_dir: dir} do
-      assert {:ok, matches} = FileOps.grep("def main", dir)
+      assert {:ok, matches} = FileOps.grep("fn main", dir)
 
-      # Should find in src/main.py
-      assert Enum.any?(matches, fn m -> m.file == "src/main.py" end)
+      # Should find in src/main.rs
+      assert Enum.any?(matches, fn m -> m.file == "src/main.rs" end)
 
       # Should NOT find in build/bundle.js
       refute Enum.any?(matches, fn m -> String.starts_with?(m.file, "build/") end)
@@ -472,7 +476,7 @@ defmodule CodePuppyControl.GitignoreTest do
       assert {:ok, matches} = FileOps.grep("main", dir, gitignore: false)
 
       # Should find in src (always searched)
-      assert Enum.any?(matches, fn m -> m.file == "src/main.py" end)
+      assert Enum.any?(matches, fn m -> m.file == "src/main.rs" end)
 
       # Note: build/ is still filtered by Constants.ignored_dirs() even with gitignore: false
       # This is correct behavior - Constants.ignored_dirs() are always excluded
@@ -490,7 +494,7 @@ defmodule CodePuppyControl.GitignoreTest do
       # Should find in both src and build (build is filtered by Constants.ignored_dirs())
       # Actually, we can't bypass Constants in grep directly via file_pattern
       # The file_pattern only filters by name, not by directory
-      assert Enum.any?(matches, fn m -> m.file == "src/main.py" end)
+      assert Enum.any?(matches, fn m -> m.file == "src/main.rs" end)
     end
   end
 
@@ -536,7 +540,7 @@ defmodule CodePuppyControl.GitignoreTest do
       assert Gitignore.ignored?(matcher, ".idea")
       assert Gitignore.ignored?(matcher, ".tox")
       assert Gitignore.ignored?(matcher, "debug.log")
-      refute Gitignore.ignored?(matcher, "src/main.py")
+      refute Gitignore.ignored?(matcher, "src/main.rs")
       refute Gitignore.ignored?(matcher, "README.md")
     end
 
@@ -653,9 +657,9 @@ defmodule CodePuppyControl.GitignoreTest do
   # Parity with Python implementation
   # ============================================================================
 
-  describe "parity with Python gitignore.py" do
-    test "produces same results as Python for basic patterns", %{test_dir: dir} do
-      # Create same structure as would be tested in Python
+  describe "parity with legacy gitignore implementation" do
+    test "produces same results as legacy implementation for basic patterns", %{test_dir: dir} do
+      # Create same structure as would be tested in the legacy Python implementation
       gitignore_content = """
       *.pyc
       __pycache__/
@@ -677,7 +681,7 @@ defmodule CodePuppyControl.GitignoreTest do
       assert Gitignore.ignored?(matcher, "my_package.egg-info")
       assert Gitignore.ignored?(matcher, ".env")
       refute Gitignore.ignored?(matcher, ".env.example")
-      refute Gitignore.ignored?(matcher, "src/main.py")
+      refute Gitignore.ignored?(matcher, "src/main.rs")
     end
 
     test "handles absolute vs relative paths consistently", %{test_dir: dir} do

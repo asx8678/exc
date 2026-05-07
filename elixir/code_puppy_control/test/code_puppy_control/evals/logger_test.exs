@@ -1,7 +1,7 @@
 defmodule CodePuppyControl.Evals.LoggerTest do
   @moduledoc """
-  Parity gate for : Elixir `log_eval` output must decode identically
-  to the Python reference JSON (modulo the timestamp field, which varies).
+  Parity gate for: Elixir `log_eval` output must decode identically
+  to the evals reference JSON (modulo the timestamp field, which varies).
 
   Also covers sanitization, truncation, and directory resolution.
   """
@@ -10,7 +10,7 @@ defmodule CodePuppyControl.Evals.LoggerTest do
   alias CodePuppyControl.Evals.{Logger, Result, ToolCall}
 
   @fixture_path Path.expand(
-                  "../../fixtures/evals/python_reference.json",
+                  "../../fixtures/evals/evals_reference.json",
                   __DIR__
                 )
 
@@ -100,8 +100,8 @@ defmodule CodePuppyControl.Evals.LoggerTest do
     end
   end
 
-  describe "JSON parity with Python reference (acceptance gate)" do
-    test "Elixir output decodes identically to python_reference.json modulo timestamp",
+  describe "JSON parity with reference fixture (acceptance gate)" do
+    test "Elixir output decodes identically to evals_reference.json modulo timestamp",
          %{tmp: tmp} do
       # Build the Elixir input that mirrors the Python fixture
       result = %Result{
@@ -118,18 +118,18 @@ defmodule CodePuppyControl.Evals.LoggerTest do
       elixir_decoded =
         Path.join(tmp, "parity_gate.json") |> File.read!() |> Jason.decode!()
 
-      # Load Python reference (its timestamp is the placeholder "__TIMESTAMP__")
-      python_decoded = @fixture_path |> File.read!() |> Jason.decode!()
+      # Load reference fixture (its timestamp is the placeholder "__TIMESTAMP__")
+      reference_decoded = @fixture_path |> File.read!() |> Jason.decode!()
 
       # Compare every field except timestamp (which varies per run)
       assert Map.delete(elixir_decoded, "timestamp") ==
-               Map.delete(python_decoded, "timestamp"),
+               Map.delete(reference_decoded, "timestamp"),
              """
              Elixir log_eval output does NOT match Python reference schema.
 
              Elixir: #{inspect(Map.delete(elixir_decoded, "timestamp"), pretty: true)}
 
-             Python: #{inspect(Map.delete(python_decoded, "timestamp"), pretty: true)}
+             Reference: #{inspect(Map.delete(reference_decoded, "timestamp"), pretty: true)}
              """
 
       # Timestamp must exist and be ISO8601-ish (parses as NaiveDateTime)

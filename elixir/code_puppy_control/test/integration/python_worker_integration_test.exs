@@ -8,6 +8,10 @@ defmodule CodePuppyControl.PythonWorkerIntegrationTest do
   NOTE: Full integration tests with a real Python process require
   the Python worker script to be available. Tests are marked with
   @moduletag :integration and can be run separately.
+
+  Note (ADR-005): These tests exercise the explicit bridge-mode
+  compatibility path (PUP_RUNTIME=python), not the default daily-driver
+  runtime. The Python-free runtime guarantee is validated separately.
   """
 
   use ExUnit.Case

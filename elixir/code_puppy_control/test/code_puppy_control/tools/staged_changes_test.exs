@@ -156,7 +156,7 @@ defmodule CodePuppyControl.Tools.StagedChangesTest do
     end
 
     test "add_create allows normal project paths" do
-      assert {:ok, _} = StagedChanges.add_create("/tmp/project/main.py", "print('hi')")
+      assert {:ok, _} = StagedChanges.add_create("/tmp/project/main.rs", "fn main() { }\n")
     end
 
     test "add_create rejects .pem files" do
@@ -531,33 +531,34 @@ defmodule CodePuppyControl.Tools.StagedChangesTest do
       File.rm(path)
     end
 
-    test "load_from_disk handles Python uppercase change_types in persisted JSON" do
+    test "load_from_disk handles legacy uppercase change_types in persisted JSON" do
       stage_dir = Path.join(System.tmp_dir!(), "code_puppy_staged")
       File.mkdir_p!(stage_dir)
       original_sid = StagedChanges.session_id()
       # Save current session so we can restore it after (load_from_disk changes session_id)
       {:ok, _original_path} = StagedChanges.save_to_disk()
-      python_path = Path.join(stage_dir, "#{original_sid}_py.json")
-      # Simulate a Python-persisted JSON with uppercase change_type
-      python_data = %{
-        "session_id" => "#{original_sid}_py",
+      legacy_path = Path.join(stage_dir, "#{original_sid}_legacy.json")
+      # Simulate a legacy-persisted JSON with uppercase change_type
+      # (compatibility with data persisted by the former Python implementation)
+      legacy_data = %{
+        "session_id" => "#{original_sid}_legacy",
         "enabled" => true,
         "changes" => [
           %{
-            "change_id" => "py_upper_1",
+            "change_id" => "legacy_upper_1",
             "change_type" => "CREATE",
-            "file_path" => "/tmp/from_python.txt",
-            "content" => "hello from python",
+            "file_path" => "/tmp/from_legacy.txt",
+            "content" => "hello from legacy",
             "old_str" => nil,
             "new_str" => nil,
             "snippet" => nil,
             "created_at" => 1_700_000_000,
-            "description" => "Python create",
+            "description" => "Legacy create",
             "applied" => false,
             "rejected" => false
           },
           %{
-            "change_id" => "py_upper_2",
+            "change_id" => "legacy_upper_2",
             "change_type" => "DELETE_FILE",
             "file_path" => "/tmp/delete_me.txt",
             "content" => nil,
@@ -565,7 +566,7 @@ defmodule CodePuppyControl.Tools.StagedChangesTest do
             "new_str" => nil,
             "snippet" => nil,
             "created_at" => 1_700_000_001,
-            "description" => "Python delete",
+            "description" => "Legacy delete",
             "applied" => false,
             "rejected" => false
           }
@@ -573,9 +574,9 @@ defmodule CodePuppyControl.Tools.StagedChangesTest do
         "saved_at" => 1_700_000_000
       }
 
-      File.write!(python_path, Jason.encode!(python_data))
+      File.write!(legacy_path, Jason.encode!(legacy_data))
       StagedChanges.clear()
-      assert StagedChanges.load_from_disk("#{original_sid}_py") == true
+      assert StagedChanges.load_from_disk("#{original_sid}_legacy") == true
       changes = StagedChanges.get_staged_changes()
       assert length(changes) == 2
       types = Enum.map(changes, & &1.change_type) |> Enum.sort()
@@ -586,7 +587,7 @@ defmodule CodePuppyControl.Tools.StagedChangesTest do
       StagedChanges.disable()
       # Restore original session_id by loading the saved state
       StagedChanges.load_from_disk(original_sid)
-      File.rm(python_path)
+      File.rm(legacy_path)
     end
 
     test "save file is valid JSON" do

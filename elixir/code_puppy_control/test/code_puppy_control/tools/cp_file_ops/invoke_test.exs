@@ -27,7 +27,7 @@ defmodule CodePuppyControl.Tools.CpFileOps.InvokeTest do
 
     subdir = Path.join(@test_dir, "sub")
     File.mkdir_p!(subdir)
-    File.write!(Path.join(subdir, "nested.py"), "def main():\n    pass\n")
+    File.write!(Path.join(subdir, "nested.rs"), "fn main() {\n    // pass\n}\n")
 
     on_exit(fn ->
       File.rm_rf!(@test_dir)
@@ -58,7 +58,7 @@ defmodule CodePuppyControl.Tools.CpFileOps.InvokeTest do
                CpListFiles.invoke(%{"directory" => dir, "recursive" => true}, %{})
 
       rel_paths = Enum.map(files, & &1.path)
-      assert "sub/nested.py" in rel_paths
+      assert "sub/nested.rs" in rel_paths
     end
 
     test "defaults to current directory and recursive", %{test_dir: dir} do

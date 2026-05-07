@@ -1,9 +1,13 @@
 defmodule CodePuppyControl.PythonWorker.PortProtocolTest do
   @moduledoc """
-  Tests for Python↔Elixir bridge protocol compatibility.
+  Tests for JSON-RPC bridge protocol compatibility.
 
   These tests verify that Elixir correctly handles the event format
-  that Python emits, as documented in docs/BRIDGE_PROTOCOL.md.
+  documented in docs/BRIDGE_PROTOCOL.md.
+
+  Note: Example file paths use .rs extensions rather than .py per ADR-005
+  (Python source parsing is KEEP as data; generic .py references should
+  not imply Python runtime/product support).
   """
   use ExUnit.Case, async: true
 
@@ -111,7 +115,7 @@ defmodule CodePuppyControl.PythonWorker.PortProtocolTest do
           "timestamp" => "2024-01-01T00:00:00Z",
           "payload" => %{
             "tool_name" => "read_file",
-            "tool_args" => %{"path" => "test.py"}
+            "tool_args" => %{"path" => "test.rs"}
           }
         }
       }
@@ -271,10 +275,10 @@ defmodule CodePuppyControl.PythonWorker.PortProtocolTest do
       result = %{
         "files" => [
           %{"path" => "README.md", "kind" => "project-file", "symbols" => []},
-          %{"path" => "src/main.py", "kind" => "python", "symbols" => ["def main()"]},
+          %{"path" => "src/main.rs", "kind" => "rust", "symbols" => ["fn main()"]},
           %{
-            "path" => "src/utils.py",
-            "kind" => "python",
+            "path" => "src/utils.rs",
+            "kind" => "rust",
             "symbols" => ["class Helper methods=foo,bar"]
           }
         ],

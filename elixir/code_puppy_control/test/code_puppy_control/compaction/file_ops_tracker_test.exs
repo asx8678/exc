@@ -46,9 +46,9 @@ defmodule CodePuppyControl.Compaction.FileOpsTrackerTest do
 
     test "handles 'path' key alternative" do
       tracker = FileOpsTracker.new()
-      tracker = FileOpsTracker.track_tool_call(tracker, "read", %{"path" => "src/main.py"})
+      tracker = FileOpsTracker.track_tool_call(tracker, "read", %{"path" => "src/main.rs"})
 
-      assert FileOpsTracker.read_files(tracker) == ["src/main.py"]
+      assert FileOpsTracker.read_files(tracker) == ["src/main.rs"]
     end
 
     test "ignores unknown tools" do

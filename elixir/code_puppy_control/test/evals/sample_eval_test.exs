@@ -1,7 +1,7 @@
 defmodule CodePuppyControl.Evals.SampleEvalTest do
   @moduledoc """
   Sample eval demonstrating the eval framework (Elixir port of
-  `evals/test_sample_eval.py`).
+  the legacy evals/test_sample_eval.py).
 
   Marked `:always_passes` because it uses mock data rather than a real LLM —
   it is the smoke-test of the harness itself and must never flake.

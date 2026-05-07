@@ -9,6 +9,11 @@ defmodule CodePuppyControl.IndexerTest do
   - DirectoryIndexer (index/2, index!/2)
   - FileSummary (to_map/1, to_maps/1)
   - Parity with Rust implementation
+
+  Note (ADR-005): Python file references (.py, "python") in this test
+  exercise Python-as-data source parsing and file categorization — no
+  Python runtime is required or implied. The indexer handles Python files
+  as static data via the Elixir-native parser. See ADR-005.
   """
 
   use ExUnit.Case, async: true

@@ -2,7 +2,7 @@ defmodule CodePuppyControl.Text.EOLTest do
   @moduledoc """
   Tests for EOL normalization module.
 
-  Ported from Python code_puppy/utils/eol.py tests.
+  Ported from legacy Python code_puppy/utils/eol.py tests.
   """
 
   use ExUnit.Case

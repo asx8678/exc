@@ -44,34 +44,34 @@ defmodule CodePuppyControl.HookEngine.MatcherTest do
     end
 
     test "fails if one part doesn't match" do
-      assert Matcher.matches("Bash && .py", "agent_run_shell_command", %{"command" => "test.sh"}) ==
+      assert Matcher.matches("Bash && .rs", "agent_run_shell_command", %{"command" => "test.sh"}) ==
                false
     end
   end
 
   describe "OR (||) matcher" do
     test "any part matching is enough" do
-      assert Matcher.matches("Bash || .py", "read_file", %{"file_path" => "main.py"}) == true
+      assert Matcher.matches("Bash || .rs", "read_file", %{"file_path" => "main.rs"}) == true
     end
 
     test "file extension OR match" do
-      assert Matcher.matches(".py || .ts", "read_file", %{"file_path" => "main.py"}) == true
-      assert Matcher.matches(".py || .ts", "read_file", %{"file_path" => "app.ts"}) == true
-      assert Matcher.matches(".py || .ts", "read_file", %{"file_path" => "app.rb"}) == false
+      assert Matcher.matches(".rs || .ts", "read_file", %{"file_path" => "main.rs"}) == true
+      assert Matcher.matches(".rs || .ts", "read_file", %{"file_path" => "app.ts"}) == true
+      assert Matcher.matches(".rs || .ts", "read_file", %{"file_path" => "app.rb"}) == false
     end
   end
 
   describe "file extension matching" do
-    test "matches .py extension" do
-      assert Matcher.matches(".py", "read_file", %{"file_path" => "main.py"}) == true
+    test "matches .rs extension" do
+      assert Matcher.matches(".rs", "read_file", %{"file_path" => "main.rs"}) == true
     end
 
     test "does not match wrong extension" do
-      assert Matcher.matches(".py", "read_file", %{"file_path" => "main.ts"}) == false
+      assert Matcher.matches(".rs", "read_file", %{"file_path" => "main.ts"}) == false
     end
 
     test "does not match when no file path" do
-      assert Matcher.matches(".py", "agent_run_shell_command", %{"command" => "echo"}) == false
+      assert Matcher.matches(".rs", "agent_run_shell_command", %{"command" => "echo"}) == false
     end
   end
 
@@ -84,12 +84,12 @@ defmodule CodePuppyControl.HookEngine.MatcherTest do
       assert Matcher.matches("^agent_.*", "read_file", %{}) == false
     end
 
-    test ".*\\.py$ matches Python file paths" do
-      assert Matcher.matches(".*\\.py$", "read_file", %{"file_path" => "/src/main.py"}) == true
+    test ".*\\.rs$ matches Rust file paths" do
+      assert Matcher.matches(".*\\.rs$", "read_file", %{"file_path" => "/src/main.rs"}) == true
     end
 
-    test ".*\\.py$ does not match non-Python files" do
-      assert Matcher.matches(".*\\.py$", "read_file", %{"file_path" => "/src/main.ts"}) == false
+    test ".*\\.rs$ does not match non-Rust files" do
+      assert Matcher.matches(".*\\.rs$", "read_file", %{"file_path" => "/src/main.ts"}) == false
     end
 
     test "read_file|grep matches either tool name (regex OR)" do
@@ -123,10 +123,10 @@ defmodule CodePuppyControl.HookEngine.MatcherTest do
     end
 
     test "escaped backslash in regex: \\. matches a literal dot" do
-      # \\.py$ in source is the regex \\.py$ which means: literal backslash, any-char, py, end
+      # \\.rs$ in source is the regex \\.rs$ which means: literal backslash, any-char, rs, end
       # This is an uncommon but valid regex pattern
-      assert Matcher.matches("\\\\.py$", "read_file", %{"file_path" => "main\\xpy"}) == true
-      assert Matcher.matches("\\\\.py$", "read_file", %{"file_path" => "main.py"}) == false
+      assert Matcher.matches("\\\\.rs$", "read_file", %{"file_path" => "main\\xrs"}) == true
+      assert Matcher.matches("\\\\.rs$", "read_file", %{"file_path" => "main.rs"}) == false
     end
   end
 
@@ -149,11 +149,11 @@ defmodule CodePuppyControl.HookEngine.MatcherTest do
 
   describe "extract_file_path/1" do
     test "extracts from file_path key" do
-      assert Matcher.extract_file_path(%{"file_path" => "/tmp/test.py"}) == "/tmp/test.py"
+      assert Matcher.extract_file_path(%{"file_path" => "/tmp/test.rs"}) == "/tmp/test.rs"
     end
 
     test "extracts from path key" do
-      assert Matcher.extract_file_path(%{"path" => "/tmp/test.py"}) == "/tmp/test.py"
+      assert Matcher.extract_file_path(%{"path" => "/tmp/test.rs"}) == "/tmp/test.rs"
     end
 
     test "returns nil for empty map" do
@@ -161,13 +161,13 @@ defmodule CodePuppyControl.HookEngine.MatcherTest do
     end
 
     test "falls back to scanning values" do
-      assert Matcher.extract_file_path(%{"arg1" => "main.py"}) == "main.py"
+      assert Matcher.extract_file_path(%{"arg1" => "main.rs"}) == "main.rs"
     end
   end
 
   describe "extract_file_extension/1" do
-    test "extracts .py extension" do
-      assert Matcher.extract_file_extension("main.py") == ".py"
+    test "extracts .rs extension" do
+      assert Matcher.extract_file_extension("main.rs") == ".rs"
     end
 
     test "extracts from full path" do
@@ -182,11 +182,11 @@ defmodule CodePuppyControl.HookEngine.MatcherTest do
   describe "ReDoS protection" do
     test "rejects dangerous nested quantifier patterns" do
       # (a+)+ is a classic ReDoS pattern
-      assert Matcher.matches_file_pattern(%{"file_path" => "test.py"}, "(a+)+") == false
+      assert Matcher.matches_file_pattern(%{"file_path" => "test.rs"}, "(a+)+") == false
     end
 
     test "rejects dangerous overlapping quantifiers" do
-      assert Matcher.matches_file_pattern(%{"file_path" => "test.py"}, "(a*)*") == false
+      assert Matcher.matches_file_pattern(%{"file_path" => "test.rs"}, "(a*)*") == false
     end
   end
 
@@ -199,15 +199,15 @@ defmodule CodePuppyControl.HookEngine.MatcherTest do
 
   describe "matches_file_extension/2" do
     test "matches known extensions" do
-      assert Matcher.matches_file_extension(%{"file_path" => "main.py"}, [".py", ".ts"]) == true
-      assert Matcher.matches_file_extension(%{"file_path" => "main.rb"}, [".py", ".ts"]) == false
+      assert Matcher.matches_file_extension(%{"file_path" => "main.rs"}, [".rs", ".ts"]) == true
+      assert Matcher.matches_file_extension(%{"file_path" => "main.rb"}, [".rs", ".ts"]) == false
     end
   end
 
   describe "matches_file_pattern/2" do
     test "matches file path against regex" do
-      assert Matcher.matches_file_pattern(%{"file_path" => "/src/main.py"}, ".*\\.py$") == true
-      assert Matcher.matches_file_pattern(%{"file_path" => "/src/main.ts"}, ".*\\.py$") == false
+      assert Matcher.matches_file_pattern(%{"file_path" => "/src/main.rs"}, ".*\\.rs$") == true
+      assert Matcher.matches_file_pattern(%{"file_path" => "/src/main.ts"}, ".*\\.rs$") == false
     end
   end
 end

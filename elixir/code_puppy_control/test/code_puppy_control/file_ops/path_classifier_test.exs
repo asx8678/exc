@@ -56,7 +56,7 @@ defmodule CodePuppyControl.FileOps.PathClassifierTest do
     end
 
     test "does not ignore regular files", %{classifier: c} do
-      refute PathClassifier.should_ignore(c, "main.py")
+      refute PathClassifier.should_ignore(c, "main.rs")
       refute PathClassifier.should_ignore(c, "src/main.rs")
       refute PathClassifier.should_ignore(c, "README.md")
       refute PathClassifier.should_ignore(c, "./src/lib.rs")
@@ -197,7 +197,7 @@ defmodule CodePuppyControl.FileOps.PathClassifierTest do
     end
 
     test "does not detect regular files as sensitive", %{classifier: c} do
-      refute PathClassifier.is_sensitive(c, "main.py")
+      refute PathClassifier.is_sensitive(c, "main.rs")
       refute PathClassifier.is_sensitive(c, "README.md")
       refute PathClassifier.is_sensitive(c, "src/lib.rs")
     end
@@ -233,7 +233,7 @@ defmodule CodePuppyControl.FileOps.PathClassifierTest do
     end
 
     test "classifies regular file", %{classifier: c} do
-      assert PathClassifier.classify_path(c, "main.py") == %{ignored: false, sensitive: false}
+      assert PathClassifier.classify_path(c, "main.rs") == %{ignored: false, sensitive: false}
     end
 
     test "classifies node_modules", %{classifier: c} do
@@ -263,8 +263,8 @@ defmodule CodePuppyControl.FileOps.PathClassifierTest do
     end
 
     test "regular files don't match either", %{classifier: c} do
-      refute PathClassifier.should_ignore(c, "main.py")
-      refute PathClassifier.should_ignore_dir(c, "main.py")
+      refute PathClassifier.should_ignore(c, "main.rs")
+      refute PathClassifier.should_ignore_dir(c, "main.rs")
     end
   end
 

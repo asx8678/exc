@@ -12,6 +12,9 @@ defmodule CodePuppyControl.PythonFreeRuntimeTest do
     the configured value when set
   - PythonWorker.Port.init/1 returns clear error tuples when python3 is
     unavailable or script path is not configured
+
+  Note: .py file paths in env var values (e.g., /app/worker.py) reference
+  the Python bridge worker script path — a compatibility-mode artifact,\  not Python runtime/product support. See ADR-005.
   """
   use ExUnit.Case, async: false
 

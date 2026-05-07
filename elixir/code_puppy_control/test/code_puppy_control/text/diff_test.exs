@@ -343,12 +343,12 @@ defmodule CodePuppyControl.Text.DiffTest do
       old = "first\nsecond\nthird\n"
       new = "first\nmodified\nthird\n"
 
-      result = Diff.unified_diff(old, new, from_file: "a/test.py", to_file: "b/test.py")
+      result = Diff.unified_diff(old, new, from_file: "a/test.rs", to_file: "b/test.rs")
 
       expected =
         concat([
-          "--- a/test.py\n",
-          "+++ b/test.py\n",
+          "--- a/test.rs\n",
+          "+++ b/test.rs\n",
           "@@ -1,3 +1,3 @@\n",
           " first\n",
           "-second\n",

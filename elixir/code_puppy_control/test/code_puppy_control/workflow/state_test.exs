@@ -431,7 +431,7 @@ defmodule CodePuppyControl.Workflow.StateTest do
     end
 
     test "_on_run_shell_command detects test commands" do
-      State._on_run_shell_command(nil, "pytest test_foo.py", "/tmp")
+      State._on_run_shell_command(nil, "mix test test_foo_test.exs", "/tmp")
       assert State.has_flag?(:did_execute_shell)
       assert State.has_flag?(:did_run_tests)
     end
@@ -627,7 +627,7 @@ defmodule CodePuppyControl.Workflow.StateTest do
       State.register_callback_handlers()
 
       results =
-        CodePuppyControl.Callbacks.trigger_raw(:run_shell_command, [%{}, "pytest run", "/tmp"])
+        CodePuppyControl.Callbacks.trigger_raw(:run_shell_command, [%{}, "mix test", "/tmp"])
 
       # Should not crash; handler sets flags on the default run key
       assert is_list(results)

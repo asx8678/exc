@@ -202,9 +202,9 @@ defmodule CodePuppyControl.ProtocolTest do
           "jsonrpc" => "2.0",
           "id" => 1,
           "method" => "file_read",
-          "params" => %{"path" => "a.py"}
+          "params" => %{"path" => "a.rs"}
         },
-        %{"jsonrpc" => "2.0", "id" => 2, "method" => "file_read", "params" => %{"path" => "b.py"}}
+        %{"jsonrpc" => "2.0", "id" => 2, "method" => "file_read", "params" => %{"path" => "b.rs"}}
       ]
 
       framed = Protocol.frame_batch(messages)
