@@ -3,9 +3,7 @@ defmodule CodePuppyControl.MCP.ClientTest do
 
   alias CodePuppyControl.MCP.{Client, ToolIndex, ClientSupervisor}
   alias CodePuppyControl.Protocol
-
-  @mock_server_path Path.join([__DIR__, "..", "..", "support", "mock_mcp_server.py"])
-  @python3 System.find_executable("python3") || "/usr/bin/python3"
+  alias CodePuppyControl.Support.MockMCPServerHelper, as: MockHelper
 
   describe "protocol message formatting" do
     test "initialize request has correct MCP format" do
@@ -106,9 +104,7 @@ defmodule CodePuppyControl.MCP.ClientTest do
 
   describe "stdio transport with mock server" do
     setup do
-      # Ensure the mock server script exists
-      assert File.exists?(@mock_server_path),
-             "Mock server script not found at #{@mock_server_path}"
+      MockHelper.require_available!()
 
       # Ensure the Registry, ToolIndex, and ClientSupervisor are running
       ensure_registry_started()
@@ -125,8 +121,8 @@ defmodule CodePuppyControl.MCP.ClientTest do
         Client.start_link(
           id: server_id,
           transport: :stdio,
-          command: @python3,
-          args: [@mock_server_path]
+          command: MockHelper.mock_server_command(),
+          args: MockHelper.mock_server_args()
         )
 
       # Wait for the client to become ready
@@ -149,8 +145,8 @@ defmodule CodePuppyControl.MCP.ClientTest do
         Client.start_link(
           id: server_id,
           transport: :stdio,
-          command: @python3,
-          args: [@mock_server_path]
+          command: MockHelper.mock_server_command(),
+          args: MockHelper.mock_server_args()
         )
 
       wait_for_status(server_id, :ready, 5_000)
@@ -168,8 +164,8 @@ defmodule CodePuppyControl.MCP.ClientTest do
         Client.start_link(
           id: server_id,
           transport: :stdio,
-          command: @python3,
-          args: [@mock_server_path]
+          command: MockHelper.mock_server_command(),
+          args: MockHelper.mock_server_args()
         )
 
       wait_for_status(server_id, :ready, 5_000)
@@ -187,8 +183,8 @@ defmodule CodePuppyControl.MCP.ClientTest do
         Client.start_link(
           id: server_id,
           transport: :stdio,
-          command: @python3,
-          args: [@mock_server_path]
+          command: MockHelper.mock_server_command(),
+          args: MockHelper.mock_server_args()
         )
 
       wait_for_status(server_id, :ready, 5_000)
@@ -206,8 +202,8 @@ defmodule CodePuppyControl.MCP.ClientTest do
         Client.start_link(
           id: server_id,
           transport: :stdio,
-          command: @python3,
-          args: [@mock_server_path]
+          command: MockHelper.mock_server_command(),
+          args: MockHelper.mock_server_args()
         )
 
       # Don't wait for ready — immediately try to call a tool
@@ -231,8 +227,8 @@ defmodule CodePuppyControl.MCP.ClientTest do
         Client.start_link(
           id: server_id,
           transport: :stdio,
-          command: @python3,
-          args: [@mock_server_path]
+          command: MockHelper.mock_server_command(),
+          args: MockHelper.mock_server_args()
         )
 
       wait_for_status(server_id, :ready, 5_000)
@@ -372,8 +368,8 @@ defmodule CodePuppyControl.MCP.ClientTest do
                ClientSupervisor.start_client(
                  id: server_id,
                  transport: :stdio,
-                 command: @python3,
-                 args: [@mock_server_path]
+                 command: MockHelper.mock_server_command(),
+                 args: MockHelper.mock_server_args()
                )
 
       wait_for_status(server_id, :ready, 5_000)

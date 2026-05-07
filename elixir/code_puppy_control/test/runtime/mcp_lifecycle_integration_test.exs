@@ -20,19 +20,13 @@ defmodule CodePuppyControl.Runtime.MCPLifecycleIntegrationTest do
   @moduletag :integration
   @moduletag timeout: 30_000
 
-  # Path to the mock MCP server that ships with the test suite
-  @mock_server_path Path.join([__DIR__, "..", "support", "mock_mcp_server.py"])
-                    |> Path.expand()
-
-  # python3 executable (nil → skip)
-  @python3 System.find_executable("python3")
+  # Elixir stdio mock MCP server (test/support/mock_mcp_server.exs)
+  alias CodePuppyControl.Support.MockMCPServerHelper, as: MockHelper
 
   # ── Helpers ────────────────────────────────────────────────────────────
 
-  defp skip_if_no_python do
-    unless @python3 do
-      flunk("python3 not available — cannot run mock MCP server")
-    end
+  defp skip_if_no_mock_server do
+    MockHelper.require_available!()
   end
 
   defp skip_if_no_supervisor do
@@ -47,15 +41,15 @@ defmodule CodePuppyControl.Runtime.MCPLifecycleIntegrationTest do
   end
 
   defp start_mock!(server_id) do
-    skip_if_no_python()
+    skip_if_no_mock_server()
     skip_if_no_supervisor()
 
     assert {:ok, _pid} =
              Supervisor.start_server(
                server_id: server_id,
                name: "mock-test",
-               command: @python3,
-               args: [@mock_server_path],
+               command: MockHelper.mock_server_command(),
+               args: MockHelper.mock_server_args(),
                env: %{}
              )
   end
@@ -73,7 +67,7 @@ defmodule CodePuppyControl.Runtime.MCPLifecycleIntegrationTest do
 
   describe "Supervisor.stop_server/1 — double-stop regression" do
     setup do
-      skip_if_no_python()
+      skip_if_no_mock_server()
       skip_if_no_supervisor()
 
       on_exit(fn -> cleanup_all() end)
@@ -129,7 +123,7 @@ defmodule CodePuppyControl.Runtime.MCPLifecycleIntegrationTest do
 
   describe "full supervised lifecycle (start → status → stop)" do
     setup do
-      skip_if_no_python()
+      skip_if_no_mock_server()
       skip_if_no_supervisor()
 
       on_exit(fn -> cleanup_all() end)
@@ -169,7 +163,7 @@ defmodule CodePuppyControl.Runtime.MCPLifecycleIntegrationTest do
 
   describe "Manager lifecycle (register → status → unregister)" do
     setup do
-      skip_if_no_python()
+      skip_if_no_mock_server()
       skip_if_no_supervisor()
 
       on_exit(fn -> cleanup_all() end)
@@ -177,11 +171,11 @@ defmodule CodePuppyControl.Runtime.MCPLifecycleIntegrationTest do
     end
 
     test "register_server → unregister_server returns :ok" do
-      skip_if_no_python()
+      skip_if_no_mock_server()
 
       assert {:ok, server_id} =
-               Manager.register_server("mock-mgr", @python3,
-                 args: [@mock_server_path],
+               Manager.register_server("mock-mgr", MockHelper.mock_server_command(),
+                 args: MockHelper.mock_server_args(),
                  env: %{}
                )
 
@@ -191,11 +185,11 @@ defmodule CodePuppyControl.Runtime.MCPLifecycleIntegrationTest do
     end
 
     test "double unregister returns {:error, :not_found}" do
-      skip_if_no_python()
+      skip_if_no_mock_server()
 
       assert {:ok, server_id} =
-               Manager.register_server("mock-dbl", @python3,
-                 args: [@mock_server_path],
+               Manager.register_server("mock-dbl", MockHelper.mock_server_command(),
+                 args: MockHelper.mock_server_args(),
                  env: %{}
                )
 
@@ -204,11 +198,11 @@ defmodule CodePuppyControl.Runtime.MCPLifecycleIntegrationTest do
     end
 
     test "Manager.list_servers includes running server" do
-      skip_if_no_python()
+      skip_if_no_mock_server()
 
       assert {:ok, server_id} =
-               Manager.register_server("mock-list", @python3,
-                 args: [@mock_server_path],
+               Manager.register_server("mock-list", MockHelper.mock_server_command(),
+                 args: MockHelper.mock_server_args(),
                  env: %{}
                )
 
@@ -224,7 +218,7 @@ defmodule CodePuppyControl.Runtime.MCPLifecycleIntegrationTest do
 
   describe "Manager start_server_by_name / stop_server_by_name" do
     setup do
-      skip_if_no_python()
+      skip_if_no_mock_server()
       skip_if_no_supervisor()
 
       # Set up a temp home with mcp_servers.json pointing at mock server
@@ -237,8 +231,8 @@ defmodule CodePuppyControl.Runtime.MCPLifecycleIntegrationTest do
         Path.join(tmp_home, "mcp_servers.json"),
         Jason.encode!(%{
           "mock-srv" => %{
-            "command" => @python3,
-            "args" => [@mock_server_path],
+            "command" => MockHelper.mock_server_command(),
+            "args" => MockHelper.mock_server_args(),
             "env" => %{}
           }
         })
@@ -284,7 +278,7 @@ defmodule CodePuppyControl.Runtime.MCPLifecycleIntegrationTest do
 
   describe "Manager start_all_configured / stop_all_running" do
     setup do
-      skip_if_no_python()
+      skip_if_no_mock_server()
       skip_if_no_supervisor()
 
       tmp_home =
@@ -296,13 +290,13 @@ defmodule CodePuppyControl.Runtime.MCPLifecycleIntegrationTest do
         Path.join(tmp_home, "mcp_servers.json"),
         Jason.encode!(%{
           "bulk-a" => %{
-            "command" => @python3,
-            "args" => [@mock_server_path],
+            "command" => MockHelper.mock_server_command(),
+            "args" => MockHelper.mock_server_args(),
             "env" => %{}
           },
           "bulk-b" => %{
-            "command" => @python3,
-            "args" => [@mock_server_path],
+            "command" => MockHelper.mock_server_command(),
+            "args" => MockHelper.mock_server_args(),
             "env" => %{}
           }
         })
