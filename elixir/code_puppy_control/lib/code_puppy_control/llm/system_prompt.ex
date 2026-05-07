@@ -187,6 +187,66 @@ defmodule CodePuppyControl.LLM.SystemPrompt do
     end
   end
 
+  # ── Model-Specific Prompt Overrides ────────────────────────────────────────
+
+  @doc """
+  Apply model-specific system prompt overrides via the `:get_model_system_prompt` hook.
+
+  Calls `Triggers.on_get_model_system_prompt/3` and extracts the `instructions`
+  field from callback results. If callbacks return an updated instructions value,
+  it replaces the original system prompt text. Otherwise returns the original
+  prompt unchanged.
+
+  Handles both string-keyed (`%{"instructions" => ...}`) and atom-keyed
+  (`%{instructions: ...}`) result maps for compatibility with different plugin
+  implementations.
+  """
+  @spec apply_model_overrides(String.t(), String.t() | nil, String.t() | nil) ::
+          String.t() | nil
+  def apply_model_overrides(_model_name, nil, _user_prompt), do: nil
+  def apply_model_overrides(_model_name, "", _user_prompt), do: ""
+
+  def apply_model_overrides(model_name, system_prompt_text, user_prompt)
+      when is_binary(system_prompt_text) do
+    result =
+      CodePuppyControl.Callbacks.Triggers.on_get_model_system_prompt(
+        model_name,
+        system_prompt_text,
+        user_prompt || ""
+      )
+
+    cond do
+      # Single map result with instructions
+      is_map(result) and not is_struct(result) and
+          (is_binary(Map.get(result, :instructions)) or
+             is_binary(Map.get(result, "instructions"))) ->
+        Map.get(result, :instructions) || Map.get(result, "instructions")
+
+      # List of results (multiple callbacks): take the last non-nil map with instructions
+      is_list(result) ->
+        last =
+          result
+          |> Enum.reverse()
+          |> Enum.find(fn
+            v when is_map(v) and not is_struct(v) ->
+              is_binary(Map.get(v, :instructions)) or is_binary(Map.get(v, "instructions"))
+
+            _ ->
+              false
+          end)
+
+        if last != nil do
+          Map.get(last, :instructions) || Map.get(last, "instructions")
+        else
+          system_prompt_text
+        end
+
+      # No useful result — return original
+      true ->
+        system_prompt_text
+    end
+  end
+
   # ── Provider Dispatch ─────────────────────────────────────────────────────
 
   @doc """
@@ -231,6 +291,48 @@ defmodule CodePuppyControl.LLM.SystemPrompt do
     # Format for provider
     formatted = format_for(provider_type, merged)
 
+    {formatted, chat_messages}
+  end
+
+  @doc """
+  Normalize messages for a specific model, applying model-specific prompt overrides.
+
+  Like `normalize/3`, but also applies the `:get_model_system_prompt` hook
+  with the given `model_name` before formatting for the provider. This ensures
+  plugin-provided model-specific prompt overrides are applied.
+
+  ## Examples
+
+      iex> messages = [%{role: "system", content: "Be helpful"}, %{role: "user", content: "Hi"}]
+      iex> SystemPrompt.normalize(:anthropic, "claude-3", messages, nil)
+      {"Be helpful", [%{role: "user", content: "Hi"}]}
+  """
+  @spec normalize(provider_type(), String.t(), [map()], String.t() | nil) ::
+          {term() | nil, [map()]}
+  def normalize(:openai, model_name, messages, system_prompt_opt) do
+    prompt_opt =
+      if system_prompt_opt do
+        apply_model_overrides(model_name, system_prompt_opt, "")
+      else
+        nil
+      end
+
+    messages = ensure_in_messages(messages, prompt_opt)
+    {nil, messages}
+  end
+
+  def normalize(provider_type, model_name, messages, system_prompt_opt) do
+    {messages_system_text, chat_messages} = extract(messages)
+    merged = merge_opts_and_messages(system_prompt_opt, messages_system_text)
+
+    merged =
+      if merged do
+        apply_model_overrides(model_name, merged, "")
+      else
+        nil
+      end
+
+    formatted = format_for(provider_type, merged)
     {formatted, chat_messages}
   end
 end

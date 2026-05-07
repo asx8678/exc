@@ -42,6 +42,7 @@ defmodule CodePuppyControl.LLM do
 
   alias CodePuppyControl.Auth.RuntimeConnection
   alias CodePuppyControl.LLM.Provider
+  alias CodePuppyControl.LLM.SystemPrompt
   alias CodePuppyControl.ModelFactory.Handle
   alias CodePuppyControl.ModelRegistry
   alias CodePuppyControl.RateLimiter
@@ -84,6 +85,7 @@ defmodule CodePuppyControl.LLM do
   def chat(%Handle{} = handle, messages, tools) do
     provider_opts = Handle.to_provider_opts(handle)
     model_name = handle.model_name || ""
+    provider_opts = apply_prompt_overrides(provider_opts, model_name)
     rate_limiter_acquire(model_name)
     result = handle.provider_module.chat(messages, tools, provider_opts)
     rate_limiter_record(model_name, result_status(result))
@@ -96,6 +98,7 @@ defmodule CodePuppyControl.LLM do
       when is_list(messages) and is_list(tools) and is_list(opts) do
     with {:ok, provider_mod, resolved_opts} <- resolve_provider(opts) do
       model_name = Keyword.get(resolved_opts, :model, "")
+      resolved_opts = apply_prompt_overrides(resolved_opts, model_name)
       rate_limiter_acquire(model_name)
       result = provider_mod.chat(messages, tools, resolved_opts)
       rate_limiter_record(model_name, result_status(result))
@@ -120,6 +123,7 @@ defmodule CodePuppyControl.LLM do
   def stream_chat(%Handle{} = handle, messages, tools, callback_fn) do
     provider_opts = Handle.to_provider_opts(handle)
     model_name = handle.model_name || ""
+    provider_opts = apply_prompt_overrides(provider_opts, model_name)
     rate_limiter_acquire(model_name)
     result = handle.provider_module.stream_chat(messages, tools, provider_opts, callback_fn)
     rate_limiter_record(model_name, stream_result_status(result))
@@ -137,6 +141,7 @@ defmodule CodePuppyControl.LLM do
       when is_list(messages) and is_list(tools) and is_list(opts) and is_function(callback_fn, 1) do
     with {:ok, provider_mod, resolved_opts} <- resolve_provider(opts) do
       model_name = Keyword.get(resolved_opts, :model, "")
+      resolved_opts = apply_prompt_overrides(resolved_opts, model_name)
       rate_limiter_acquire(model_name)
       result = provider_mod.stream_chat(messages, tools, resolved_opts, callback_fn)
       rate_limiter_record(model_name, stream_result_status(result))
@@ -187,6 +192,17 @@ defmodule CodePuppyControl.LLM do
   end
 
   # ── Private ───────────────────────────────────────────────────────────────
+
+  defp apply_prompt_overrides(opts, model_name) do
+    system_prompt = Keyword.get(opts, :system_prompt)
+
+    if system_prompt && model_name != "" do
+      updated = SystemPrompt.apply_model_overrides(model_name, system_prompt, "")
+      Keyword.put(opts, :system_prompt, updated)
+    else
+      opts
+    end
+  end
 
   defp resolve_provider(opts) do
     cond do

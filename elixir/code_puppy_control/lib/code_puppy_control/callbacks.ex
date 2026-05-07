@@ -279,16 +279,12 @@ defmodule CodePuppyControl.Callbacks do
           next_args =
             if is_map(result) and result != :callback_failed do
               Enum.reduce(key_to_index, current_args, fn {key, idx}, acc_args ->
-                case Map.fetch(result, key) do
-                  {:ok, val} ->
-                    if idx < length(acc_args) do
-                      List.replace_at(acc_args, idx, val)
-                    else
-                      acc_args
-                    end
+                val = resolve_map_key(result, key)
 
-                  :error ->
-                    acc_args
+                if val != nil and idx < length(acc_args) do
+                  List.replace_at(acc_args, idx, val)
+                else
+                  acc_args
                 end
               end)
             else
@@ -432,6 +428,28 @@ defmodule CodePuppyControl.Callbacks do
   end
 
   # ── Private Helpers ─────────────────────────────────────────────
+
+  @spec resolve_map_key(map(), atom() | String.t()) :: term() | nil
+  defp resolve_map_key(map, key) when is_atom(key) do
+    case Map.fetch(map, key) do
+      {:ok, val} -> val
+      :error -> Map.get(map, to_string(key))
+    end
+  end
+
+  defp resolve_map_key(map, key) when is_binary(key) do
+    case Map.fetch(map, key) do
+      {:ok, val} ->
+        val
+
+      :error ->
+        try do
+          Map.get(map, String.to_existing_atom(key))
+        rescue
+          ArgumentError -> nil
+        end
+    end
+  end
 
   @doc false
   @spec execute_callbacks(atom(), [function()], [term()]) :: [term()]
