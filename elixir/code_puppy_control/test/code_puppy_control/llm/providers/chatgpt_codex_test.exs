@@ -680,12 +680,24 @@ defmodule CodePuppyControl.LLM.Providers.ChatGPTCodexTest do
         if item["type"] == "function_call" do
           assert item["id"] != "", "function_call item had empty id: #{inspect(item)}"
           assert item["call_id"] != "", "function_call item had empty call_id: #{inspect(item)}"
+          # (code_puppy-be7.4) function_call.id must start with "fc"
+          assert String.starts_with?(item["id"], "fc_"),
+                 "function_call id must start with fc_: #{inspect(item["id"])}"
         end
 
         if item["type"] == "function_call_output" do
           assert item["call_id"] != "",
                  "function_call_output item had empty call_id: #{inspect(item)}"
         end
+      end
+
+      # (code_puppy-be7.4) function_call_output.call_id must match function_call.call_id
+      fcs = Enum.filter(input, &(&1["type"] == "function_call"))
+      outputs = Enum.filter(input, &(&1["type"] == "function_call_output"))
+
+      for {fc, out} <- Enum.zip(fcs, outputs) do
+        assert fc["call_id"] == out["call_id"],
+               "function_call call_id #{inspect(fc["call_id"])} must match output call_id #{inspect(out["call_id"])}"
       end
     end
 
@@ -730,6 +742,20 @@ defmodule CodePuppyControl.LLM.Providers.ChatGPTCodexTest do
         # Must match valid Responses API ID pattern (letters, numbers, underscores, dashes)
         assert Regex.match?(~r/^[A-Za-z0-9_-]+$/, output["call_id"]),
                "call_id must match valid pattern: #{inspect(output["call_id"])}"
+      end
+
+      # (code_puppy-be7.4) function_call.id must start with "fc"
+      fcs = Enum.filter(input, fn item -> item["type"] == "function_call" end)
+
+      for fc <- fcs do
+        assert String.starts_with?(fc["id"], "fc_"),
+               "function_call id must start with fc_: #{inspect(fc["id"])}"
+      end
+
+      # (code_puppy-be7.4) output call_ids must match function_call call_ids pairwise
+      for {fc, out} <- Enum.zip(fcs, outputs) do
+        assert fc["call_id"] == out["call_id"],
+               "function_call call_id #{inspect(fc["call_id"])} must match output call_id #{inspect(out["call_id"])}"
       end
     end
 
@@ -779,12 +805,25 @@ defmodule CodePuppyControl.LLM.Providers.ChatGPTCodexTest do
 
           assert Regex.match?(~r/^[A-Za-z0-9_-]+$/, item["id"]),
                  "function_call id has invalid chars: #{inspect(item["id"])}"
+
+          # (code_puppy-be7.4) function_call.id must start with "fc"
+          assert String.starts_with?(item["id"], "fc_"),
+                 "function_call id must start with fc_: #{inspect(item["id"])}"
         end
 
         if item["type"] == "function_call_output" do
           assert Regex.match?(~r/^[A-Za-z0-9_-]+$/, item["call_id"]),
                  "function_call_output call_id has invalid chars: #{inspect(item["call_id"])}"
         end
+      end
+
+      # (code_puppy-be7.4) output call_id must match function_call call_id
+      fcs = Enum.filter(input, &(&1["type"] == "function_call"))
+      outputs = Enum.filter(input, &(&1["type"] == "function_call_output"))
+
+      for {fc, out} <- Enum.zip(fcs, outputs) do
+        assert fc["call_id"] == out["call_id"],
+               "function_call call_id #{inspect(fc["call_id"])} must match output call_id #{inspect(out["call_id"])}"
       end
     end
 
@@ -855,6 +894,10 @@ defmodule CodePuppyControl.LLM.Providers.ChatGPTCodexTest do
 
         assert Regex.match?(~r/^[A-Za-z0-9_-]+$/, fc["id"]),
                "function_call id has invalid chars: #{inspect(fc["id"])}"
+
+        # (code_puppy-be7.4) function_call.id must start with "fc"
+        assert String.starts_with?(fc["id"], "fc_"),
+               "function_call id must start with fc_: #{inspect(fc["id"])}"
       end
 
       for output <- function_call_outputs do
@@ -925,6 +968,131 @@ defmodule CodePuppyControl.LLM.Providers.ChatGPTCodexTest do
 
       assert Regex.match?(~r/^[A-Za-z0-9_-]+$/, fc["call_id"]),
              "call_id has invalid chars: #{inspect(fc["call_id"])}"
+
+      # (code_puppy-be7.4) function_call.id must start with "fc"
+      assert String.starts_with?(fc["id"], "fc_"),
+             "function_call id must start with fc_: #{inspect(fc["id"])}"
+    end
+
+    # (code_puppy-be7.4) Regression: provider call_id "call_mS6k..." must
+    # produce function_call.id starting with "fc", while call_id remains
+    # "call_mS6k..." and function_call_output.call_id matches it exactly.
+    test "provider call_id like call_mS6k produces fc-prefixed item id and matching call_ids" do
+      test_pid = self()
+
+      MockLLMHTTP.register(fn :post, url, opts ->
+        if url =~ "/responses" do
+          body = Jason.decode!(opts[:body])
+          send(test_pid, {:request_body, body})
+
+          {:ok,
+           %{status: 200, body: MockLLMHTTP.chatgpt_codex_stream_fixture(), headers: @sse_headers}}
+        else
+          {:passthrough}
+        end
+      end)
+
+      messages = [
+        %{role: "user", content: "run tool"},
+        %{
+          role: "assistant",
+          content: nil,
+          tool_calls: [
+            %{
+              id: "call_mS6k4S5dHefGwE7wdEQoNEP1",
+              type: "function",
+              function: %{name: "get_weather", arguments: "{\"location\":\"Boston\"}"}
+            }
+          ]
+        },
+        %{role: "tool", content: "{\"temp\":72}", tool_call_id: "call_mS6k4S5dHefGwE7wdEQoNEP1"}
+      ]
+
+      ChatGPTCodex.stream_chat(messages, [], @opts, fn _ -> :ok end)
+
+      assert_received {:request_body, body}
+      input = body["input"]
+
+      fc = Enum.find(input, &(&1["type"] == "function_call"))
+      output = Enum.find(input, &(&1["type"] == "function_call_output"))
+
+      assert fc != nil, "Expected a function_call item"
+      assert output != nil, "Expected a function_call_output item"
+
+      # function_call.id must start with "fc" (not "call_")
+      assert String.starts_with?(fc["id"], "fc_"),
+             "function_call.id must start with fc_, got: #{inspect(fc["id"])}"
+
+      # function_call.call_id preserves the original provider correlation id
+      assert fc["call_id"] == "call_mS6k4S5dHefGwE7wdEQoNEP1",
+             "function_call.call_id must preserve original call_id, got: #{inspect(fc["call_id"])}"
+
+      # function_call_output.call_id must match function_call.call_id exactly
+      assert output["call_id"] == fc["call_id"],
+             "function_call_output.call_id #{inspect(output["call_id"])} must match function_call.call_id #{inspect(fc["call_id"])}"
+
+      # function_call.id and function_call.call_id should differ
+      # (the item id is a separate fc-prefixed id)
+      assert fc["id"] != fc["call_id"],
+             "function_call.id and call_id should be different for call_-prefixed ids, both: #{inspect(fc["id"])}"
+    end
+
+    # (code_puppy-be7.4) Backward compat: history with fc_-prefixed id
+    # reuses it as the item id and also as call_id (since fc_ is valid
+    # for both fields).
+    test "existing fc_-prefixed id is reused as both item id and call_id" do
+      test_pid = self()
+
+      MockLLMHTTP.register(fn :post, url, opts ->
+        if url =~ "/responses" do
+          body = Jason.decode!(opts[:body])
+          send(test_pid, {:request_body, body})
+
+          {:ok,
+           %{status: 200, body: MockLLMHTTP.chatgpt_codex_stream_fixture(), headers: @sse_headers}}
+        else
+          {:passthrough}
+        end
+      end)
+
+      messages = [
+        %{role: "user", content: "run tool"},
+        %{
+          role: "assistant",
+          content: nil,
+          tool_calls: [
+            %{
+              id: "fc_abc123",
+              type: "function",
+              function: %{name: "my_tool", arguments: "{}"}
+            }
+          ]
+        },
+        %{role: "tool", content: "result", tool_call_id: "fc_abc123"}
+      ]
+
+      ChatGPTCodex.stream_chat(messages, [], @opts, fn _ -> :ok end)
+
+      assert_received {:request_body, body}
+      input = body["input"]
+
+      fc = Enum.find(input, &(&1["type"] == "function_call"))
+      output = Enum.find(input, &(&1["type"] == "function_call_output"))
+
+      assert fc != nil
+      assert output != nil
+
+      # fc_-prefixed id is reused as the item id
+      assert fc["id"] == "fc_abc123",
+             "Expected function_call.id to be fc_abc123, got: #{inspect(fc["id"])}"
+
+      # call_id is also fc_abc123 (reused since it's valid for both)
+      assert fc["call_id"] == "fc_abc123",
+             "Expected function_call.call_id to be fc_abc123, got: #{inspect(fc["call_id"])}"
+
+      # output matches
+      assert output["call_id"] == "fc_abc123",
+             "Expected function_call_output.call_id to be fc_abc123, got: #{inspect(output["call_id"])}"
     end
   end
 

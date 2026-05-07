@@ -195,6 +195,9 @@ defmodule CodePuppyControl.LLM.Providers.ChatGPTCodex do
   # function_call_output. Without this, the Responses API would reject the
   # request with "invalid input[*].id" when tool-result call_ids don't match
   # any function_call id.
+  # (code_puppy-be7.4) The tracker now maps original id → call_id (the
+  # correlation id), while function_call.id is a separate fc-prefixed
+  # response-item id. Tool outputs match on call_id, not on the item id.
   defp messages_to_input(messages) do
     tracker = %{by_id: %{}, empty_queue: :queue.new()}
 
@@ -277,32 +280,43 @@ defmodule CodePuppyControl.LLM.Providers.ChatGPTCodex do
   end
 
   defp format_tool_call_for_input(%{id: id, type: _type, function: func}, tracker) do
-    # (code_puppy-be7) Never emit empty id/call_id — generate a safe
-    # deterministic ID when the provider history lacks a valid one.
-    safe_id = sanitize_tool_call_id(id, func.name)
+    # (code_puppy-be7.4) The Responses API requires two separate IDs on
+    # function_call input items:
+    #   - "id"      — the response-item id, must start with "fc" (e.g. "fc_abc123")
+    #   - "call_id"  — the tool-call correlation id (e.g. "call_mS6k...")
+    # Previously both were set to the same sanitized tool-call id, which
+    # failed when that id started with "call_" instead of "fc".
+    call_id = sanitize_tool_call_id(id, func.name)
 
-    # (code_puppy-be7.2) Track synthetic IDs for tool-result matching.
+    # Generate a valid fc-prefixed response-item id.
+    # If the original id already starts with "fc_" and is valid, reuse it
+    # as the item id (it satisfies both requirements). Otherwise, generate
+    # a fresh fc-prefixed id.
+    item_id = fc_item_id_for(id, call_id)
+
+    # Track by call_id for tool-result matching.
     # When the original ID was empty, the tool-result tool_call_id will
-    # also be empty — use this tracker to retrieve the same synthetic ID.
-    tracker = track_id(tracker, id, func.name, safe_id)
+    # also be empty — use this tracker to retrieve the same call_id.
+    tracker = track_id(tracker, id, func.name, call_id)
 
     {%{
        "type" => "function_call",
-       "id" => safe_id,
-       "call_id" => safe_id,
+       "id" => item_id,
+       "call_id" => call_id,
        "name" => func.name,
        "arguments" => func.arguments
      }, tracker}
   end
 
   defp format_tool_call_for_input(%{"id" => id, "type" => _type, "function" => func}, tracker) do
-    safe_id = sanitize_tool_call_id(id, func["name"])
-    tracker = track_id(tracker, id, func["name"], safe_id)
+    call_id = sanitize_tool_call_id(id, func["name"])
+    item_id = fc_item_id_for(id, call_id)
+    tracker = track_id(tracker, id, func["name"], call_id)
 
     {%{
        "type" => "function_call",
-       "id" => safe_id,
-       "call_id" => safe_id,
+       "id" => item_id,
+       "call_id" => call_id,
        "name" => func["name"],
        "arguments" => func["arguments"]
      }, tracker}
@@ -457,6 +471,38 @@ defmodule CodePuppyControl.LLM.Providers.ChatGPTCodex do
     base = name || "call"
     safe_base = String.replace(base, ~r/[^A-Za-z0-9_-]/, "_")
     "call_#{safe_base}_#{safe_id_suffix()}"
+  end
+
+  # (code_puppy-be7.4) Generate a valid fc-prefixed response-item id for
+  # function_call input items. The Responses API requires input[*].id to
+  # start with "fc" (e.g. "fc_abc123").
+  #
+  # Backward-compat: old history may only have one %{id: ...} field.
+  # We treat that field as the call_id UNLESS it already looks like an
+  # fc-prefixed response item id (starts with "fc_" and is valid). In that
+  # case we reuse it as the item id since it satisfies the fc-prefix
+  # requirement. In all other cases we generate a fresh fc-prefixed id,
+  # keeping the original sanitized value as the call_id for correlation.
+  @spec fc_item_id_for(String.t() | nil, String.t()) :: String.t()
+  defp fc_item_id_for(original_id, _call_id)
+       when is_binary(original_id) and original_id != "" do
+    if String.starts_with?(original_id, "fc_") and
+         Regex.match?(~r/^[A-Za-z0-9_-]+$/, original_id) do
+      # Original id already looks like an fc response-item id — reuse as-is.
+      original_id
+    else
+      # Original id is a call correlation id (e.g. "call_mS6k...") —
+      # generate a separate fc-prefixed response-item id.
+      generate_fc_item_id()
+    end
+  end
+
+  defp fc_item_id_for(_original_id, _call_id) do
+    generate_fc_item_id()
+  end
+
+  defp generate_fc_item_id do
+    "fc_#{safe_id_suffix()}"
   end
 
   # Generate a short, deterministic-safe suffix for synthetic call IDs.
