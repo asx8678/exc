@@ -2,9 +2,12 @@ defmodule CodePuppyControl.Parsing.Parsers.PythonParserTest do
   @moduledoc """
   Tests for the PythonParser Yecc-based parser.
 
-  Note (ADR-005): This test exercises Python-as-data source parsing via the
-  Elixir-native Leex/Yecc parser — no Python runtime is required or implied.
-  The PythonParser is a static data parser per ADR-005.
+  ## Python-as-data (allowlisted)
+
+  These tests exercise Python source parsing as a data operation.
+  PythonParser is a pure-Elixir Leex/Yecc parser with zero Python
+  runtime dependency. Test fixtures use `.py` source strings only.
+  See ADR-005 for the full policy rationale.
   """
   use ExUnit.Case, async: true
 

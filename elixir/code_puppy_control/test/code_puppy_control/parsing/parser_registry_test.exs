@@ -5,9 +5,11 @@ defmodule CodePuppyControl.Parsing.ParserRegistryTest do
   These tests verify that parsers can be registered, retrieved by language
   or extension, and properly unregistered.
 
-  Note (ADR-005): Python parser references (.py, .pyw, "python") in this
-  test exercise Python-as-data source parsing registration — no Python
-  runtime is required or implied. See ADR-005.
+  ## Python-as-data mock (allowlisted)
+
+  `TestPythonParser` is a mock parser module used to test the registry
+  dispatch. It exercises the ParserBehaviour contract, not real Python
+  source parsing. Allowlisted per ADR-005.
   """
   use ExUnit.Case
 

@@ -1,4 +1,15 @@
 defmodule CodePuppyControl.ParserTest do
+  @moduledoc """
+  Tests for the Parser high-level facade.
+
+  ## Python-as-data (allowlisted)
+
+  Python test cases using `.py` source and file fixtures exercise static
+  symbol extraction via the data-only PythonParser. These are allowlisted
+  as Python source parsing tests, not Python runtime tests.
+  See ADR-005 for the full policy rationale.
+  """
+
   use ExUnit.Case, async: true
 
   alias CodePuppyControl.Parser

@@ -4,11 +4,24 @@ defmodule CodePuppyControl.Parsing.Parsers do
 
   This module provides a child_spec for use in the application supervision tree
   to ensure all built-in parsers are registered on startup.
+
+  ## Parser Policy
+
+  All parsers listed here are **data-only** — they parse source code as
+  structured data using Elixir-native Leex/Yecc grammars, with no
+  external runtime dependency.
+
+  In particular, `PythonParser` parses `.py`/`.pyi` source to extract
+  symbols (functions, classes, imports) for code context and repo indexing.
+  It uses the same BEAM-native pipeline as Elixir/JS/TS/Rust parsers and
+  requires **zero Python runtime**. See ADR-005 for the full rationale.
   """
 
   alias CodePuppyControl.Parsing.ParserRegistry
 
   # List of built-in parser modules
+  # All parsers are pure-Elixir data parsers compiled via [:leex, :yecc].
+  # PythonParser is a data-only parser (no Python runtime needed).
   @parser_modules [
     CodePuppyControl.Parsing.Parsers.ElixirParser,
     CodePuppyControl.Parsing.Parsers.ErlangParser,

@@ -1,6 +1,6 @@
 defmodule CodePuppyControl.Parsing.Parsers.PythonParser do
   @moduledoc """
-  Python parser using Leex/Yecc-generated lexer and parser.
+  Python source parser (data-only, no Python runtime needed).
 
   Extracts symbols from Python source code including:
   - Functions (def statements, with async def support)
@@ -12,12 +12,19 @@ defmodule CodePuppyControl.Parsing.Parsers.PythonParser do
   This parser uses the Python lexer (python_lexer.xrl) for tokenization
   and a Yecc-generated parser (python_parser.yrl) for building the AST.
 
+  **Architectural note:** This is a **data-only** parser - it parses Python
+  source as structured data for code context, repo indexing, and outline
+  extraction. It requires **zero Python runtime**. It is compiled via the
+  same [:leex, :yecc] pipeline as all other parsers (Elixir, JS, TS, Rust,
+  etc.) and is listed as Python-free in the runtime guarantee.
+  See ADR-005 for the full policy rationale.
+
   ## Examples
 
-      iex> PythonParser.parse("def foo():\\n    pass")
+      iex> PythonParser.parse("def foo():\n    pass")
       {:ok, %{language: "python", symbols: [%{name: "foo", kind: :function, ...}], ...}}
 
-      iex> PythonParser.parse("async def bar():\\n    pass")
+      iex> PythonParser.parse("async def bar():\n    pass")
       {:ok, %{language: "python", symbols: [%{name: "bar", kind: :function, modifiers: [:async], ...}], ...}}
 
   """

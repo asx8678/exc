@@ -5,10 +5,11 @@ defmodule CodePuppyControl.Parsing.ParserTest do
   These tests verify that the high-level parsing API correctly routes
   to language-specific parsers and handles various scenarios.
 
-  Note (ADR-005): Python parser references (.py, "python") in this test
-  exercise Python-as-data source parsing via the Elixir-native Leex/Yecc
-  parser — no Python runtime is required or implied. See ADR-005 for the
-  Python Source Parsing Policy.
+  ## Python-as-data mock (allowlisted)
+
+  `TestPythonParser` is a mock parser module used to test the registry
+  dispatch and API routing. It exercises the ParserBehaviour contract,
+  not real Python source parsing. Allowlisted per ADR-005.
   """
   use ExUnit.Case
 

@@ -10,10 +10,12 @@ defmodule CodePuppyControl.IndexerTest do
   - FileSummary (to_map/1, to_maps/1)
   - Parity with Rust implementation
 
-  Note (ADR-005): Python file references (.py, "python") in this test
-  exercise Python-as-data source parsing and file categorization — no
-  Python runtime is required or implied. The indexer handles Python files
-  as static data via the Elixir-native parser. See ADR-005.
+  ## Python-as-data tests (allowlisted)
+
+  Python symbol extraction tests exercise the data-only PythonParser via
+  SymbolExtractor. `.py` fixtures and extension categorization are
+  allowlisted as Python source parsing tests, not Python runtime tests.
+  See ADR-005 for the full policy rationale.
   """
 
   use ExUnit.Case, async: true

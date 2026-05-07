@@ -1,4 +1,14 @@
 defmodule CodePuppyControl.Indexer.RepoCompassTest do
+  @moduledoc """
+  Tests for the RepoCompass indexer.
+
+  ## Python-as-data fixtures (allowlisted)
+
+  `.py` test fixtures exercise static symbol extraction via the data-only
+  PythonParser. These are allowlisted as Python source parsing tests, not
+  Python runtime tests. See ADR-005 for the full policy rationale.
+  """
+
   use ExUnit.Case, async: true
 
   alias CodePuppyControl.Indexer.RepoCompass

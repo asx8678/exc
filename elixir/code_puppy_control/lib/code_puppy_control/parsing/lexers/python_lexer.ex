@@ -6,15 +6,20 @@ defmodule CodePuppyControl.Parsing.Lexers.PythonLexer do
   a Leex-generated lexer. It handles conversion between Elixir
   strings and Erlang charlists for the underlying lexer.
 
+  **Architectural note:** This is a **data-only** lexer - it tokenizes Python
+  source as structured data for the data-only PythonParser. It requires zero
+  Python runtime and is compiled via Leex as part of the BEAM-native pipeline.
+  See ADR-005 for the full policy rationale.
+
   ## Examples
 
-      iex> PythonLexer.tokenize("def foo():\\n    pass")
+      iex> PythonLexer.tokenize("def foo():\n    pass")
       {:ok, [
         {:def, 1},
         {:identifier, 1, ~c"foo"},
-        {:\"(\"", 1},
-        {:\")\"", 1},
-        {:\":\"", 1},
+        {: "(" , 1},
+        {: ")" , 1},
+        {: ":" , 1},
         {:newline, 1},
         {:indent, 2},
         {:pass, 2}

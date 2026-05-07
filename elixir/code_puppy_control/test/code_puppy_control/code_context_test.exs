@@ -2,9 +2,12 @@ defmodule CodePuppyControl.CodeContextTest do
   @moduledoc """
   Tests for the CodeContext module.
 
-  Note (ADR-005): .py fixtures in this test exercise Python-as-data source
-  parsing via the Elixir-native Leex/Yecc parser — no Python runtime is
-  required or implied. See ADR-005 for the Python Source Parsing Policy.
+  ## Python-as-data fixtures (allowlisted)
+
+  Test fixtures using `.py` files exercise Python source parsing as a
+  data-only operation (static symbol extraction via PythonParser). These
+  fixtures are allowlisted — they test the data parser, not a Python
+  runtime. See ADR-005 for the full policy rationale.
   """
 
   use CodePuppyControl.StatefulCase
@@ -18,6 +21,8 @@ defmodule CodePuppyControl.CodeContextTest do
     File.mkdir_p!(temp_dir)
 
     # Create a Python file with symbols
+    # (Python-as-data fixture: tests static symbol extraction via the
+    #  data-only PythonParser, not a Python runtime. Allowlisted per ADR-005.)
     python_file = Path.join(temp_dir, "test_module.py")
 
     python_content = """
