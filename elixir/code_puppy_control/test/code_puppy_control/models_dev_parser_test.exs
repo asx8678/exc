@@ -152,16 +152,37 @@ defmodule CodePuppyControl.ModelsDevParserTest do
     {:ok, pid} = Registry.start_link(json_path: temp_path, name: name)
 
     on_exit(fn ->
-      # Ensure registry is stopped
-      if Process.alive?(pid) do
-        GenServer.stop(pid)
-      end
+      # Deterministic shutdown: monitor before stop to avoid TOCTOU race
+      # between Process.alive? check and GenServer.stop.
+      stop_registry(pid)
 
       # Clean up temp file
       File.rm(temp_path)
     end)
 
     {:ok, %{registry: pid, temp_path: temp_path}}
+  end
+
+  # ============================================================================
+  # Helpers
+  # ============================================================================
+
+  # Stops a GenServer deterministically.
+  # Uses Process.alive? check to avoid crashing on already-dead processes
+  # (e.g. when test body already cleaned up a different registry and the
+  # setup-created registry exits early under async load), then monitor +
+  # DOWN-receive to confirm termination before the on_exit proceeds.
+  defp stop_registry(pid) do
+    if Process.alive?(pid) do
+      ref = Process.monitor(pid)
+      GenServer.stop(pid)
+
+      receive do
+        {:DOWN, ^ref, :process, ^pid, _reason} -> :ok
+      after
+        1000 -> :ok
+      end
+    end
   end
 
   # ============================================================================
@@ -528,7 +549,7 @@ defmodule CodePuppyControl.ModelsDevParserTest do
       assert config["provider_id"] == "anthropic"
 
       # Cleanup
-      GenServer.stop(new_registry)
+      stop_registry(new_registry)
     end
   end
 
@@ -566,7 +587,7 @@ defmodule CodePuppyControl.ModelsDevParserTest do
       # Should have 0 providers since the only one was malformed
       assert Registry.get_providers(registry) == []
 
-      GenServer.stop(registry)
+      stop_registry(registry)
     end
 
     test "handles missing model name gracefully", %{
@@ -600,7 +621,7 @@ defmodule CodePuppyControl.ModelsDevParserTest do
       assert length(models) == 1
       assert hd(models).name == "Good Model"
 
-      GenServer.stop(registry)
+      stop_registry(registry)
     end
 
     test "handles negative context length gracefully", %{
@@ -631,7 +652,7 @@ defmodule CodePuppyControl.ModelsDevParserTest do
       # Model should be skipped due to negative context
       assert Registry.get_models(registry) == []
 
-      GenServer.stop(registry)
+      stop_registry(registry)
     end
   end
 
