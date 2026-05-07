@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # pre-push — tracked native hook
-# Elixir: compile + fast tests | Native-only guards
+# Elixir: format + compile (no tests) | Native-only guards
 # Last sync: 2026-05-07
 #
-# Fast-test excludes: :slow, :integration, :property
-#   - :property covers StreamData/ExUnitProperties generative tests (100
-#     samples each) which are too slow for pre-push feedback but remain
-#     part of the full `mix test` suite.  (code-puppy-63y)
+# Design goals (code-puppy-c1r):
+#   - Bounded execution: compile + format only; NO mix test (too slow,
+#     risked 60s+ timeout and rogue commits from test side-effects)
+#   - Side-effect-free: cannot create commits or mutate repo state
+#   - Test suite: run explicitly via `mix test`, CI, or release-gate.sh
 #
 # Uses NUL-delimited git output + bash arrays to avoid unsafe filename handling.
 # Handles new branches (0000… remote sha) by computing range via merge-base.
@@ -138,10 +139,24 @@ if [[ ${#py_introduced[@]} -gt 0 ]]; then
 fi
 
 # --- Elixir checks (BLOCKING) ----------------------------------------------
+# Compile + format only. Tests are NOT run in pre-push (code-puppy-c1r):
+#   - Full `mix test` is too slow for hook feedback (timed out at 60s+)
+#   - Some tests (e.g. git_auto_commit_test) invoke `git commit` which can
+#     create rogue commits if cwd leaks — the hook must be side-effect-free.
+#   - Run `mix test` explicitly or rely on CI / release-gate.sh for testing.
 
 if [[ ${#elixir_files[@]} -gt 0 ]]; then
   elixir_dir="$PROJECT_ROOT/elixir/code_puppy_control"
   if [[ -d "$elixir_dir" ]]; then
+    echo '--- elixir-format ---'
+    info 'Elixir format check ...'
+    if ! (cd "$elixir_dir" && mix format --check-formatted); then
+      warn 'Elixir format check failed (run `mix format` to fix)'
+      failed=1
+    else
+      pass 'Elixir format OK'
+    fi
+
     echo '--- elixir-compile ---'
     info 'Elixir compile (warnings-as-errors) ...'
     if ! (cd "$elixir_dir" && mix compile --warnings-as-errors); then
@@ -149,15 +164,6 @@ if [[ ${#elixir_files[@]} -gt 0 ]]; then
       failed=1
     else
       pass 'Elixir compile OK'
-    fi
-
-    echo '--- elixir-test-fast ---'
-    info 'Elixir fast tests ...'
-    if ! (cd "$elixir_dir" && mix test --exclude slow --exclude integration --exclude property --max-failures 5); then
-      warn 'Elixir fast tests failed'
-      failed=1
-    else
-      pass 'Elixir fast tests OK'
     fi
   else
     warn "Elixir directory not found at $elixir_dir"

@@ -55,28 +55,41 @@ defmodule CodePuppyControl.Plugins.GitAutoCommitTest do
     end
   end
 
+  # ---------------------------------------------------------------------------
+  # Integration tests with a real git repo.
+  #
+  # Tagged :with_git_repo so they can be excluded if needed.
+  # Tagged :git_side_effect because they invoke `git commit` in a temp repo.
+  # The GitAutoCommit module uses System.cmd("git",...) without a cd: option,
+  # so these tests must change the process cwd.  We use cd_in/1 (a try/finally
+  # wrapper) instead of bare File.cd! + on_exit to guarantee cwd restoration
+  # even if the test crashes — preventing rogue commits in the real repo.
+  # (code-puppy-c1r)
+  # ---------------------------------------------------------------------------
+
   describe "handle_command with git repo" do
     setup context do
-      # Only set up a git repo for tests that opt in
       unless context[:with_git_repo] do
         {:ok, tmp_dir: nil}
       else
         tmp_dir = Path.join(System.tmp_dir!(), "gac_test_#{:erlang.unique_integer([:positive])}")
         File.mkdir_p!(tmp_dir)
 
-        original_dir = File.cwd!()
-        File.cd!(tmp_dir)
+        # Initialise a git repo with a commit so HEAD exists.
+        # Use System.cmd with cd: option to avoid changing the BEAM process cwd.
+        System.cmd("git", ["init"], cd: tmp_dir, stderr_to_stdout: true)
 
-        # Initialise a git repo with a commit so HEAD exists
-        System.cmd("git", ["init"], stderr_to_stdout: true)
-        System.cmd("git", ["config", "user.email", "test@test.com"], stderr_to_stdout: true)
-        System.cmd("git", ["config", "user.name", "Test"], stderr_to_stdout: true)
+        System.cmd("git", ["config", "user.email", "test@test.com"],
+          cd: tmp_dir,
+          stderr_to_stdout: true
+        )
+
+        System.cmd("git", ["config", "user.name", "Test"], cd: tmp_dir, stderr_to_stdout: true)
         File.write!(Path.join(tmp_dir, "initial.txt"), "init")
-        System.cmd("git", ["add", "initial.txt"], stderr_to_stdout: true)
-        System.cmd("git", ["commit", "-m", "initial"], stderr_to_stdout: true)
+        System.cmd("git", ["add", "initial.txt"], cd: tmp_dir, stderr_to_stdout: true)
+        System.cmd("git", ["commit", "-m", "initial"], cd: tmp_dir, stderr_to_stdout: true)
 
         on_exit(fn ->
-          File.cd!(original_dir)
           File.rm_rf!(tmp_dir)
         end)
 
@@ -85,66 +98,95 @@ defmodule CodePuppyControl.Plugins.GitAutoCommitTest do
     end
 
     @tag :with_git_repo
+    @tag :git_side_effect
     test "/commit status reports staged file count", %{tmp_dir: tmp_dir} do
-      # Create and stage a file
-      File.write!(Path.join(tmp_dir, "new_file.txt"), "hello")
-      System.cmd("git", ["add", "new_file.txt"], stderr_to_stdout: true)
+      cd_in(tmp_dir, fn ->
+        # Create and stage a file
+        File.write!(Path.join(tmp_dir, "new_file.txt"), "hello")
+        System.cmd("git", ["add", "new_file.txt"], stderr_to_stdout: true)
 
-      result = GitAutoCommit.handle_command("/commit status", "commit")
-      assert is_binary(result)
-      assert result =~ ~r/staged/i
+        result = GitAutoCommit.handle_command("/commit status", "commit")
+        assert is_binary(result)
+        assert result =~ ~r/staged/i
+      end)
     end
 
     @tag :with_git_repo
-    test "/commit status reports no staged changes", %{tmp_dir: _tmp_dir} do
-      result = GitAutoCommit.handle_command("/commit status", "commit")
-      assert result =~ ~r/clean|no staged|nothing/i
+    @tag :git_side_effect
+    test "/commit status reports no staged changes", %{tmp_dir: tmp_dir} do
+      cd_in(tmp_dir, fn ->
+        result = GitAutoCommit.handle_command("/commit status", "commit")
+        assert result =~ ~r/clean|no staged|nothing/i
+      end)
     end
 
     @tag :with_git_repo
+    @tag :git_side_effect
     test "/commit preview shows diff summary", %{tmp_dir: tmp_dir} do
-      # Create and stage a file
-      File.write!(Path.join(tmp_dir, "preview_file.txt"), "preview content")
-      System.cmd("git", ["add", "preview_file.txt"], stderr_to_stdout: true)
+      cd_in(tmp_dir, fn ->
+        File.write!(Path.join(tmp_dir, "preview_file.txt"), "preview content")
+        System.cmd("git", ["add", "preview_file.txt"], stderr_to_stdout: true)
 
-      result = GitAutoCommit.handle_command("/commit preview", "commit")
-      assert is_binary(result)
+        result = GitAutoCommit.handle_command("/commit preview", "commit")
+        assert is_binary(result)
+      end)
     end
 
     @tag :with_git_repo
+    @tag :git_side_effect
     test "/commit -m executes commit with staged files", %{tmp_dir: tmp_dir} do
-      # Create and stage a file
-      File.write!(Path.join(tmp_dir, "commit_file.txt"), "commit content")
-      System.cmd("git", ["add", "commit_file.txt"], stderr_to_stdout: true)
+      cd_in(tmp_dir, fn ->
+        # Create and stage a file
+        File.write!(Path.join(tmp_dir, "commit_file.txt"), "commit content")
+        System.cmd("git", ["add", "commit_file.txt"], stderr_to_stdout: true)
 
-      result = GitAutoCommit.handle_command("/commit -m test commit message", "commit")
-      assert is_binary(result)
-      assert result =~ ~r/committed|success/i
+        result = GitAutoCommit.handle_command("/commit -m test commit message", "commit")
+        assert is_binary(result)
+        assert result =~ ~r/committed|success/i
+      end)
     end
 
     @tag :with_git_repo
+    @tag :git_side_effect
     test "/commit without -m prompts for message", %{tmp_dir: tmp_dir} do
-      # Create and stage a file
-      File.write!(Path.join(tmp_dir, "prompt_file.txt"), "prompt content")
-      System.cmd("git", ["add", "prompt_file.txt"], stderr_to_stdout: true)
+      cd_in(tmp_dir, fn ->
+        File.write!(Path.join(tmp_dir, "prompt_file.txt"), "prompt content")
+        System.cmd("git", ["add", "prompt_file.txt"], stderr_to_stdout: true)
 
-      result = GitAutoCommit.handle_command("/commit", "commit")
-      assert result =~ ~r/-m/i
+        result = GitAutoCommit.handle_command("/commit", "commit")
+        assert result =~ ~r/-m/i
+      end)
     end
 
     test "/commit when not in git repo returns error" do
-      original_dir = File.cwd!()
       non_git = Path.join(System.tmp_dir!(), "non_git_#{:erlang.unique_integer([:positive])}")
       File.mkdir_p!(non_git)
-      File.cd!(non_git)
 
-      on_exit(fn ->
-        File.cd!(original_dir)
-        File.rm_rf!(non_git)
+      cd_in(non_git, fn ->
+        result = GitAutoCommit.handle_command("/commit", "commit")
+        assert is_binary(result)
       end)
 
-      result = GitAutoCommit.handle_command("/commit", "commit")
-      assert is_binary(result)
+      # Cleanup after test (not in on_exit because we need it gone before
+      # the next test runs in the same describe block)
+      File.rm_rf!(non_git)
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Helper: change directory with guaranteed restoration via try/finally.
+  # Prevents cwd leakage that could cause rogue commits in the real repo.
+  # (code-puppy-c1r)
+  # ---------------------------------------------------------------------------
+
+  defp cd_in(dir, fun) do
+    original = File.cwd!()
+    File.cd!(dir)
+
+    try do
+      fun.()
+    after
+      File.cd!(original)
     end
   end
 end

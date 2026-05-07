@@ -5,22 +5,25 @@ This repo uses native Git hooks (no external dependencies).
 ## What runs
 
 ### pre-commit
-- isort on staged `*.py` (black profile), restages fixes
-- ruff format on staged `*.py`
-- ruff check --fix on staged `*.py`
+- Elixir format check (`mix format --check-formatted`) on staged `.ex`/`.exs` files
 
 ### pre-push
+- Native-only guard (`.py` file introduction check)
+- Elixir format check on changed `.ex`/`.exs` files
 - Elixir compile (warnings-as-errors) on changed `.ex`/`.exs` files
-- Elixir fast tests on changed `.ex`/`.exs` files
-- Python ruff check on changed `.py` files
-- Python smoke import on changed `code_puppy/**/*.py` files
 - Test file review (advisory, non-blocking)
+
+> **No tests are run in pre-push.** The hook is bounded and side-effect-free
+> (code-puppy-c1r). Run `mix test` explicitly or rely on CI / `release-gate.sh`.
+>
+> Previously, pre-push ran `mix test --exclude slow/integration/property` which
+> caused 60s+ timeouts and, due to cwd leakage in git_auto_commit tests,
+> could create rogue commits in the real repo.
 
 ## Smart fallbacks
 
-- If `isort` isn't available, we fall back to Ruff's import sorter: `ruff check --select I --fix`.
-- All commands prefer `uv run` when present; otherwise run the binary directly.
 - Hooks use NUL-delimited git output + Bash arrays for safe filename handling.
+- If `mix` is not available, Elixir checks are skipped with a warning.
 
 ## Install hooks locally
 
@@ -44,5 +47,5 @@ then delegate to `scripts/git-hooks/`.
 ## Notes
 
 - Keep hooks fast and non-annoying.
-- Prefer ruff + isort for Python. If you don't have `isort`, no problem — Ruff's I-rules will handle import ordering.
+- Never run `mix test` in hooks — tests can be slow and may have side effects (code-puppy-c1r).
 - CI should run the same checks on all files (not just staged).

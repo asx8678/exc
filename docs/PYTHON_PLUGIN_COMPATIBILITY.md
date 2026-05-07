@@ -301,8 +301,9 @@ Before publishing or distributing a plugin, verify:
 3. **Test drift prevention** — Use property-based testing (hypothesis)
    for invariant checks, not hardcoded expected values.
 
-4. **CI gate** — Plugin tests run on every plugin-related commit
-   (see `scripts/git-hooks/pre-push`).
+4. **CI gate** — Plugin tests should be run explicitly via `mix test` or
+   CI. The pre-push hook runs format + compile only (code-puppy-c1r); it does
+   NOT run `mix test` to avoid 60s+ timeouts and side-effect commits.
 
 ### Elixir Plugin Testing
 

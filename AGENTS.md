@@ -224,7 +224,7 @@ Tests must prevent "drift" from implementation changes:
 | Ignoring error paths | Explicit error case coverage |
 | Stale comment assertions | `pytest --doctest-modules` |
 
-**CI Gate**: Plugin tests run on every plugin-related commit (see `scripts/git-hooks/pre-push`).
+**CI Gate**: Plugin tests should be run explicitly via `mix test` or CI. The pre-push hook runs format + compile only (code-puppy-c1r); it does NOT run `mix test` (too slow, risk of side-effect commits).
 
 ```elixir
 # CORRECT: Test the invariant, not the implementation
