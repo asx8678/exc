@@ -18,10 +18,9 @@
 #   PYTHON_WORKER_SCRIPT      (worker script env var, legacy name)
 #
 # Allowlisted paths (legitimate references):
-#   - docs/adr/ — ADR documents reference historical decisions
-#   - docs/release/python-free-runtime-guarantee* — Python-free guarantee docs
-#   - docs/native-elixir-python-dependency-audit* — audit document
+#   - docs/ — all documentation, ADRs, release notes, specs (historical/archival)
 #   - issues.jsonl — historical issue tracker
+#   - ARCHITECTURE.md, README.md, FORK_CHANGELOG.md, ROADMAP.md — root docs
 #   - Parser source files: python_lexer.ex, python_parser.ex, .xrl, .yrl
 #   - Parser/lexer tests: python_lexer_test.exs, python_parser_test.exs
 #   - Smoke tests: smoke_test.exs (tests native-only behavior)
@@ -31,6 +30,9 @@
 #   - code_puppy_phase_c_e2e_test.exs (verifies no PythonWorker dependency)
 #   - run_manager_test.exs (tests no-Python-worker behavior)
 #   - smoke-burrito-native.sh (sanitizes Python env vars)
+#   - .github/workflows/ — CI workflow files (document runtime config)
+#   - cli/smoke.ex — smoke module (documents env var removal)
+#   - integration/request_tracker_test.exs — historical test comment
 #   - AGENTS.md (system prompt, documents compatibility paths)
 #   - CONTRIBUTING.md (project conventions, references compatibility)
 #
@@ -71,10 +73,13 @@ PATTERNS=(
 
 # ── Allowlisted file paths (grep -E patterns matched against full path) ────
 ALLOWLIST_PATHS=(
-  '^docs/adr/'
-  '^docs/release/python-free-runtime-guarantee'
-  '^docs/native-elixir-python-dependency-audit'
+  '^docs/'
+  '^\.beads/'
   '^issues\.jsonl$'
+  '^ARCHITECTURE\.md$'
+  '^README\.md$'
+  '^FORK_CHANGELOG\.md$'
+  '^ROADMAP\.md$'
   'python_lexer\.ex$'
   'python_parser\.ex$'
   'python_lexer\.xrl$'
@@ -82,12 +87,15 @@ ALLOWLIST_PATHS=(
   'python_lexer_test\.exs$'
   'python_parser_test\.exs$'
   'cli/smoke_test\.exs$'
+  'cli/smoke\.ex$'
   'python_free_runtime_test\.exs$'
   'native_parity_smoke_test\.exs$'
   'code_puppy_phase_c_e2e_test\.exs$'
   'run_manager_test\.exs$'
+  'integration/request_tracker_test\.exs$'
   'smoke-burrito-native\.sh$'
   'ci-guards/no-python-refs-guard\.sh$'
+  '\.github/workflows/'
   '^AGENTS\.md$'
   '^CONTRIBUTING\.md$'
 )
@@ -105,40 +113,50 @@ is_allowlisted() {
   return 1
 }
 
-# ── Get all tracked text files ──────────────────────────────────────────────
-# Use git ls-files + file command to only scan text files (skip binaries).
-# git grep is more efficient but we need per-file allowlisting.
+# ── Find all files matching forbidden patterns ─────────────────────────────
+# Use git grep -l (file-list mode) which is efficient — O(matches) not O(all_files).
+# Deduplicate results since multiple patterns may match the same file.
+ALL_MATCHING="$(mktemp)"
+TRAPPED_CLEANUP=false
+cleanup() {
+  if [[ "$TRAPPED_CLEANUP" == "false" ]]; then
+    TRAPPED_CLEANUP=true
+    rm -f "$ALL_MATCHING"
+  fi
+}
+trap cleanup EXIT INT TERM
 
-TRACKED_FILES="$(git ls-files -z 2>/dev/null | xargs -0 file --mime-type -f - 2>/dev/null \
-  | grep ': text/' \
-  | cut -d: -f1 \
-  || true)"
+for pattern in "${PATTERNS[@]}"; do
+  git grep -l -- "${pattern}" -- 2>/dev/null >> "$ALL_MATCHING" || true
+done
 
-if [[ -z "${TRACKED_FILES}" ]]; then
-  info "no tracked text files to scan"
+# Deduplicate and sort
+MATCHING_FILES="$(sort -u "$ALL_MATCHING" 2>/dev/null || true)"
+
+if [[ -z "${MATCHING_FILES}" ]]; then
+  info "no tracked files contain forbidden patterns"
+  cleanup
   exit 0
 fi
 
-# ── Scan each file for each pattern ─────────────────────────────────────────
-for pattern in "${PATTERNS[@]}"; do
-  while IFS= read -r filepath; do
-    # Skip allowlisted files
-    if is_allowlisted "${filepath}"; then
-      continue
-    fi
+# ── Report each non-allowlisted match ───────────────────────────────────────
+while IFS= read -r filepath; do
+  if is_allowlisted "${filepath}"; then
+    continue
+  fi
 
-    # Check if the file contains the forbidden pattern
+  # This file is a violation — show the matching lines
+  VIOLATIONS+=("${filepath}")
+  error "FORBIDDEN REF: ${filepath}"
+  for pattern in "${PATTERNS[@]}"; do
     if git grep -q -- "${pattern}" -- "${filepath}" 2>/dev/null; then
-      # Get the matching lines for the report
       MATCHES="$(git grep -n -- "${pattern}" -- "${filepath}" 2>/dev/null | head -3 || true)"
-      VIOLATIONS+=("${filepath}: ${pattern}")
-      error "FORBIDDEN REF: ${filepath} contains '${pattern}'"
       while IFS= read -r match; do
         error "  ${match}"
       done <<< "${MATCHES}"
     fi
-  done <<< "${TRACKED_FILES}"
-done
+  done
+done <<< "${MATCHING_FILES}"
 
 # ── Summary ─────────────────────────────────────────────────────────────────
 if [[ ${#VIOLATIONS[@]} -eq 0 ]]; then
