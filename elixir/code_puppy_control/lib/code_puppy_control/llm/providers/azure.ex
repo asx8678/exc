@@ -29,6 +29,7 @@ defmodule CodePuppyControl.LLM.Providers.Azure do
   @behaviour CodePuppyControl.LLM.Provider
 
   alias CodePuppyControl.LLM.Provider
+  alias CodePuppyControl.LLM.SystemPrompt
 
   @default_api_version "2024-02-15-preview"
 
@@ -125,10 +126,14 @@ defmodule CodePuppyControl.LLM.Providers.Azure do
       ]
       |> merge_extra_headers(opts)
 
+    # Normalize system prompt: ensure system prompt opt is in messages
+    normalized_messages =
+      SystemPrompt.ensure_in_messages(messages, Keyword.get(opts, :system_prompt))
+
     body =
       %{
         "model" => model,
-        "messages" => Enum.map(messages, &format_message/1),
+        "messages" => Enum.map(normalized_messages, &format_message/1),
         "stream" => stream
       }
       |> maybe_put("temperature", Keyword.get(opts, :temperature))

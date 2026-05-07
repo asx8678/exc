@@ -35,6 +35,7 @@ defmodule CodePuppyControl.LLM.Providers.Google do
   @behaviour CodePuppyControl.LLM.Provider
 
   alias CodePuppyControl.LLM.Provider
+  alias CodePuppyControl.LLM.SystemPrompt
 
   @default_base_url "https://generativelanguage.googleapis.com"
   @default_model "gemini-1.5-flash"
@@ -128,13 +129,15 @@ defmodule CodePuppyControl.LLM.Providers.Google do
       ]
       |> merge_extra_headers(opts)
 
-    {system_messages, chat_messages} = extract_system_messages(messages)
+    # Normalize system prompt: extract from messages + merge with opts
+    {system_instruction, chat_messages} =
+      SystemPrompt.normalize(:gemini, messages, Keyword.get(opts, :system_prompt))
 
     body =
       %{
         "contents" => Enum.map(chat_messages, &format_content/1)
       }
-      |> maybe_put("systemInstruction", format_system_instruction(system_messages))
+      |> maybe_put("systemInstruction", system_instruction)
       |> maybe_put("generationConfig", build_generation_config(opts))
       |> maybe_put_tool_declarations(tools)
 
@@ -151,28 +154,7 @@ defmodule CodePuppyControl.LLM.Providers.Google do
     "#{normalized}/v1beta/models/#{model}:generateContent?key=#{api_key}"
   end
 
-  defp extract_system_messages(messages) do
-    {system_msgs, chat_msgs} =
-      Enum.split_with(messages, fn
-        %{role: role} -> role == "system"
-        %{"role" => role} -> role == "system"
-      end)
-
-    {system_msgs, chat_msgs}
-  end
-
-  defp format_system_instruction([]), do: nil
-
-  defp format_system_instruction(system_msgs) do
-    text =
-      system_msgs
-      |> Enum.map_join("\n\n", fn
-        %{content: content} -> content || ""
-        %{"content" => content} -> content || ""
-      end)
-
-    %{"parts" => [%{"text" => text}]}
-  end
+  # System prompt extraction and formatting is now handled by SystemPrompt.normalize/3
 
   # Convert OpenAI-style messages to Gemini `contents` format.
   # Gemini uses "user" and "model" roles (not "assistant").

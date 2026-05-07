@@ -25,6 +25,7 @@ defmodule CodePuppyControl.LLM.Providers.Anthropic do
   @behaviour CodePuppyControl.LLM.Provider
 
   alias CodePuppyControl.LLM.Provider
+  alias CodePuppyControl.LLM.SystemPrompt
 
   @default_base_url "https://api.anthropic.com"
   @default_model "claude-sonnet-4-20250514"
@@ -124,7 +125,9 @@ defmodule CodePuppyControl.LLM.Providers.Anthropic do
       |> maybe_put_api_key(api_key, extra_headers)
       |> merge_extra_headers(opts)
 
-    {system_text, chat_messages} = extract_system_messages(messages)
+    # Normalize system prompt: extract from messages + merge with opts
+    {system_value, chat_messages} =
+      SystemPrompt.normalize(:anthropic, messages, Keyword.get(opts, :system_prompt))
 
     body =
       %{
@@ -133,30 +136,14 @@ defmodule CodePuppyControl.LLM.Providers.Anthropic do
         "messages" => Enum.map(chat_messages, &format_message/1),
         "stream" => stream
       }
-      |> maybe_put("system", system_text)
+      |> maybe_put("system", system_value)
       |> maybe_put("temperature", Keyword.get(opts, :temperature))
       |> maybe_put_tools(tools)
 
     {url, headers, body}
   end
 
-  defp extract_system_messages(messages) do
-    {system_msgs, chat_msgs} =
-      Enum.split_with(messages, fn
-        %{role: role} -> role == "system"
-        %{"role" => role} -> role == "system"
-      end)
-
-    system_text =
-      system_msgs
-      |> Enum.map_join("\n\n", fn
-        %{content: content} -> content || ""
-        %{"content" => content} -> content || ""
-      end)
-      |> then(fn text -> if text == "", do: nil, else: text end)
-
-    {system_text, chat_msgs}
-  end
+  # System prompt extraction is now handled by SystemPrompt.normalize/3
 
   defp format_message(%{role: role, content: content} = msg) do
     %{"role" => role, "content" => format_content(content, msg)}

@@ -35,6 +35,7 @@ defmodule CodePuppyControl.LLM.Providers.ChatGPTCodex do
 
   alias CodePuppyControl.LLM.Provider
   alias CodePuppyControl.LLM.Providers.ChatGPTCodex.Streaming
+  alias CodePuppyControl.LLM.SystemPrompt
 
   @default_base_url "https://chatgpt.com/backend-api/codex"
   @default_model "gpt-5.4"
@@ -156,8 +157,12 @@ defmodule CodePuppyControl.LLM.Providers.ChatGPTCodex do
       ]
       |> merge_extra_headers(opts)
 
-    # Convert OpenAI-style messages to Responses-style input
-    input = messages_to_input(messages)
+    # Normalize system prompt: extract from messages + merge with opts
+    {instructions, chat_messages} =
+      SystemPrompt.normalize(:chatgpt_codex, messages, system_prompt)
+
+    # Convert non-system messages to Responses-style input
+    input = messages_to_input(chat_messages)
 
     body =
       %{
@@ -166,7 +171,7 @@ defmodule CodePuppyControl.LLM.Providers.ChatGPTCodex do
         "stream" => true,
         "store" => false
       }
-      |> maybe_put_instructions(system_prompt)
+      |> maybe_put_instructions(instructions)
       |> maybe_put_tools(tools)
       |> maybe_put_reasoning(model, opts)
       |> maybe_put("temperature", Keyword.get(opts, :temperature))
