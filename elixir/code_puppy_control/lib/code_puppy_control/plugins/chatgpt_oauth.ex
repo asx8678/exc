@@ -9,7 +9,7 @@ defmodule CodePuppyControl.Plugins.ChatGptOAuth do
   The core OAuth flow and token/model management live in
   `CodePuppyControl.Auth.ChatGptOAuth`.
 
-  Ported from Python: `code_puppy/plugins/chatgpt_oauth/`
+  Originally ported from the legacy Python plugin system.
 
   ## Registered Callbacks
 

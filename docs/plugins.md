@@ -2,16 +2,12 @@
 
 > **Default extension mechanism for the native `pup` runtime.**
 
-Plugins are the primary way to extend Code Puppy. For the Burrito native binary
-and the Elixir `pup` CLI, **Elixir plugins implementing `PluginBehaviour` are the
-recommended path**. Python `register_callbacks.py` plugins remain supported for
-the legacy PyPI compatibility package and bridge mode only.
+Plugins are the primary way to extend Code Puppy. **Elixir plugins implementing
+`PluginBehaviour` are the only supported path** for new development.
 
 For the full plugin development and migration guide, see
 **[PLUGIN_MIGRATION.md](./PLUGIN_MIGRATION.md)**. For the complete hook
 reference, see **[PLUGIN_HOOK_REFERENCE.md](./PLUGIN_HOOK_REFERENCE.md)**.
-For Python compatibility details, see
-**[PYTHON_PLUGIN_COMPATIBILITY.md](./PYTHON_PLUGIN_COMPATIBILITY.md)**.
 
 ---
 
@@ -188,12 +184,12 @@ Python user plugins.
 
 ## Python Plugins (Compatibility Bridge Only)
 
-Python `register_callbacks.py` plugins are supported for the legacy PyPI
-compatibility package and explicit bridge mode (`PUP_RUNTIME=python` /
-`--bridge-mode`). They are **not** the recommended path for new development.
+> **Note:** Python `register_callbacks.py` plugins were part of the legacy
+> Python product that has been removed from this repository. New plugin
+> development must target Elixir `PluginBehaviour`.
 
 ```
-~/.code_puppy/plugins/my_feature/register_callbacks.py
+(removed — Python plugins no longer supported)
 ```
 
 The Python freeze policy (see CONTRIBUTING.md) restricts new feature work
@@ -213,8 +209,8 @@ For the hook mapping and reference, see
 |----------|-------------|
 | [PLUGIN_MIGRATION.md](./PLUGIN_MIGRATION.md) | Overview, quick start, Elixir & migration guides |
 | [PLUGIN_HOOK_REFERENCE.md](./PLUGIN_HOOK_REFERENCE.md) | Complete hook tables, merge semantics, Python→Elixir mapping |
-| [PYTHON_PLUGIN_COMPATIBILITY.md](./PYTHON_PLUGIN_COMPATIBILITY.md) | Python compat writing, security model, testing, publishing |
+| [PYTHON_PLUGIN_COMPATIBILITY.md](./PYTHON_PLUGIN_COMPATIBILITY.md) | Historical: Python compat plugin docs (legacy, pre-deletion) |
 | [ADR-006](./adr/ADR-006-elixir-plugin-loader.md) | Elixir plugin loader design decisions |
 | [AGENTS.md](../AGENTS.md) | Contributor guide and hook list |
-| [CONTRIBUTING.md](../CONTRIBUTING.md) | Python compatibility freeze policy |
+| [CONTRIBUTING.md](../CONTRIBUTING.md) | Contribution guidelines |
 | [HOOKS.md](./HOOKS.md) | Shell hook system (Claude Code compatible) |

@@ -16,7 +16,7 @@ defmodule CodePuppyControl.FileOps.Security do
   """
 
   # ============================================================================
-  # SENSITIVE PATH DEFINITIONS (Ported from Python sensitive_paths.py)
+  # SENSITIVE PATH DEFINITIONS (Originally ported from legacy Python sensitive_paths.py)
   # ============================================================================
 
   @sensitive_dir_prefixes MapSet.new([

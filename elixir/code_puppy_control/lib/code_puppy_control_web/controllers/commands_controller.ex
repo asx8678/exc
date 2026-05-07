@@ -2,8 +2,6 @@ defmodule CodePuppyControlWeb.CommandsController do
   @moduledoc """
   REST API controller for slash command discovery and autocomplete.
 
-  Replaces `code_puppy/api/routers/commands.py` from the Python FastAPI server.
-
   ## Endpoints
 
   - `GET /api/commands` — List all available slash commands
@@ -66,7 +64,7 @@ defmodule CodePuppyControlWeb.CommandsController do
     |> put_status(:not_implemented)
     |> json(%{
       error: "Command execution is not yet implemented in the Elixir server",
-      suggestion: "Use the Python FastAPI server for command execution"
+      suggestion: "Command execution via subprocess is not yet ported; track in code-puppy-fuh"
     })
   end
 

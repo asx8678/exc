@@ -2,7 +2,7 @@ defmodule CodePuppyControl.Workflow do
   @moduledoc """
   Public API for durable workflow execution.
 
-  Replaces Python DBOS workflows with Oban-backed durable execution.
+  Replaces legacy DBOS workflows with Oban-backed durable execution.
   Provides:
 
     * **Workflow persistence** — Oban jobs are persisted to SQLite;

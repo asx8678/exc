@@ -1,7 +1,7 @@
 defmodule CodePuppyControl.Plugins.FileMentions do
   @moduledoc """
   Auto-read file mentions from user prompts.
-  Ported from Python: code_puppy/plugins/file_mentions/register_callbacks.py
+  Originally ported from the legacy Python plugin system.
   """
 
   use CodePuppyControl.Plugins.PluginBehaviour

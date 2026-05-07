@@ -2,7 +2,7 @@ defmodule CodePuppyControlWeb.TerminalChannel do
   @moduledoc """
   Phoenix Channel for interactive terminal sessions.
 
-  Replaces the Python `/ws/terminal` WebSocket endpoint. Clients join
+  Replaces the legacy `/ws/terminal` WebSocket endpoint. Clients join
   `"terminal:<session_id>"` to create a PTY session and exchange
   input/output/resize messages.
 

@@ -240,7 +240,7 @@ defmodule CodePuppyControl.CLI.SlashCommands.Commands.ModelSettings do
         # explicit supported_settings metadata.  Only show these controls
         # when the model's metadata explicitly lists them.
         #
-        # This differs from the Python runtime path (model_factory) where
+        # This differs from the legacy runtime path where
         # defaulting to True is "safe" for API calls.  In the display path,
         # showing unsupported controls is misleading.
         false

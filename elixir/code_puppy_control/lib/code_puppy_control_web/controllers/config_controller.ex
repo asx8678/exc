@@ -2,7 +2,7 @@ defmodule CodePuppyControlWeb.ConfigController do
   @moduledoc """
   REST API controller for runtime configuration management.
 
-  Replaces `code_puppy/api/routers/config.py` from the Python FastAPI server.
+  Replaces the legacy config REST API.
 
   ## Endpoints
 

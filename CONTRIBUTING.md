@@ -4,58 +4,44 @@
 
 ## 🧊 Python Compatibility Freeze Policy
 
-> **TL;DR**: The Python codebase is **compatibility/legacy** during the
-> Elixir-first runtime era. Only critical bug fixes, deprecation warnings,
-> release hardening, tests for existing behavior, and docs updates are allowed.
+> **TL;DR**: The legacy Python product (`code_puppy/`, `pyproject.toml`,
+> `uv.lock`, `.python-version`) has been **deleted**. The Elixir-native
+> `pup` CLI and `CodePuppyControl` runtime are the only supported path.
+> New plugin development targets Elixir `PluginBehaviour`.
 
 ### Rationale
 
-Code Puppy now treats the Elixir `pup` CLI and `CodePuppyControl` runtime as the default daily-driver path:
-- The Elixir codebase (`elixir/code_puppy_control/`) is where **new runtime development happens**.
-- **New plugin development should target the Elixir `PluginBehaviour` API** (see `docs/PLUGIN_MIGRATION.md`).
-- The Python codebase (`code_puppy/`) is maintained for PyPI compatibility, Python plugins/agents, and explicit bridge mode (`PUP_RUNTIME=python` / `--bridge-mode`).
+Code Puppy now treats the Elixir `pup` CLI and `CodePuppyControl` runtime as the **only** supported runtime:
+- The Elixir codebase (`elixir/code_puppy_control/`) is where **all runtime development happens**.
+- **New plugin development must target the Elixir `PluginBehaviour` API** (see `docs/PLUGIN_MIGRATION.md`).
+- The legacy Python product has been removed from the repository (see EPIC-C/E).
 - `pup_ex` is a Mix task namespace; there is no separate `pup-ex` executable. Avoid new docs or UX that imply otherwise.
-- Dual-maintenance would fragment effort and reintroduce stale Python-led runtime assumptions.
+- **ADR-005 boundary**: BEAM-native Python source *parsing* (lexer/parser) remains as parser data support, not Python runtime support. Do not delete parser files.
 
 ### What's Allowed ✅
 
 | Type | Examples |
 |----------|----------|
-|**_Critical bug fixes_** | Crashes, data loss, security vulnerabilities |
-|**_Deprecation warnings_** | Guiding users toward the Elixir `pup` / `CodePuppyControl` equivalents |
+|**_Elixir runtime development_** | New agents, plugins, tools, capabilities in `elixir/code_puppy_control/` |
 |**_Documentation updates_** | README fixes, migration guides, API docs |
-|**_CI/infrastructure_** | Changes that don't touch `code_puppy/**/*.py` |
-|**_Release hardening_** | Tests, packaging metadata (`pyproject.toml`, `.python-version`), release scripts (`scripts/`), CI workflows, and docs — when linked to an issue |
-|**_Test coverage_** | New or updated tests for existing `code_puppy/**/*.py` modules |
+|**_Bug fixes_** | Crashes, data loss, security vulnerabilities in Elixir code |
+|**_CI/infrastructure_** | Build, release, and CI pipeline improvements |
 
 ### What's NOT Allowed ❌
 
 | Type | Examples |
 |----------|-----------|
-|**_Refactors_** | Code reorganization, style changes, renaming |
-|**_Schema changes_** | `puppy.cfg` modifications, `*.json` config changes |
-|**_New features_** | New commands, tools, agents, or capabilities |
-|**_Non-critical fixes_** | Typos, cosmetic bugs, edge cases with workarounds |
+|**_Python runtime restoration_** | Re-adding `code_puppy/`, `pyproject.toml`, bridge mode, `PUP_RUNTIME=python` |
+|**_Bridge-mode references_** | Docs or code that present Python bridge/PyPI as an active supported path |
+|**_Non-Elixir runtime features_** | New Python agents, Python plugins, Python bridge endpoints |
 
 ### What Reviewers Should Enforce
 
-1. **Check the file path** - If it touches `code_puppy/**/*.py`, scrutinize heavily
-2. **Require justification** - Every Python change needs an issue reference
-3. **Label appropriately** - Use `bug-fix`, `docs`, or `deprecation` labels
-4. **Ask: "Could this go in Elixir?"** - If yes, redirect the contributor
-5. **Release hardening exception** - Tests, docs, packaging, scripts, and CI may change without the `critical-freeze-override` label if linked to a release-hardening issue (e.g. Phase K). New `code_puppy/**/*.py` feature work remains frozen.
-
-### Emergency Override Process
-
-If a critical production fix is needed:
-1. File an issue with label `critical-freeze-override`
-2. Get approval from a maintainer
-3. Merge with the appropriate conventional commit type (`fix` for bug fixes, `docs` for documentation)
-4. Create a follow-up issue to port the fix to Elixir
-
-### Timeline
-
-This freeze remains in effect while the Python package is a compatibility stream. It can be relaxed only through an explicit release plan that preserves PyPI users and bridge-mode workflows.
+1. **Check the file path** - New runtime code belongs in `elixir/code_puppy_control/`
+2. **Require Elixir-first** - If a feature could go in Elixir, it must go in Elixir
+3. **No stale references** - PRs should not re-introduce `PUP_RUNTIME`, `--bridge-mode`, `PythonWorker`, `PUP_PYTHON_WORKER_SCRIPT`, or `pyproject.toml` as active supported paths
+4. **Preserve ADR-005 boundary** - Python *parsing* (lexer/parser) is BEAM-native; don't delete parser files
+5. **Label appropriately** - Use `docs`, `feat`, or `fix` labels
 
 ---
 
@@ -82,9 +68,9 @@ Include the **bd issue ID** (e.g. `code_puppy-djs.7`) in the commit message body
 
 ### Code Review
 
-All changes require review. The Python compatibility freeze policy (above) is strictly enforced for `code_puppy/**/*.py` changes.
+All changes require review. The Python deletion policy (above) is enforced: no re-introduction of Python as a runtime path.
 
-Note: reviewer enforcement only — no CI gate.
+Note: reviewer enforcement only — no CI gate for Python restoration detection.
 
 ### Automated Code Review for Test Files
 
@@ -112,7 +98,7 @@ All new and modified test files must pass automated review before merge. This en
 
 # Or invoke agents directly for more control
 code-puppy --agent elixir-code-critic --prompt "Review test file: path/to/test.exs"
-code-puppy --agent qa-kitten --prompt "Analyze test coverage for: path/to/tests/"
+code-cuppy --agent qa-kitten --prompt "Analyze test coverage for: path/to/tests/"
 ```
 
 #### When Reviews Are Required
@@ -183,62 +169,6 @@ mix test --only e2e           # End-to-end tests
 
 **Rule:** Agents default to `mix test.changed` during development. Full suite runs on issue/epic close.
 
-## Runtime Routing Infrastructure
-
-Code Puppy has a runtime selector for the Elixir-first default path plus explicit Python bridge compatibility:
-
-### Feature Flags (`FeatureFlags`)
-
-Per-capability toggles stored in `~/.code_puppy_ex/flags.json`:
-
-```json
-{
-  "elixir.llm_client": false,
-  "elixir.base_agent": false,
-  "elixir.tools": false,
-  "elixir.plugins": false,
-  "elixir.cli": false
-}
-```
-
-Elixir access:
-```elixir
-CodePuppyControl.FeatureFlags.enabled?("elixir.tools")  # O(1) ETS read
-CodePuppyControl.FeatureFlags.set_flag("elixir.tools", true)  # persists to disk
-```
-
-### Runtime Selector (`RuntimeSelector`)
-
-Determines which runtime handles a request based on `PUP_RUNTIME` env + feature flags:
-
-| `PUP_RUNTIME` | Behavior |
-|---------------|----------|
-| `python` | Always delegate to Python bridge |
-| `elixir` | Always handle in Elixir |
-| `auto` (default) | Elixir-first default; route known capabilities through FeatureFlags/Rollout as configured |
-
-```elixir
-CodePuppyControl.RuntimeSelector.select("elixir.tools")  # => :elixir or :python
-CodePuppyControl.RuntimeSelector.elixir_handles?("elixir.tools")  # => boolean
-```
-
-### Gradual Rollout (`Rollout`)
-
-Percentage-based routing with error-rate observability:
-
-```elixir
-CodePuppyControl.Rollout.set_percentage("elixir.tools", 25)  # 25% of requests go to Elixir
-CodePuppyControl.Rollout.record_outcome("elixir.tools", :elixir, :ok)  # track success
-CodePuppyControl.Rollout.check_rollback("elixir.tools")  # => :ok or {:rollback, reason}
-```
-
-### Agent Guidelines for Phase H
-
-- Check `RuntimeSelector.elixir_handles?(capability)` before processing a capability
-- If it returns `false`, delegate to the Python bridge via `elixir_bridge`
-- Record outcomes via `Rollout.record_outcome/3` for observability
-- Never bypass the RuntimeSelector — it respects feature flags AND rollout percentages
-
 ---
 
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:ca08a54f -->
@@ -258,7 +188,7 @@ bd close <id>         # Complete work
 ### Rules
 
 - Use `bd` for ALL task tracking — do NOT use TodoWrite, TaskCreate, or markdown TODO lists
-- Run `bd prime` for detailed command reference and session close protocol
+- Run `bd prime` for detailed workflow reference and session close protocol
 - Use `bd remember` for persistent knowledge — do NOT use MEMORY.md files
 
 ## Session Completion

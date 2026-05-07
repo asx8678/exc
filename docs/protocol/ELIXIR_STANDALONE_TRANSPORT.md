@@ -2,7 +2,9 @@
 
 This document describes the standalone stdio JSON-RPC transport for Elixir file operations, which provides an alternative to the bridge mode (PythonWorker.Port) for simple use cases.
 
-> **Note:** PythonWorker.Port is only available under explicit `PUP_RUNTIME=python` / `--bridge-mode`.
+> ⚠️ **Historical note:** PythonWorker.Port and bridge mode are no longer
+> supported paths. This document describes the standalone stdio JSON-RPC transport
+> for Elixir file operations, which remains the current approach for simple use cases.
 > The default native Burrito runtime does not use PythonWorker.
 
 ## Overview

@@ -3,7 +3,7 @@ defmodule CodePuppyControl.Sessions do
   Context module for chat session persistence.
 
   Provides the public API for saving, loading, and managing agent sessions
-  stored in SQLite via Ecto. Replaces Python session_storage.py functionality.
+  stored in SQLite via Ecto. Replaces legacy session storage functionality.
 
   This module implements : Migrate session_storage.py to Elixir/Ecto.
 

@@ -2,15 +2,13 @@
 
 ## High-Level System Architecture
 
-> **Phase H Reach (2026-05)**: Code Puppy's default runtime is **Elixir-native**.
-> Python is optional and only required for legacy bridge-worker flows.
-> 
-> - **Elixir-native CLI/REPL**: Default entry point — `pup` binary (Burrito or escript)
-> - **Elixir OTP runtime**: ALL core operations (agent execution, LLM, file ops, parsing, session state, plugins, TUI)
-> - **Python bridge** (optional): Legacy/PyPI compatibility, Python plugins/agents, and `PUP_RUNTIME=python` / `--bridge-mode` flows
-> - **Rust layer**: **COMPLETELY ELIMINATED** (since Phase 6)
+> Code Puppy's runtime is **Elixir-native** (`CodePuppyControl` on BEAM/OTP).
+> All core operations — agent execution, LLM, file ops, parsing, session state,
+> plugins, TUI — run on the BEAM. No separate Python runtime is required.
 >
-> Architecture: Elixir-native control plane → Python bridge optional (compat/legacy)
+> **ADR-005 boundary**: The Elixir runtime includes BEAM-native Python source
+> *parsing* (lexer/parser via leex/yecc) for code analysis. This is parser data
+> support, not Python runtime or product support.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
@@ -31,8 +29,8 @@
          │                    │                                    │
 ┌────────▼────────┐  ┌────────▼────────┐  ┌───────────────────────▼────┐
 │ CONFIG SYSTEM   │  │ CALLBACK SYSTEM │  │  PLUGIN LOADER (Elixir)    │
-│ (pup-ex.ini)    │  │  (CodePuppy     │  │  (Auto-discover Elixir &   │
-│                 │  │   Control.      │  │   legacy Python plugins)   │
+│ (pup-ex.ini)    │  │  (CodePuppy     │  │  (Auto-discover Elixir     │
+│                 │  │   Control.      │  │   plugins)                 │
 │                 │  │   Callbacks)    │  │                            │
 └────────┬────────┘  └────────┬────────┘  └────────────────────────────┘
          │                    │
@@ -113,17 +111,6 @@
 │ (FileOps)       │  │ (leex/yecc     │  │ (Oban Job Queue)│
 │                 │  │  parsers)      │  │                 │
 └─────────────────┘  └─────────────────┘  └─────────────────┘
-    │
-    ▼
-┌──────────────────────────────────────────────────────────────────────────────┐
-│                   PYTHON BRIDGE (Optional / Legacy)                           │
-│                                                                               │
-│  ┌──────────────────────────────────────────────────────────────────────┐     │
-│  │  PythonWorker.Port (GenServer) — JSON-RPC 2.0 over stdio             │     │
-│  │  Only activated when PUP_RUNTIME=python or --bridge-mode             │     │
-│  └──────────────────────────────────────────────────────────────────────┘     │
-│                                                                               │
-└──────────────────────────────────────────────────────────────────────────────┘
     │
     ▼
 ┌──────────────────────────────────────────────────────────────────────────────┐
@@ -226,16 +213,12 @@ User Input (stdin or TUI)
                     (Back to LLM loop)
 ```
 
-> **Legacy Python bridge**: When `PUP_RUNTIME=python`, the tool layer delegates
-> to a Python subprocess via `PythonWorker.Port` (JSON-RPC over stdio).
-> See [Bridge mode flow](docs/architecture.md#bridge-mode-flow) for details.
-
 ## Key Architectural Decisions
 
 | Aspect | Decision | Rationale |
 |--------|----------|-----------|
-| **Plugin System** | Hook-based callbacks (Elixir, with legacy Python compat) | Hot-swappable, zero core modification |
-| **Runtime** | Elixir-native (default); Python bridge optional | `PUP_RUNTIME=python` / `--bridge-mode` for legacy/PyPI compatibility and Python plugins/agents |
+| **Plugin System** | Hook-based callbacks (Elixir `PluginBehaviour`) | Hot-swappable, zero core modification |
+| **Runtime** | Elixir-native (only path) | BEAM/OTP provides concurrency, fault tolerance, hot code reload |
 | **Agent Concurrency** | Pack Leader with MAX=8 | Prevents resource exhaustion |
 | **Model Routing** | Adaptive rate limiting (GenServer + ETS) | Protects against rate limit storms |
 | **MCP Security** | Circuit breaker + whitelist | Defense in depth for external tools |
@@ -267,8 +250,8 @@ AgentBehaviour (Elixir behaviour)
 ```
 
 > **Historical note**: Agents were originally Python `BaseAgent (ABC)` classes.
-> They have been ported to Elixir behaviours under `CodePuppyControl.Agents`.
-> The Python agent classes remain for legacy bridge-mode compatibility.
+> They have been fully ported to Elixir behaviours under `CodePuppyControl.Agents`.
+> The Python agent source tree has been removed from the project.
 
 ## Hook Phases (Callback System)
 

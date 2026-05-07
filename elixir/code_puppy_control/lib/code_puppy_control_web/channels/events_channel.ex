@@ -2,7 +2,7 @@ defmodule CodePuppyControlWeb.EventsChannel do
   @moduledoc """
   Phoenix Channel for real-time event streaming.
 
-  Replaces the Python `/ws/events` WebSocket endpoint. Clients join
+  Replaces the legacy `/ws/events` WebSocket endpoint. Clients join
   `"events:<session_id>"` to receive live events and optional session
   history replay.
 

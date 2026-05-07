@@ -2,7 +2,7 @@ defmodule CodePuppyControlWeb.AgentsController do
   @moduledoc """
   REST API controller for agent management.
 
-  Replaces `code_puppy/api/routers/agents.py` from the Python FastAPI server.
+  Replaces the legacy agents REST API.
 
   ## Endpoints
 

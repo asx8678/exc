@@ -2,7 +2,7 @@ defmodule CodePuppyControl.EventBus do
   @moduledoc """
   Event distribution via Phoenix.PubSub.
 
-  Replaces the Python MessageBus pattern with Elixir-native PubSub.
+  Replaces the legacy MessageBus pattern with Elixir-native PubSub.
   Python emits events to Elixir, which broadcasts via PubSub to subscribers.
 
   ## Topics

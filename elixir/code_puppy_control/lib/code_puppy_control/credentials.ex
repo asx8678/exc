@@ -30,9 +30,9 @@ defmodule CodePuppyControl.Credentials do
       # Key not found
       {:error, :not_found} = CodePuppyControl.Credentials.get("NONEXISTENT")
 
-  ## Migration from Python
+  ## Migration from Legacy Config
 
-      # Import API keys from the Python puppy.cfg
+      # Import API keys from the legacy puppy.cfg
       {:ok, count} = CodePuppyControl.Credentials.import_from_python()
 
   ## Security Model
@@ -47,7 +47,7 @@ defmodule CodePuppyControl.Credentials do
   ## Isolation
 
   This module writes ONLY to `~/.code_puppy_ex/` (or `PUP_EX_HOME`).
-  It never writes to the legacy Python home (`~/.code_puppy/`).
+  It never writes to the legacy home (`~/.code_puppy/`).
   """
 
   alias CodePuppyControl.Credentials.Crypto
@@ -55,7 +55,7 @@ defmodule CodePuppyControl.Credentials do
 
   @store_filename "store.json"
 
-  # API key names that Python stores in puppy.cfg
+  # API key names that the legacy config stores in puppy.cfg
   @python_api_key_names [
     "OPENAI_API_KEY",
     "GEMINI_API_KEY",
@@ -182,9 +182,9 @@ defmodule CodePuppyControl.Credentials do
   end
 
   @doc """
-  Import API keys from the Python puppy.cfg into the credential store.
+  Import API keys from the legacy puppy.cfg into the credential store.
 
-  Reads the legacy Python configuration file and imports any API keys
+  Reads the legacy configuration file and imports any API keys
   that are present. This is a one-time migration helper.
 
   Returns `{:ok, count}` with the number of keys imported, or
@@ -192,7 +192,7 @@ defmodule CodePuppyControl.Credentials do
 
   ## Options
 
-  - `:python_cfg_path` — override the path to the Python puppy.cfg
+  - `:python_cfg_path` — override the path to the legacy puppy.cfg
 
   ## Examples
 
@@ -284,7 +284,7 @@ defmodule CodePuppyControl.Credentials do
 
     if String.starts_with?(expanded, legacy_home <> "/") or expanded == legacy_home do
       raise ArgumentError,
-            "Credentials must not be stored in the legacy Python home " <>
+            "Credentials must not be stored in the legacy home " <>
               "(#{legacy_home}). Use ~/.code_puppy_ex/ instead."
     end
 
@@ -358,7 +358,7 @@ defmodule CodePuppyControl.Credentials do
     end
   end
 
-  # Parse a simple INI-style value from the Python puppy.cfg.
+  # Parse a simple INI-style value from the legacy puppy.cfg.
   # Format: KEY=value (one per line, no section headers for API keys)
   defp parse_ini_value(contents, key_name) do
     case Regex.run(~r/^#{Regex.escape(key_name)}=(.*)$/m, contents) do

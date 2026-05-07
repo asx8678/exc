@@ -4,8 +4,7 @@ defmodule CodePuppyControl.Plugins.FastPuppy do
 
   Native acceleration layer removed. This plugin is now a minimal
   stub that only reports that the acceleration layer has been removed.
-
-  Historically ported from Python (Python stub deleted — code-puppy-3e5).
+  All operations now run on the Elixir-native BEAM/OTP runtime.
   """
 
   use CodePuppyControl.Plugins.PluginBehaviour
@@ -31,7 +30,7 @@ defmodule CodePuppyControl.Plugins.FastPuppy do
   @spec handle_custom_command(String.t(), String.t()) :: String.t() | nil
   def handle_custom_command(_command, name) do
     if name == "fast_puppy" do
-      "🐍 Fast Puppy: Native acceleration layer removed. All operations use pure Python."
+      "🐶 Fast Puppy: Native acceleration layer removed. All operations use the Elixir-native runtime."
     else
       nil
     end

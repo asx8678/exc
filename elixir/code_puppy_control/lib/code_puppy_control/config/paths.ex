@@ -3,7 +3,7 @@ defmodule CodePuppyControl.Config.Paths do
   XDG-compatible path resolution for Code Puppy directories and files.
 
   Implements ADR-003 dual-home config isolation. The Elixir pup-ex runtime
-  uses `~/.code_puppy_ex/` as its home, separate from the Python pup's
+  uses `~/.code_puppy_ex/` as its home, separate from the legacy
   `~/.code_puppy/`. Writes to the legacy home are blocked by the
   `CodePuppyControl.Config.Isolation` guard module.
 
@@ -70,7 +70,7 @@ defmodule CodePuppyControl.Config.Paths do
   @doc """
   Legacy home directory — always `~/.code_puppy`, regardless of env vars.
 
-  This is the Python pup's home directory. Elixir pup-ex must NEVER write
+  This is the legacy home directory. Elixir pup-ex must NEVER write
   here. Use only for read-only import via `mix pup_ex.import`.
 
       read_only: true, legacy: true

@@ -1,5 +1,9 @@
 # Python↔Elixir Bridge Protocol Specification
 
+> ⚠️ **Historical document.** The Python product has been removed from this
+> repository. This protocol specification is preserved for migration context;
+> it no longer describes an active supported path.
+
 Version: 1.0.0
 Last Updated: 2026-04-14
 

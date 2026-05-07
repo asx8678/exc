@@ -5,7 +5,7 @@ defmodule CodePuppyControl.Plugins.ClaudeCodeOAuth do
   Provides browser-based OAuth authentication for Claude Code models,
   token refresh heartbeat, model discovery, and model type registration.
 
-  Ported from Python: `code_puppy/plugins/claude_code_oauth/`
+  Originally ported from the legacy Python plugin system.
 
   ## Registered Callbacks
 

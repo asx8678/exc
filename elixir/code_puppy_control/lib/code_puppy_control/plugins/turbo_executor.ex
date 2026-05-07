@@ -5,8 +5,6 @@ defmodule CodePuppyControl.Plugins.TurboExecutor do
   Provides the `/turbo` slash command and `turbo_execute` tool for
   delegating batch file operations (>5 files) to a sub-agent.
 
-  Ported from Python: code_puppy/plugins/turbo_executor/register_callbacks.py
-
   ## v1 Scope
 
   - `/turbo status` — reports plugin availability

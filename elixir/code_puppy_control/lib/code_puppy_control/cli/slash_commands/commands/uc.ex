@@ -3,9 +3,9 @@ defmodule CodePuppyControl.CLI.SlashCommands.Commands.UC do
   UC slash command: /uc [subcommand] [args].
 
   Manages Universal Constructor tools from the CLI. Provides a simplified
-  text-based interface (not the full TUI from the Python version).
+  text-based interface (not the full TUI).
 
-  Ports the Python `/uc` command from `code_puppy/command_line/uc_menu.py`.
+  Ports the legacy `/uc` command to Elixir.
 
   ## Usage
 

@@ -8,7 +8,7 @@ defmodule CodePuppyControl.FileOps do
   - Proper error handling
   - Security validation (no sensitive paths)
 
-  Ported from Python code_puppy/tools/file_operations.py
+  Originally ported from the legacy Python tool layer.
 
   ## Submodules
 

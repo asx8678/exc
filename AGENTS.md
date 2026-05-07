@@ -44,66 +44,37 @@ auto-discovers `register_callbacks.ex` (preferred, compiles to BEAM) and
 > Elixir code with full system privileges — same trust model as Python plugins.
 > Only load plugins from sources you trust. See
 [docs/PYTHON_PLUGIN_COMPATIBILITY.md](docs/PYTHON_PLUGIN_COMPATIBILITY.md) for full details.
-### Python Plugins (Compatibility / Bridge Mode Only)
+### Python Plugins (Removed)
 
-Python `register_callbacks.py` plugins are supported for the legacy PyPI
-compatibility package and explicit bridge mode (`PUP_RUNTIME=python` / `--bridge-mode`):
-
-```python
-# code_puppy/plugins/my_feature/register_callbacks.py (builtin)
-# ~/.code_puppy/plugins/my_feature/register_callbacks.py (user)
-from code_puppy.callbacks import register_callback
-
-def _on_startup():
-    print("my_feature loaded!")
-
-register_callback("startup", _on_startup)
-```
-
-> **⚠️ Python plugins are compatibility-only.** New plugin development should
-> target the Elixir `PluginBehaviour` API. The Python freeze policy (see
-> CONTRIBUTING.md) restricts changes to `code_puppy/**/*.py`.
->
-> **Security note:** user plugins in `~/.code_puppy/plugins/` are treated as trusted
-> local Python code. They are imported and executed during plugin discovery with
-> the same local privileges as Code Puppy itself. There is currently no isolated
-> safe mode for user plugins, so do not install untrusted plugins.
+Python `register_callbacks.py` plugins were part of the legacy Python product
+that has been removed from this repository. New plugin development must target
+Elixir `PluginBehaviour`.
 
 Full plugin development guide: [docs/PLUGIN_MIGRATION.md](docs/PLUGIN_MIGRATION.md).
 
-## Runtime Integration & Python Bridge
+## Runtime Integration
 
-Code Puppy's default runtime is now **Elixir-native** (`CodePuppyControl`). The old native-acceleration/profile layer is gone; do not add replacement backend facades or profile-switching shims.
+Code Puppy's runtime is **Elixir-native** (`CodePuppyControl`). The old Python runtime, bridge, and native-acceleration/profile layers are gone; do not add replacement backend facades or profile-switching shims.
 
 | Capability | Current owner | Notes |
 |------------|---------------|-------|
 | `file_ops` | `CodePuppyControl.FileOps` | Batch file ops (`list_files`, `grep`, `read_file`) |
 | `repo_index` | Elixir repo/index services | Repository indexing |
-| `parse` | `CodePuppyControl.Parsing.Parser` | Elixir-only parse operations (elixir, erlang, python, javascript, typescript, tsx, rust) |
-| agents/tools/sessions | Elixir runtime | Default daily-driver path |
-| Python plugins/agents | Python bridge | Explicit compatibility path only |
+| `parse` | `CodePuppyControl.Parsing.Parser` | BEAM-native parse operations (elixir, erlang, python, javascript, typescript, tsx, rust) |
+| agents/tools/sessions | Elixir runtime | Only supported path |
 
-Python bridge access pattern:
-```python
-from code_puppy.plugins.elixir_bridge import is_connected, call_method
-
-if is_connected():
-    result = call_method('code_context.explore_file', {'file_path': path})
-else:
-    result = {'error': 'Elixir bridge is not connected'}
-```
+**ADR-005 boundary**: The `parse` capability includes BEAM-native Python source parsing
+(lexer/parser via leex/yecc). This is parser data support, not Python runtime support.
+Do not delete parser files.
 
 **Agent Guidelines:**
-- Check bridge availability via `code_puppy.plugins.elixir_bridge.is_connected()` before Python compatibility code calls Elixir.
-- Parse operations are Elixir-owned. Do not add a Python runtime parse backend; narrowly scoped UI heuristics are okay only when clearly documented as compatibility behavior.
-- Import from `code_puppy.plugins.elixir_bridge` instead of direct bridge internals.
-- Default runtime work belongs in Elixir (`CodePuppyControl`). Use Python only for legacy/PyPI compatibility, Python plugins/agents, or explicit bridge mode (`PUP_RUNTIME=python`, `--bridge-mode`).
-- `PUP_PYTHON_WORKER_SCRIPT` is required only when explicit Python bridge mode is selected and a worker script cannot otherwise be configured.
+- All runtime work belongs in Elixir (`CodePuppyControl`).
+- Parse operations are Elixir-owned. Do not add a Python runtime parse backend.
+- Do not re-introduce `PUP_RUNTIME`, `--bridge-mode`, `PythonWorker`, `PUP_PYTHON_WORKER_SCRIPT`, or `pyproject.toml` as active supported paths.
 
 ## Available Hooks
 
 Elixir: `Callbacks.register(:hook_name, fn)` — see `CodePuppyControl.Callbacks.Hooks` for authoritative arities.
-Python: `register_callback("hook_name", func)` — deduplicated, async hooks accept sync or async functions.
 
 | Hook | When | Signature |
 |------|------|-----------|
@@ -129,8 +100,7 @@ Python: `register_callback("hook_name", func)` — deduplicated, async hooks acc
 | `stream_event` | Response streaming | `(event_type, event_data, agent_session_id=None) -> None` |
 | `get_motd` | Banner | `() -> tuple[str, str] \| None` |
 
-Full list + rarely-used hooks: see `code_puppy/callbacks.py` (Python) or
-`CodePuppyControl.Callbacks.Hooks` (Elixir — authoritative source).
+Full list + rarely-used hooks: see `CodePuppyControl.Callbacks.Hooks` (authoritative source).
 
 **Elixir-only hooks** (no Python equivalent): `:version_check`, `:agent_reload`,
 `:edit_file`, `:create_file`, `:replace_in_file`, `:delete_snippet`,
@@ -175,17 +145,18 @@ The following rules are enforced based on project audit findings:
 
 All async callback implementations **must use non-blocking I/O only**:
 
-```python
-# CORRECT: async context manager with proper I/O
-async def _on_shutdown_async():
-    await asyncio.gather(*pending_tasks)  # Non-blocking
+```elixir
+# CORRECT: non-blocking I/O in callbacks
+def handle_info(:shutdown, state) do
+  Task.async(fn -> graceful_cleanup(state) end)
+  {:noreply, state}
+end
 
-# INCORRECT: blocking I/O in async callback
-async def _on_shutdown_bad():
-    time.sleep(5)  # Blocking! Use asyncio.sleep instead
+# INCORRECT: blocking I/O in callback
+Process.sleep(5000)  # Blocking! Use Process.send_after/3 instead
 ```
 
-**Rule**: If your callback is registered as async, **all I/O must be async-native**. Use `asyncio` primitives, not blocking stdlib calls.
+**Rule**: Callbacks should be non-blocking. Use `Process.send_after/3`, `Task.async/1`, or OTP primitives instead of blocking calls.
 
 ### Environment Variable Naming Convention
 
@@ -211,12 +182,13 @@ When multiple callbacks register for the same hook, results are **merged by type
 | `bool` | OR (any True wins) |
 | `None` | Ignored |
 
-```python
+```elixir
 # Example: load_prompt returns are concatenated
-def my_prompt():
-    return "\n\n## Custom Instructions"  # Appended to base prompt
+def my_prompt do
+  "\n\n## Custom Instructions"  # Appended to base prompt
+end
 
-register_callback("load_prompt", my_prompt)
+Callbacks.register(:load_prompt, &my_prompt/0)
 ```
 
 **Rule**: Design callbacks expecting **additive semantics**, not replacement.
@@ -233,9 +205,9 @@ TODO comments follow a strict format for tooling and tracking:
 ```
 
 Examples:
-```python
-# TODO(code_puppy-123): Add retry logic for rate limits
-# FIXME(code_puppy-456): Race condition on concurrent config updates
+```elixir
+# TODO(code-puppy-123): Add retry logic for rate limits
+# FIXME(code-puppy-456): Race condition on concurrent config updates
 # HACK(pack-parallelism): Workaround for semaphore state sync
 ```
 
@@ -254,16 +226,17 @@ Tests must prevent "drift" from implementation changes:
 
 **CI Gate**: Plugin tests run on every plugin-related commit (see `scripts/git-hooks/pre-push`).
 
-```python
+```elixir
 # CORRECT: Test the invariant, not the implementation
-@given(config=valid_config())
-def test_effective_limit_always_positive(config):
-    limiter = RunLimiter(config)
-    assert limiter.effective_limit >= 1
+test "effective limit is always positive" do
+  limiter = RunLimiter.new(config)
+  assert limiter.effective_limit >= 1
+end
 
-# INCORRECT: Testing internal counter directly
-def test_counter_increment():
-    limiter._async_active = 1  # Brittle: relies on internal field
+# INCORRECT: Testing internal state directly
+test "counter increment" do
+  limiter = %RunLimiter{async_active: 1}  # Brittle: relies on internal field
+end
 ```
 
 ### Coverage Gates
@@ -272,9 +245,9 @@ Per-module coverage requirements (CI-enforced):
 
 | Module Pattern | Minimum Coverage |
 |---------------|------------------|
-| `code_puppy/plugins/pack_parallelism/*` | ≥85% |
-| `code_puppy/utils/file_display.py` | Tested via integration |
-| `code_puppy/tools/command_runner.py` | Security-scanned + tested |
+| `code_puppy_control/plugins/pack_parallelism/*` | ≥85% |
+| `code_puppy_control/cli/*` | Integration + unit |
+| `code_puppy_control/tools/*` | Security-scanned + tested |
 
 **Rule**: Coverage gates are **minimums**, not targets. Prefer quality over percentage.
 

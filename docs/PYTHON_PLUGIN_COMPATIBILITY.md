@@ -124,6 +124,11 @@ Use `asyncio` primitives, not blocking stdlib calls.
 | One `register_callbacks.py` per plugin | Module-scope registration only |
 | 600-line file cap | Split into submodules if needed |
 | Fail gracefully | Never crash the app — wrap in `try/except` |
+> ⚠️ **Historical document.** The Python product (`code_puppy/`, `pyproject.toml`)
+> has been removed from this repository. Python plugins are no longer supported.
+> This document is preserved for migration context. New plugin development must
+> target Elixir `PluginBehaviour` — see [PLUGIN_MIGRATION.md](./PLUGIN_MIGRATION.md).
+
 | Return `None` from unhandled commands | Don't block other plugins |
 | `PUP_` prefix for env vars | Legacy `PUPPY_` is deprecated |
 | TODO markers need identifiers | `TODO(issue-id): description` |

@@ -1,6 +1,6 @@
 defmodule CodePuppyControlWeb.InfoController do
   @moduledoc """
-  Root info endpoint — replaces FastAPI GET / handler.
+  Root info endpoint.
 
   Returns app identity and status for health-check probes and clients.
   Unlike the Python version (which returns an HTML landing page),

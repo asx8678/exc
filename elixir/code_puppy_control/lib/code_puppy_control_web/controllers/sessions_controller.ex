@@ -2,7 +2,7 @@ defmodule CodePuppyControlWeb.SessionsController do
   @moduledoc """
   REST API controller for session management.
 
-  Replaces `code_puppy/api/routers/sessions.py` from the Python FastAPI server.
+  Replaces the legacy sessions REST API.
 
   ## Endpoints
 

@@ -2,7 +2,7 @@ defmodule CodePuppyControlWeb.HealthChannel do
   @moduledoc """
   Phoenix Channel for health monitoring and diagnostics.
 
-  Replaces the Python `/ws/health` WebSocket endpoint. Clients join
+  Replaces the legacy `/ws/health` WebSocket endpoint. Clients join
   `"health"` to receive periodic health status updates and send echo
   messages.
 

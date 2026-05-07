@@ -133,32 +133,9 @@ else
 fi
 
 # -----------------------------------------------------------------------------
-# Step 5: Check Python bridge (from project root)
+# Step 5: Python bridge check (removed — Python product deleted)
 # -----------------------------------------------------------------------------
-log_step "Checking Python bridge..."
-
-# Navigate to project root if we're in the elixir directory
-if [ -f "../../pyproject.toml" ]; then
-    cd "../.."
-fi
-
-if [ -d "code_puppy" ] && [ -f "pyproject.toml" ]; then
-    # Try to import the bridge module
-    if python3 -c "
-try:
-    from code_puppy.plugins.elixir_bridge import bridge_controller
-    print('✅ Python bridge imports OK')
-except ImportError as e:
-    print(f'⚠️  Python bridge import issue: {e}')
-    exit(1)
-" 2>/dev/null; then
-        log_success "Python bridge is importable"
-    else
-        log_warning "Python bridge not fully importable (may need dependencies)"
-    fi
-else
-    log_warning "Python project not found at expected location"
-fi
+log_step "Python bridge check: skipped (Python product removed)"
 
 # Return to elixir directory
 cd "$PROJECT_ROOT"

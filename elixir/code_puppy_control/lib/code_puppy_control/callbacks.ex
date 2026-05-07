@@ -45,7 +45,7 @@ defmodule CodePuppyControl.Callbacks do
   # ── Shutdown Reentrancy Guard ───────────────────────────────────
   # 3-state machine: :idle → :running → :complete
   # Prevents recursive cleanup when signals arrive during shutdown.
-  # Ported from Python's _ShutdownStage in code_puppy/callbacks.py.
+  # Originally ported from the legacy Python callback system.
 
   @shutdown_table :code_puppy_shutdown_stage
 

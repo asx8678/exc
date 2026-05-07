@@ -1,7 +1,7 @@
 defmodule Mix.Tasks.PupEx.Import do
-  @shortdoc "Import non-sensitive settings from ~/.code_puppy/ (Python pup's home)"
+  @shortdoc "Import non-sensitive settings from ~/.code_puppy/ (legacy home)"
   @moduledoc """
-  Import non-sensitive settings from the Python pup's legacy home directory.
+  Import non-sensitive settings from the legacy home directory.
 
   This task copies allowlisted files from `~/.code_puppy/` to
   `~/.code_puppy_ex/`. It will NEVER touch OAuth tokens, sessions,

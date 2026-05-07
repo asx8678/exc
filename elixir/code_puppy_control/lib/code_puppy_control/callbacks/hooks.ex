@@ -13,7 +13,7 @@ defmodule CodePuppyControl.Callbacks.Hooks do
   - `async` — whether the hook supports concurrent execution
   - `description` — human-readable purpose
 
-  Hooks are ported from the Python `code_puppy/callbacks.py` PhaseType definitions.
+  Hooks are ported from the legacy `code_puppy/callbacks.py` PhaseType definitions.
   """
 
   @type hook_config :: %{

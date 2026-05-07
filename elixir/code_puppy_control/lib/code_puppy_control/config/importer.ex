@@ -1,6 +1,6 @@
 defmodule CodePuppyControl.Config.Importer do
   @moduledoc """
-  Import non-sensitive settings from the Python pup's legacy home.
+  Import non-sensitive settings from the legacy home.
 
   Copies allowlisted files from `~/.code_puppy/` to `~/.code_puppy_ex/`.
   All reads go through `Isolation.read_only_legacy/1`; all writes go

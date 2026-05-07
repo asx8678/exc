@@ -14,7 +14,7 @@ defmodule CodePuppyControl.CLI.SlashCommands.Commands.AddModel do
     4. Build Code Puppy config and persist to extra_models.json
     5. Reload ModelRegistry so the new model is immediately available
 
-  Ported from Python `code_puppy/command_line/add_model_menu.py`.
+  Originally ported from the legacy Python CLI.
 
   The interactive IO flow lives in `AddModel.Interactive` to keep this
   module under the 600-line cap.
