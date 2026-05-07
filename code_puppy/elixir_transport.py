@@ -46,8 +46,8 @@ transport.stop()
 - `PUP_ELIXIR_SERVICE_CMD` - Override the command to start the service
 - `PUP_LOG_LEVEL` - Set Elixir service log level (debug, info, warn, error)
 
-TODO: Add connection pooling for multiple concurrent transports
-TODO: Add Unix socket transport option for better performance
+TODO(python-bridge-transport-pooling): Add connection pooling for multiple concurrent transports
+TODO(python-bridge-unix-socket): Add Unix socket transport option for better performance
 """
 
 import json

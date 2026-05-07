@@ -47,7 +47,7 @@ defmodule CodePuppyControl.CLI.Gac do
   """
   @spec run(map()) :: 0 | 1
   def run(opts) do
-    # TODO: Wire to CodePuppyControl git operations
+    # TODO(gac-elixir-git-ops): Wire to CodePuppyControl git operations
     # Currently a placeholder that delegates to System.cmd("git", ...)
 
     IO.puts("🔍 Checking git status...")

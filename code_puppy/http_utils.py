@@ -275,7 +275,7 @@ def create_client(
 
     # If retry components are available, create a client with retry transport
     # Note: TenacityTransport was removed. For now we just return a standard client.
-    # Future TODO: Implement RetryingClient(httpx.Client) if needed.
+    # TODO(http-retry-client): Implement RetryingClient(httpx.Client) if needed.
     return httpx.Client(
         verify=verify, headers=headers or {}, timeout=timeout, http2=http2_enabled
     )

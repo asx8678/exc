@@ -185,7 +185,7 @@ class TurboOrchestrator:
         This is a placeholder for future parallel execution.
         Currently falls back to sequential.
         """
-        # TODO: Implement true parallel execution with dependency tracking
+        # TODO(turbo-executor-parallelism): Implement true parallel execution with dependency tracking
         # For now, execute sequentially to maintain consistency
         return await self._execute_sequential(plan)
 

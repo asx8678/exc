@@ -426,7 +426,7 @@ def should_render(state: TraceState, force: bool = False) -> bool:
     current_spans = set(state.spans.keys())
     if current_spans == _render_state.shown_spans:
         # Check if any status changed
-        pass  # TODO: more sophisticated change detection
+        pass  # TODO(agent-trace-change-detection): more sophisticated change detection
 
     return True
 

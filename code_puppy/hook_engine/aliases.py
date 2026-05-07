@@ -102,7 +102,7 @@ CODEX_ALIASES: dict[str, str] = {
 
 # ---------------------------------------------------------------------------
 # Swarm  (internal / multi-agent)
-# TODO: populate if Swarm exposes its own canonical tool name vocabulary.
+# TODO(swarm-tool-aliases): populate if Swarm exposes its own canonical tool name vocabulary.
 # ---------------------------------------------------------------------------
 SWARM_ALIASES: dict[str, str] = {
     # Add Swarm → code_puppy tool mappings here
