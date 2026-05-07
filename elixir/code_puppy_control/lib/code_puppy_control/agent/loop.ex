@@ -394,80 +394,83 @@ defmodule CodePuppyControl.Agent.Loop do
   defp do_llm_stream(state, turn) do
     case Turn.start_streaming(turn) do
       {:ok, turn} ->
-        # Use Lifecycle for system prompt assembly (base + puppy rules)
-        # then PromptMixin for platform info, identity, and load_prompt callbacks
-        context = %{
-          session_id: state.session_id,
-          run_id: state.run_id,
-          messages: state.messages
-        }
-
-        {:ok, base_prompt} = Lifecycle.assemble_system_prompt(state.agent_module, context)
-
-        identity = PromptMixin.get_identity(state.agent_module.name(), state.run_id)
-        system_prompt = PromptMixin.get_full_system_prompt(base_prompt, identity)
-
-        tools = state.agent_module.allowed_tools()
-        model = resolve_model(state)
-
-        # Pre-send budget check via BudgetEnforcer
-        estimated_overhead =
-          BudgetEnforcer.estimate_context_overhead(system_prompt, tools)
-
-        estimated_input =
-          estimated_overhead + MessageProcessor.estimate_batch_tokens(state.messages)
-
-        budget_check =
-          BudgetEnforcer.check_before_send(estimated_input, %{
-            context_budget: %{
-              model_context_length: BudgetEnforcer.model_context_length(model),
-              max_output_tokens: 4096
-            },
-            token_budgets: %{max_session_tokens: 0, max_run_tokens: 0},
-            usage_limits: nil
-          })
-
-        turn =
-          case budget_check do
-            {:error, :context_budget_exceeded, msg} ->
-              Logger.warning("Agent.Loop: #{msg}")
-              # Trigger compaction as a recovery attempt
-              _state_compacted = Compaction.compact_messages(state)
-              {:ok, failed_turn} = Turn.fail(turn, {:context_budget_exceeded, msg})
-              failed_turn
-
-            {:error, reason} ->
-              {:ok, failed_turn} = Turn.fail(turn, reason)
-              failed_turn
-
-            {:ok, :checked} ->
-              turn
-          end
-
-        # Re-check: if budget check failed, the turn is already in error state
-        if turn.state == :error do
-          {:ok, turn}
-        else
-          raw_callback = Streaming.build_stream_callback(state)
-          stream_callback = Normalizer.normalize(raw_callback)
-
-          case state.llm_module.stream_chat(
-                 state.messages,
-                 tools,
-                 [model: model, system_prompt: system_prompt],
-                 stream_callback
-               ) do
-            {:ok, response} ->
-              turn = Streaming.accumulate_response(turn, response)
-              Turn.start_tool_calls(turn)
-
-            {:error, reason} ->
-              Turn.fail(turn, reason)
-          end
-        end
+        do_llm_stream_with_budget_check(state, turn, :first_attempt)
 
       error ->
         error
+    end
+  end
+
+  defp do_llm_stream_with_budget_check(state, turn, attempt) do
+    # Use Lifecycle for system prompt assembly (base + puppy rules)
+    # then PromptMixin for platform info, identity, and load_prompt callbacks
+    context = %{
+      session_id: state.session_id,
+      run_id: state.run_id,
+      messages: state.messages
+    }
+
+    {:ok, base_prompt} = Lifecycle.assemble_system_prompt(state.agent_module, context)
+
+    identity = PromptMixin.get_identity(state.agent_module.name(), state.run_id)
+    system_prompt = PromptMixin.get_full_system_prompt(base_prompt, identity)
+
+    tools = state.agent_module.allowed_tools()
+    model = resolve_model(state)
+
+    # Pre-send budget check via BudgetEnforcer
+    estimated_overhead =
+      BudgetEnforcer.estimate_context_overhead(system_prompt, tools)
+
+    estimated_input =
+      estimated_overhead + MessageProcessor.estimate_batch_tokens(state.messages)
+
+    budget_check =
+      BudgetEnforcer.check_before_send(estimated_input, %{
+        context_budget: %{
+          model_context_length: BudgetEnforcer.model_context_length(model),
+          max_output_tokens: 4096
+        },
+        token_budgets: %{max_session_tokens: 0, max_run_tokens: 0},
+        usage_limits: nil
+      })
+
+    case budget_check do
+      {:error, :context_budget_exceeded, msg} ->
+        if attempt == :first_attempt do
+          Logger.warning(
+            "Agent.Loop: context budget exceeded (attempt 1), " <>
+              "compacting and retrying: #{msg}"
+          )
+
+          compacted_state = Compaction.compact_messages(state)
+          do_llm_stream_with_budget_check(compacted_state, turn, :second_attempt)
+        else
+          Logger.warning("Agent.Loop: context budget exceeded after compaction, failing: #{msg}")
+
+          Turn.fail(turn, {:context_budget_exceeded, msg})
+        end
+
+      {:error, reason} ->
+        Turn.fail(turn, reason)
+
+      {:ok, :checked} ->
+        raw_callback = Streaming.build_stream_callback(state)
+        stream_callback = Normalizer.normalize(raw_callback)
+
+        case state.llm_module.stream_chat(
+               state.messages,
+               tools,
+               [model: model, system_prompt: system_prompt],
+               stream_callback
+             ) do
+          {:ok, response} ->
+            turn = Streaming.accumulate_response(turn, response)
+            Turn.start_tool_calls(turn)
+
+          {:error, reason} ->
+            Turn.fail(turn, reason)
+        end
     end
   end
 
