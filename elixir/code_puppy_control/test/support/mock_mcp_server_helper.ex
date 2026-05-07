@@ -21,9 +21,10 @@ defmodule CodePuppyControl.Support.MockMCPServerHelper do
   ## Design
 
   The mock server is a standalone `.exs` script that speaks MCP JSON-RPC
-  over stdio (newline-delimited).  It uses only Elixir stdlib `JSON`
-  (available since Elixir 1.18) — no Jason, no Mix, no app dependencies.
-  This avoids the need for Python at test time.
+  over stdio (newline-delimited).  It includes a tiny self-contained
+  JSON codec and requires no Mix deps or Elixir 1.18+ stdlib JSON,
+  making it compatible with the project's Elixir `~> 1.15` requirement.
+  No Python runtime needed at test time.
   """
 
   @script_path Path.join([__DIR__, "mock_mcp_server.exs"])
