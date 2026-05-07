@@ -125,7 +125,9 @@ defmodule CodePuppyControl.Application do
     if in_escript do
       require Logger
 
-      Logger.info(
+      # (code_puppy-be7) Downgrade to debug — fires every escript startup,
+      # the user already knows they're in escript mode.
+      Logger.debug(
         "Escript mode detected — starting degraded supervision tree (no Repo/Oban/Endpoint)"
       )
     end

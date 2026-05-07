@@ -292,15 +292,26 @@ defmodule CodePuppyControl.ModelsDevParser.Registry do
         # Fall back to bundled JSON (no live API in sync mode)
         bundled_path = get_bundled_json_path()
 
-        if File.exists?(bundled_path) do
-          ApiClient.load_from_file(state, bundled_path)
+        # (code_puppy-be7) Also try a source-tree relative path for
+        # development/REPL runs where priv hasn't been built yet.
+        dev_fallback_path = Path.join(File.cwd!() || ".", "priv/#{@bundled_json_filename}")
+
+        load_path =
+          cond do
+            File.exists?(bundled_path) -> bundled_path
+            File.exists?(dev_fallback_path) -> dev_fallback_path
+            true -> nil
+          end
+
+        if load_path do
+          ApiClient.load_from_file(state, load_path)
         else
-          # Non-fatal: in escript mode, :code.priv_dir/1 resolves to a
-          # non-existent path inside the zip archive. Start with empty
-          # data rather than crashing the supervision tree.
-          Logger.warning(
-            "ModelsDevParser bundled data not found at #{bundled_path} " <>
-              "(escript or non-standard install). Starting with empty registry."
+          # (code_puppy-be7) Downgrade from warning to debug — expected in
+          # escript mode where :code.priv_dir/1 resolves to a non-existent
+          # path inside the zip archive.
+          Logger.debug(
+            "ModelsDevParser bundled data not found (checked #{bundled_path} " <>
+              "and #{dev_fallback_path}). Starting with empty registry."
           )
 
           {:ok, %{state | data_source: "unavailable (bundled file missing)"}}

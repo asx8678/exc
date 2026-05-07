@@ -114,6 +114,18 @@ defmodule CodePuppyControl.TokenLedger.CostTest do
       end
     end
 
+    # (code_puppy-be7) ChatGPT Codex OAuth models must return zero-cost
+    # placeholders instead of logging unknown-pricing warnings.
+    test "returns zero-cost for chatgpt-gpt-5 models (OAuth placeholder)" do
+      assert Cost.cost_for_model("chatgpt-gpt-5.5") == {0, 0, 0}
+      assert Cost.cost_for_model("chatgpt-gpt-5.4") == {0, 0, 0}
+      assert Cost.cost_for_model("chatgpt-gpt-5") == {0, 0, 0}
+    end
+
+    test "returns zero-cost for chatgpt-4o models (OAuth placeholder)" do
+      assert Cost.cost_for_model("chatgpt-4o") == {0, 0, 0}
+    end
+
     test "returns zero for unknown model" do
       assert Cost.cost_for_model("unknown-model") == {0, 0, 0}
     end
@@ -129,12 +141,16 @@ defmodule CodePuppyControl.TokenLedger.CostTest do
       assert input > 0
     end
 
-    test "output is more expensive than input for all models" do
+    test "output is more expensive than input for all priced models" do
+      # (code_puppy-be7) ChatGPT Codex OAuth models have zero-cost placeholders,
+      # so we only assert output > input for models with positive pricing.
       for model <- Cost.known_models() do
         {input, output, _} = Cost.cost_for_model(model)
 
-        assert output > input,
-               "Expected output > input for #{model}, got input=#{input} output=#{output}"
+        if input > 0 do
+          assert output > input,
+                 "Expected output > input for #{model}, got input=#{input} output=#{output}"
+        end
       end
     end
   end

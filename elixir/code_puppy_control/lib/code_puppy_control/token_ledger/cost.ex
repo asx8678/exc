@@ -149,6 +149,13 @@ defmodule CodePuppyControl.TokenLedger.Cost do
   defp do_cost_lookup("o3" <> _), do: {110, 440, 55}
   defp do_cost_lookup("o1" <> _), do: {1500, 6000, 750}
 
+  # ── ChatGPT Codex (OAuth-backed) models ──
+  # (code_puppy-be7) Add chatgpt-gpt-5 prefix entries so unknown-pricing
+  # warnings don't pollute escript REPL startup. Pricing is unknown for
+  # the OAuth backend; zero cost is acceptable as a placeholder.
+  defp do_cost_lookup("chatgpt-gpt-5" <> _), do: {0, 0, 0}
+  defp do_cost_lookup("chatgpt-4o" <> _), do: {0, 0, 0}
+
   # ── Google Gemini ──
   defp do_cost_lookup("gemini-2.5-pro" <> _), do: {125, 1000, 31}
   defp do_cost_lookup("gemini-2.5-flash" <> _), do: {15, 60, 3}
@@ -208,7 +215,10 @@ defmodule CodePuppyControl.TokenLedger.Cost do
       "deepseek-r1",
       "deepseek-v3",
       "deepseek-coder",
-      "deepseek-chat"
+      "deepseek-chat",
+      # ChatGPT Codex (OAuth)
+      "chatgpt-gpt-5",
+      "chatgpt-4o"
     ]
   end
 end

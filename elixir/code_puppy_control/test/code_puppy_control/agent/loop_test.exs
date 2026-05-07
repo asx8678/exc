@@ -542,6 +542,159 @@ defmodule CodePuppyControl.Agent.LoopTest do
     end
   end
 
+  # ===========================================================================
+  # Tool-call ID sanitization (code_puppy-be7.3)
+  # ===========================================================================
+  #
+  # A custom llm_module that bypasses LLMAdapter may return tool calls with
+  # empty or invalid IDs. finalize_turn/3 must sanitize IDs before building
+  # the assistant message, so assistant tool_calls[i].id and the following
+  # tool result tool_call_id are always non-empty, equal, and valid.
+
+  describe "tool-call ID sanitization (code_puppy-be7.3)" do
+    test "custom LLM returning empty tool_call ID gets sanitized in both assistant and tool messages" do
+      MockLLM.set_response(%{
+        text: nil,
+        tool_calls: [%{id: "", name: :echo_tool, arguments: %{"input" => "test"}}]
+      })
+
+      {:ok, pid} =
+        Loop.start_link(TestAgent, [%{role: "user", content: "run tool"}],
+          llm_module: MockLLM,
+          run_id: "test-sanitize-empty-id",
+          max_turns: 2,
+          compaction_enabled: false
+        )
+
+      :ok = Loop.run_turn(pid)
+      messages = Loop.get_messages(pid)
+
+      assistant_msg = Enum.at(messages, 1)
+      tool_msg = Enum.at(messages, 2)
+
+      # Assistant tool_call ID must be non-empty and valid
+      [tc] = assistant_msg[:tool_calls]
+      assert tc.id != "", "assistant tool_call id must not be empty"
+
+      assert Regex.match?(~r/^[A-Za-z0-9_-]+$/, tc.id),
+             "assistant tool_call id has invalid chars: #{inspect(tc.id)}"
+
+      # Tool result tool_call_id must be non-empty and valid
+      assert tool_msg[:tool_call_id] != "", "tool message tool_call_id must not be empty"
+
+      assert Regex.match?(~r/^[A-Za-z0-9_-]+$/, tool_msg[:tool_call_id]),
+             "tool message tool_call_id has invalid chars: #{inspect(tool_msg[:tool_call_id])}"
+
+      # Both must match
+      assert tc.id == tool_msg[:tool_call_id],
+             "assistant tool_call id #{inspect(tc.id)} != tool message tool_call_id #{inspect(tool_msg[:tool_call_id])}"
+
+      GenServer.stop(pid)
+    end
+
+    test "custom LLM returning nil tool_call ID gets sanitized" do
+      MockLLM.set_response(%{
+        text: nil,
+        tool_calls: [%{id: nil, name: :echo_tool, arguments: %{"input" => "nil-id"}}]
+      })
+
+      {:ok, pid} =
+        Loop.start_link(TestAgent, [%{role: "user", content: "run tool"}],
+          llm_module: MockLLM,
+          run_id: "test-sanitize-nil-id",
+          max_turns: 2,
+          compaction_enabled: false
+        )
+
+      :ok = Loop.run_turn(pid)
+      messages = Loop.get_messages(pid)
+
+      assistant_msg = Enum.at(messages, 1)
+      tool_msg = Enum.at(messages, 2)
+
+      [tc] = assistant_msg[:tool_calls]
+      assert tc.id != nil, "assistant tool_call id must not be nil"
+      assert is_binary(tc.id) and tc.id != "", "assistant tool_call id must be a non-empty string"
+
+      assert tc.id == tool_msg[:tool_call_id],
+             "IDs must match: #{inspect(tc.id)} != #{inspect(tool_msg[:tool_call_id])}"
+
+      GenServer.stop(pid)
+    end
+
+    test "custom LLM returning ID with invalid chars gets sanitized in both messages" do
+      MockLLM.set_response(%{
+        text: nil,
+        tool_calls: [
+          %{id: "call_abc.123/def:456", name: :echo_tool, arguments: %{"input" => "bad-chars"}}
+        ]
+      })
+
+      {:ok, pid} =
+        Loop.start_link(TestAgent, [%{role: "user", content: "run tool"}],
+          llm_module: MockLLM,
+          run_id: "test-sanitize-bad-chars-id",
+          max_turns: 2,
+          compaction_enabled: false
+        )
+
+      :ok = Loop.run_turn(pid)
+      messages = Loop.get_messages(pid)
+
+      assistant_msg = Enum.at(messages, 1)
+      tool_msg = Enum.at(messages, 2)
+
+      [tc] = assistant_msg[:tool_calls]
+      # Original ID had dots/slashes/colons — sanitized must not
+      refute tc.id =~ ".", "sanitized id should not contain dots: #{inspect(tc.id)}"
+      refute tc.id =~ "/", "sanitized id should not contain slashes: #{inspect(tc.id)}"
+
+      assert Regex.match?(~r/^[A-Za-z0-9_-]+$/, tc.id),
+             "sanitized id has invalid chars: #{inspect(tc.id)}"
+
+      assert tc.id == tool_msg[:tool_call_id],
+             "IDs must match: #{inspect(tc.id)} != #{inspect(tool_msg[:tool_call_id])}"
+
+      GenServer.stop(pid)
+    end
+
+    test "disallowed tool with empty ID gets sanitized result message" do
+      MockLLM.set_response(%{
+        text: nil,
+        tool_calls: [%{id: "", name: :nonexistent_tool, arguments: %{}}]
+      })
+
+      {:ok, pid} =
+        Loop.start_link(TestAgent, [%{role: "user", content: "run bad tool"}],
+          llm_module: MockLLM,
+          run_id: "test-sanitize-disallowed-empty-id",
+          max_turns: 2,
+          compaction_enabled: false
+        )
+
+      :ok = Loop.run_turn(pid)
+      messages = Loop.get_messages(pid)
+
+      assistant_msg = Enum.at(messages, 1)
+      tool_msg = Enum.at(messages, 2)
+
+      [tc] = assistant_msg[:tool_calls]
+      assert tc.id != "", "disallowed tool assistant id must not be empty"
+
+      assert Regex.match?(~r/^[A-Za-z0-9_-]+$/, tc.id),
+             "disallowed tool id has invalid chars: #{inspect(tc.id)}"
+
+      # Tool result must have matching tool_call_id
+      assert tool_msg[:tool_call_id] == tc.id,
+             "disallowed tool IDs must match: #{inspect(tc.id)} != #{inspect(tool_msg[:tool_call_id])}"
+
+      # Content must indicate tool not allowed
+      assert tool_msg[:content] =~ "not available"
+
+      GenServer.stop(pid)
+    end
+  end
+
   # ---------------------------------------------------------------------------
   # Helpers
   # ---------------------------------------------------------------------------

@@ -713,13 +713,72 @@ defmodule CodePuppyControl.Agent.LLMAdapterMessageConversionTest do
       [tc_good, tc_bogus1, tc_bogus2, tc_bogus3] = captured.tool_calls
       assert tc_good.function.name == "good_tool"
 
-      # Each malformed entry becomes the safe placeholder
+      # Each malformed entry becomes a safe placeholder with non-empty id
       for tc <- [tc_bogus1, tc_bogus2, tc_bogus3] do
-        assert tc.id == ""
+        # (code_puppy-be7) Empty IDs are no longer allowed
+        assert tc.id != "", "Malformed tool_call must not have empty id"
         assert tc.type == "function"
         assert tc.function.name == "unknown"
         assert tc.function.arguments == "{}"
       end
+    end
+
+    # (code_puppy-be7) Regression: empty tool-call IDs must be sanitized
+    test "assistant tool_call with nil id gets a generated safe id" do
+      msgs = [
+        %{
+          role: "assistant",
+          content: nil,
+          tool_calls: [%{id: nil, name: :my_tool, arguments: %{}}]
+        }
+      ]
+
+      ProviderMock.set_response(%{id: "r1", content: "ok", tool_calls: []})
+
+      assert {:ok, _} = LLMAdapter.stream_chat(msgs, [], [model: "test"], fn _ -> :ok end)
+
+      [captured] = ProviderMock.captured_messages()
+      [tc] = captured.tool_calls
+      assert tc.id != "", "Tool call with nil id must get a generated safe id"
+      assert tc.type == "function"
+    end
+
+    test "assistant tool_call with empty string id gets a generated safe id" do
+      msgs = [
+        %{
+          role: "assistant",
+          content: nil,
+          tool_calls: [%{id: "", name: "some_tool", arguments: %{}}]
+        }
+      ]
+
+      ProviderMock.set_response(%{id: "r1", content: "ok", tool_calls: []})
+
+      assert {:ok, _} = LLMAdapter.stream_chat(msgs, [], [model: "test"], fn _ -> :ok end)
+
+      [captured] = ProviderMock.captured_messages()
+      [tc] = captured.tool_calls
+      assert tc.id != "", "Tool call with empty id must get a generated safe id"
+    end
+
+    test "generated safe id contains only valid characters" do
+      msgs = [
+        %{
+          role: "assistant",
+          content: nil,
+          tool_calls: [%{id: "", name: "my_tool", arguments: %{}}]
+        }
+      ]
+
+      ProviderMock.set_response(%{id: "r1", content: "ok", tool_calls: []})
+
+      assert {:ok, _} = LLMAdapter.stream_chat(msgs, [], [model: "test"], fn _ -> :ok end)
+
+      [captured] = ProviderMock.captured_messages()
+      [tc] = captured.tool_calls
+      # Must match valid pattern: letters, numbers, underscores, dashes
+      assert Regex.match?(~r/^[A-Za-z0-9_-]+$/, tc.id),
+             "Generated id must contain only letters, numbers, underscores, dashes: #{inspect(tc.id)}"
     end
   end
 

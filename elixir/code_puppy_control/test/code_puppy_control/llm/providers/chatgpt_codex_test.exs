@@ -489,7 +489,446 @@ defmodule CodePuppyControl.LLM.Providers.ChatGPTCodexTest do
     end
   end
 
-  # ── Helpers ──────────────────────────────────────────────────────────────
+  # ── Empty Tool-Call ID Sanitization Tests ──────────────────────────────
+  # (code_puppy-be7) Regression tests for the 400 error caused by empty
+  # input[*].id / call_id fields in Responses API requests.
+
+  describe "tool-call ID sanitization (code_puppy-be7)" do
+    test "SSE: output_item.added with id but no call_id preserves the id" do
+      # Simulate the scenario where output_item.added has "id" but no "call_id"
+      sse_body =
+        [
+          %{
+            "type" => "response.output_item.added",
+            "output_index" => 0,
+            "item" => %{
+              "type" => "function_call",
+              "id" => "fc_abc123",
+              "name" => "my_tool",
+              "arguments" => ""
+            }
+          },
+          %{
+            "type" => "response.function_call_arguments.delta",
+            "output_index" => 0,
+            "call_id" => "fc_abc123",
+            "name" => "my_tool",
+            "delta" => "{\"x\":1}"
+          },
+          %{
+            "type" => "response.function_call_arguments.done",
+            "output_index" => 0,
+            "call_id" => "fc_abc123",
+            "name" => "my_tool",
+            "arguments" => "{\"x\":1}"
+          },
+          %{
+            "type" => "response.completed",
+            "response" => %{
+              "id" => "resp_test",
+              "model" => "gpt-5.4",
+              "status" => "completed",
+              "output" => [
+                %{
+                  "type" => "function_call",
+                  "id" => "fc_abc123",
+                  "call_id" => "fc_abc123",
+                  "name" => "my_tool",
+                  "arguments" => "{\"x\":1}"
+                }
+              ],
+              "usage" => %{"input_tokens" => 5, "output_tokens" => 5}
+            }
+          }
+        ]
+        |> Enum.map(fn ev -> "data: #{Jason.encode!(ev)}\n\n" end)
+        |> Enum.join()
+        |> then(&(&1 <> "data: [DONE]\n\n"))
+
+      MockLLMHTTP.register(fn :post, url, _opts ->
+        if url =~ "/responses" do
+          {:ok, %{status: 200, body: sse_body, headers: @sse_headers}}
+        else
+          {:passthrough}
+        end
+      end)
+
+      events =
+        capture_stream_events(fn callback ->
+          :ok = ChatGPTCodex.stream_chat(@messages, [], @opts, callback)
+        end)
+
+      [{:done, response}] = Enum.filter(events, &match?({:done, _}, &1))
+      [tc] = response.tool_calls
+      # The tool call ID must be the one from output_item.added
+      assert tc.id == "fc_abc123"
+    end
+
+    test "SSE: argument delta events omitting call_id do not overwrite existing id" do
+      # Simulate: output_item.added sets call_id, then arg delta events
+      # omit call_id (arriving as empty string via || "")
+      sse_body =
+        [
+          %{
+            "type" => "response.output_item.added",
+            "output_index" => 0,
+            "item" => %{
+              "type" => "function_call",
+              "call_id" => "call_real_id",
+              "name" => "my_tool",
+              "arguments" => ""
+            }
+          },
+          # Delta WITHOUT call_id — previously this would overwrite with ""
+          %{
+            "type" => "response.function_call_arguments.delta",
+            "output_index" => 0,
+            "name" => "my_tool",
+            "delta" => "{\"a\":1}"
+          },
+          %{
+            "type" => "response.function_call_arguments.done",
+            "output_index" => 0,
+            "call_id" => "call_real_id",
+            "name" => "my_tool",
+            "arguments" => "{\"a\":1}"
+          },
+          %{
+            "type" => "response.completed",
+            "response" => %{
+              "id" => "resp_test2",
+              "model" => "gpt-5.4",
+              "status" => "completed",
+              "output" => [
+                %{
+                  "type" => "function_call",
+                  "call_id" => "call_real_id",
+                  "name" => "my_tool",
+                  "arguments" => "{\"a\":1}"
+                }
+              ],
+              "usage" => %{"input_tokens" => 5, "output_tokens" => 5}
+            }
+          }
+        ]
+        |> Enum.map(fn ev -> "data: #{Jason.encode!(ev)}\n\n" end)
+        |> Enum.join()
+        |> then(&(&1 <> "data: [DONE]\n\n"))
+
+      MockLLMHTTP.register(fn :post, url, _opts ->
+        if url =~ "/responses" do
+          {:ok, %{status: 200, body: sse_body, headers: @sse_headers}}
+        else
+          {:passthrough}
+        end
+      end)
+
+      events =
+        capture_stream_events(fn callback ->
+          :ok = ChatGPTCodex.stream_chat(@messages, [], @opts, callback)
+        end)
+
+      [{:done, response}] = Enum.filter(events, &match?({:done, _}, &1))
+      [tc] = response.tool_calls
+      # The ID from output_item.added must be preserved, not overwritten by ""
+      assert tc.id == "call_real_id"
+    end
+
+    test "next request body has no empty input[*].id or call_id after tool call" do
+      test_pid = self()
+
+      MockLLMHTTP.register(fn :post, url, opts ->
+        if url =~ "/responses" do
+          body = Jason.decode!(opts[:body])
+          send(test_pid, {:request_body, body})
+
+          {:ok,
+           %{
+             status: 200,
+             body: MockLLMHTTP.chatgpt_codex_tool_stream_fixture(),
+             headers: @sse_headers
+           }}
+        else
+          {:passthrough}
+        end
+      end)
+
+      # Simulate replay: a tool message with a prior tool call
+      messages = [
+        %{role: "user", content: "run tool"},
+        %{
+          role: "assistant",
+          content: nil,
+          tool_calls: [
+            %{
+              id: "call_test_1",
+              type: "function",
+              function: %{name: "get_weather", arguments: "{\"location\":\"Boston\"}"}
+            }
+          ]
+        },
+        %{role: "tool", content: "{\"temp\":72}", tool_call_id: "call_test_1"}
+      ]
+
+      ChatGPTCodex.stream_chat(messages, [], @opts, fn _ -> :ok end)
+
+      assert_received {:request_body, body}
+      input = body["input"]
+
+      # No input item should have empty "id" or "call_id"
+      for item <- input do
+        if item["type"] == "function_call" do
+          assert item["id"] != "", "function_call item had empty id: #{inspect(item)}"
+          assert item["call_id"] != "", "function_call item had empty call_id: #{inspect(item)}"
+        end
+
+        if item["type"] == "function_call_output" do
+          assert item["call_id"] != "",
+                 "function_call_output item had empty call_id: #{inspect(item)}"
+        end
+      end
+    end
+
+    test "tool message with empty tool_call_id gets a safe generated call_id" do
+      test_pid = self()
+
+      MockLLMHTTP.register(fn :post, url, opts ->
+        if url =~ "/responses" do
+          body = Jason.decode!(opts[:body])
+          send(test_pid, {:request_body, body})
+
+          {:ok,
+           %{status: 200, body: MockLLMHTTP.chatgpt_codex_stream_fixture(), headers: @sse_headers}}
+        else
+          {:passthrough}
+        end
+      end)
+
+      # Tool message with nil tool_call_id (degraded path)
+      messages = [
+        %{role: "user", content: "run tool"},
+        %{
+          role: "assistant",
+          content: nil,
+          tool_calls: [
+            %{id: nil, type: "function", function: %{name: "my_tool", arguments: "{}"}}
+          ]
+        },
+        %{role: "tool", content: "result", tool_call_id: nil}
+      ]
+
+      ChatGPTCodex.stream_chat(messages, [], @opts, fn _ -> :ok end)
+
+      assert_received {:request_body, body}
+      input = body["input"]
+
+      # The function_call_output must have a non-empty call_id
+      outputs = Enum.filter(input, fn item -> item["type"] == "function_call_output" end)
+
+      for output <- outputs do
+        assert output["call_id"] != "", "Generated call_id must not be empty"
+        # Must match valid Responses API ID pattern (letters, numbers, underscores, dashes)
+        assert Regex.match?(~r/^[A-Za-z0-9_-]+$/, output["call_id"]),
+               "call_id must match valid pattern: #{inspect(output["call_id"])}"
+      end
+    end
+
+    # (code_puppy-be7.2) Regression tests for character validation
+    test "IDs with invalid characters are sanitized before request" do
+      test_pid = self()
+
+      MockLLMHTTP.register(fn :post, url, opts ->
+        if url =~ "/responses" do
+          body = Jason.decode!(opts[:body])
+          send(test_pid, {:request_body, body})
+
+          {:ok,
+           %{status: 200, body: MockLLMHTTP.chatgpt_codex_stream_fixture(), headers: @sse_headers}}
+        else
+          {:passthrough}
+        end
+      end)
+
+      # Tool call ID with invalid characters (dots, colons, slashes)
+      messages = [
+        %{role: "user", content: "run tool"},
+        %{
+          role: "assistant",
+          content: nil,
+          tool_calls: [
+            %{
+              id: "call_abc.123/def:456",
+              type: "function",
+              function: %{name: "my_tool", arguments: "{}"}
+            }
+          ]
+        },
+        %{role: "tool", content: "result", tool_call_id: "call_abc.123/def:456"}
+      ]
+
+      ChatGPTCodex.stream_chat(messages, [], @opts, fn _ -> :ok end)
+
+      assert_received {:request_body, body}
+      input = body["input"]
+
+      # No item should have the original invalid ID
+      for item <- input do
+        if item["type"] == "function_call" do
+          refute item["id"] =~ ".", "function_call id had dot: #{inspect(item["id"])}"
+          refute item["id"] =~ "/", "function_call id had slash: #{inspect(item["id"])}"
+
+          assert Regex.match?(~r/^[A-Za-z0-9_-]+$/, item["id"]),
+                 "function_call id has invalid chars: #{inspect(item["id"])}"
+        end
+
+        if item["type"] == "function_call_output" do
+          assert Regex.match?(~r/^[A-Za-z0-9_-]+$/, item["call_id"]),
+                 "function_call_output call_id has invalid chars: #{inspect(item["call_id"])}"
+        end
+      end
+    end
+
+    # (code_puppy-be7.3) Regression: multiple empty-ID tool calls must pair
+    # correctly in order with their tool results, not all point at the last
+    # synthetic ID.
+    test "multiple empty-id tool calls pair in order with tool results" do
+      test_pid = self()
+
+      MockLLMHTTP.register(fn :post, url, opts ->
+        if url =~ "/responses" do
+          body = Jason.decode!(opts[:body])
+          send(test_pid, {:request_body, body})
+
+          {:ok,
+           %{status: 200, body: MockLLMHTTP.chatgpt_codex_stream_fixture(), headers: @sse_headers}}
+        else
+          {:passthrough}
+        end
+      end)
+
+      # Two assistant tool_calls both with id: ""
+      # followed by two tool messages both with tool_call_id: ""
+      messages = [
+        %{role: "user", content: "run two tools"},
+        %{
+          role: "assistant",
+          content: nil,
+          tool_calls: [
+            %{
+              id: "",
+              type: "function",
+              function: %{name: "get_weather", arguments: "{\"loc\":\"A\"}"}
+            },
+            %{
+              id: "",
+              type: "function",
+              function: %{name: "get_time", arguments: "{\"loc\":\"A\"}"}
+            }
+          ]
+        },
+        %{role: "tool", content: "{\"temp\":72}", tool_call_id: ""},
+        %{role: "tool", content: "{\"time\":\"3pm\"}", tool_call_id: ""}
+      ]
+
+      ChatGPTCodex.stream_chat(messages, [], @opts, fn _ -> :ok end)
+
+      assert_received {:request_body, body}
+      input = body["input"]
+
+      # Extract function_call items (in order) and function_call_output items (in order)
+      function_calls =
+        Enum.filter(input, &(&1["type"] == "function_call"))
+
+      function_call_outputs =
+        Enum.filter(input, &(&1["type"] == "function_call_output"))
+
+      assert length(function_calls) == 2,
+             "Expected 2 function_call items, got #{length(function_calls)}"
+
+      assert length(function_call_outputs) == 2,
+             "Expected 2 function_call_output items, got #{length(function_call_outputs)}"
+
+      # All IDs must be non-empty and valid
+      for fc <- function_calls do
+        assert fc["id"] != "", "function_call id must not be empty"
+        assert fc["call_id"] != "", "function_call call_id must not be empty"
+
+        assert Regex.match?(~r/^[A-Za-z0-9_-]+$/, fc["id"]),
+               "function_call id has invalid chars: #{inspect(fc["id"])}"
+      end
+
+      for output <- function_call_outputs do
+        assert output["call_id"] != "", "function_call_output call_id must not be empty"
+
+        assert Regex.match?(~r/^[A-Za-z0-9_-]+$/, output["call_id"]),
+               "function_call_output call_id has invalid chars: #{inspect(output["call_id"])}"
+      end
+
+      # Pairwise matching: first output matches first function call, second matches second
+      [fc1, fc2] = function_calls
+      [out1, out2] = function_call_outputs
+
+      assert fc1["call_id"] == out1["call_id"],
+             "First function_call call_id #{inspect(fc1["call_id"])} must match first output call_id #{inspect(out1["call_id"])}"
+
+      assert fc2["call_id"] == out2["call_id"],
+             "Second function_call call_id #{inspect(fc2["call_id"])} must match second output call_id #{inspect(out2["call_id"])}"
+
+      # The two synthetic IDs must be different (each tool call gets its own)
+      assert fc1["call_id"] != fc2["call_id"],
+             "Two empty-id tool calls must get distinct synthetic IDs, both got #{inspect(fc1["call_id"])}"
+    end
+
+    test "both nil IDs generate matching synthetic IDs" do
+      test_pid = self()
+
+      MockLLMHTTP.register(fn :post, url, opts ->
+        if url =~ "/responses" do
+          body = Jason.decode!(opts[:body])
+          send(test_pid, {:request_body, body})
+
+          {:ok,
+           %{status: 200, body: MockLLMHTTP.chatgpt_codex_stream_fixture(), headers: @sse_headers}}
+        else
+          {:passthrough}
+        end
+      end)
+
+      # Both IDs nil — synthetic IDs must match
+      messages = [
+        %{role: "user", content: "run tool"},
+        %{
+          role: "assistant",
+          content: nil,
+          tool_calls: [
+            %{id: nil, type: "function", function: %{name: "get_weather", arguments: "{}"}}
+          ]
+        },
+        %{role: "tool", content: "sunny", tool_call_id: nil}
+      ]
+
+      ChatGPTCodex.stream_chat(messages, [], @opts, fn _ -> :ok end)
+
+      assert_received {:request_body, body}
+      input = body["input"]
+
+      # Find the function_call and function_call_output items
+      fc = Enum.find(input, &(&1["type"] == "function_call"))
+      output = Enum.find(input, &(&1["type"] == "function_call_output"))
+
+      assert fc != nil, "Expected a function_call item"
+      assert output != nil, "Expected a function_call_output item"
+
+      # The function_call's call_id must match the output's call_id
+      assert fc["call_id"] == output["call_id"],
+             "Synthetic IDs must match: function_call call_id=#{inspect(fc["call_id"])} != function_call_output call_id=#{inspect(output["call_id"])}"
+
+      assert Regex.match?(~r/^[A-Za-z0-9_-]+$/, fc["call_id"]),
+             "call_id has invalid chars: #{inspect(fc["call_id"])}"
+    end
+  end
+
+  # ── Helpers ──────────────────────────────────────────────────────────
 
   defp capture_stream_events(callback_fn) do
     events = :ets.new(:stream_events, [:ordered_set, :public])

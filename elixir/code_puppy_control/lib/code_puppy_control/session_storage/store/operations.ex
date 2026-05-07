@@ -315,12 +315,12 @@ defmodule CodePuppyControl.SessionStorage.Store.Operations do
         count
 
       {:error, reason} ->
-        # (code-puppy-be7) Repo-unavailable in escript mode is expected;
-        # downgrade to warning so it doesn't pollute startup logs.
+        # (code_puppy-be7) Repo-unavailable in escript mode is expected;
+        # downgrade to debug so it doesn't pollute startup logs.
         log_level =
           case reason do
             %RuntimeError{message: msg} when is_binary(msg) ->
-              if String.contains?(msg, "could not lookup Ecto repo"), do: :warning, else: :error
+              if String.contains?(msg, "could not lookup Ecto repo"), do: :debug, else: :error
 
             _ ->
               :error

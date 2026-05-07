@@ -270,7 +270,9 @@ defmodule CodePuppyControl.Agent.Loop do
       model_override: model_override
     }
 
-    Logger.info(
+    # (code_puppy-be7) Downgrade to debug — this fires on every agent
+    # loop start and pollutes escript REPL startup logs.
+    Logger.debug(
       "Agent.Loop started: agent=#{inspect(agent_module)} run_id=#{run_id} " <>
         "session_id=#{session_id} max_turns=#{max_turns}"
     )
@@ -522,6 +524,16 @@ defmodule CodePuppyControl.Agent.Loop do
   end
 
   defp finalize_turn(state, turn, turn_number) do
+    # (code_puppy-be7.3) Sanitize tool_call IDs before building any
+    # messages. A custom llm_module that bypasses LLMAdapter may produce
+    # tool calls with empty or invalid IDs. Sanitizing here ensures the
+    # assistant message's tool_calls and the tool result messages use
+    # matching, valid IDs — both sourced from the same sanitized list.
+    turn = %{
+      turn
+      | pending_tool_calls: ToolDispatch.sanitize_tool_call_ids(turn.pending_tool_calls)
+    }
+
     # Prune any interrupted tool calls from PRIOR turns before building
     # the current turn's messages. Must happen before appending the
     # assistant(tool_calls) message, otherwise the new tool calls

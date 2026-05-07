@@ -141,12 +141,15 @@ defmodule CodePuppyControl.LLM.Providers.ChatGPTCodex.Streaming do
         part
       end
 
-    part = %{part | id: call_id}
+    # (code_puppy-be7) Never overwrite a non-empty id with an empty one.
+    # Argument delta events sometimes omit call_id after the initial
+    # output_item.added event already set it.
+    part = merge_id(part, call_id)
     tc_parts = Map.put(tc_parts, index, part)
     acc = %{acc | tool_calls: tc_parts}
 
     if is_new do
-      callback_fn.({:part_start, %{type: :tool_call, index: index, id: call_id}})
+      callback_fn.({:part_start, %{type: :tool_call, index: index, id: part.id}})
     end
 
     if args_delta != "" do
@@ -175,9 +178,10 @@ defmodule CodePuppyControl.LLM.Providers.ChatGPTCodex.Streaming do
         arg_chunks: []
       })
 
+    # (code_puppy-be7) Never overwrite a non-empty id with an empty one.
     part = %{
       part
-      | id: done_call_id,
+      | id: merge_id_value(part.id, done_call_id),
         name: if(part.name == nil or part.name == "", do: done_name, else: part.name)
     }
 
@@ -191,7 +195,11 @@ defmodule CodePuppyControl.LLM.Providers.ChatGPTCodex.Streaming do
 
     case item["type"] do
       "function_call" ->
-        call_id = item["call_id"] || ""
+        # (code_puppy-be7) Prefer call_id, then item["id"], then event["item_id"].
+        # The Responses API may populate "id" but not "call_id" on some events.
+        call_id =
+          item["call_id"] || item["id"] || event["item_id"] || ""
+
         name = item["name"] || ""
 
         tc_parts = acc.tool_calls
@@ -248,11 +256,12 @@ defmodule CodePuppyControl.LLM.Providers.ChatGPTCodex.Streaming do
               arg_chunks: []
             })
 
+          # (code_puppy-be7) Never overwrite a non-empty id with an empty one.
           part =
             if part.arg_chunks == [] and arguments != "" do
-              %{part | id: call_id, name: name, arg_chunks: [arguments]}
+              %{part | id: merge_id_value(part.id, call_id), name: name, arg_chunks: [arguments]}
             else
-              %{part | id: call_id, name: name}
+              %{part | id: merge_id_value(part.id, call_id), name: name}
             end
 
           tc_parts = Map.put(tc_parts, index, part)
@@ -338,12 +347,16 @@ defmodule CodePuppyControl.LLM.Providers.ChatGPTCodex.Streaming do
     Enum.each(acc.tool_calls, fn {_index, part} ->
       args = part.arg_chunks |> Enum.reverse() |> Enum.join()
 
+      # (code_puppy-be7) Ensure tool_call id is never empty —
+      # generate a deterministic safe ID if the provider didn't supply one.
+      safe_id = ensure_safe_call_id(part.id, part.name, part.index)
+
       callback_fn.(
         {:part_end,
          %{
            type: :tool_call,
            index: part.index,
-           id: part.id,
+           id: safe_id,
            name: part.name,
            arguments: args
          }}
@@ -357,8 +370,11 @@ defmodule CodePuppyControl.LLM.Providers.ChatGPTCodex.Streaming do
       |> Enum.map(fn {_index, part} ->
         args = part.arg_chunks |> Enum.reverse() |> Enum.join()
 
+        # (code_puppy-be7) Ensure tool_call id is never empty in output.
+        safe_id = ensure_safe_call_id(part.id, part.name, part.index)
+
         %{
-          id: part.id || "",
+          id: safe_id,
           name: part.name || "",
           arguments: parse_arguments(args)
         }
@@ -391,4 +407,41 @@ defmodule CodePuppyControl.LLM.Providers.ChatGPTCodex.Streaming do
   end
 
   defp parse_arguments(args), do: args
+
+  # ── ID Sanitization Helpers ─────────────────────────────────────────────
+
+  # (code_puppy-be7) Merge an incoming id with an existing one:
+  # never overwrite a non-empty id with an empty one.
+  @spec merge_id_value(String.t() | nil, String.t() | nil) :: String.t()
+  defp merge_id_value(existing, _incoming) when is_binary(existing) and existing != "" do
+    existing
+  end
+
+  defp merge_id_value(_existing, incoming) when is_binary(incoming), do: incoming
+  defp merge_id_value(_, _), do: ""
+
+  # Merge a call_id into a tool-call part map, preserving a non-empty id.
+  defp merge_id(part, call_id) do
+    %{part | id: merge_id_value(part.id, call_id)}
+  end
+
+  # (code_puppy-be7) Generate a deterministic safe ID for tool calls when
+  # the provider did not supply one. The Responses API requires IDs that
+  # contain only letters, numbers, underscores, and dashes.
+  # (code_puppy-be7.2) Also validate character set for non-empty IDs:
+  # IDs with characters outside [A-Za-z0-9_-] are sanitized too.
+  @spec ensure_safe_call_id(String.t() | nil, String.t() | nil, non_neg_integer()) :: String.t()
+  defp ensure_safe_call_id(id, name, index) when is_binary(id) and id != "" do
+    # Validate character set: Responses API only allows [A-Za-z0-9_-]
+    if Regex.match?(~r/^[A-Za-z0-9_-]+$/, id), do: id, else: safe_call_id(name, index)
+  end
+
+  defp ensure_safe_call_id(_id, name, index) do
+    safe_call_id(name, index)
+  end
+
+  defp safe_call_id(name, index) do
+    safe_base = String.replace(name || "call", ~r/[^A-Za-z0-9_-]/, "_")
+    "call_#{safe_base}_#{index}"
+  end
 end

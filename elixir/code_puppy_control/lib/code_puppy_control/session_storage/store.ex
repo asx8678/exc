@@ -353,7 +353,8 @@ defmodule CodePuppyControl.SessionStorage.Store do
 
         e in RuntimeError ->
           if String.contains?(Exception.message(e), "could not lookup Ecto repo") do
-            Logger.warning(
+            # (code_puppy-be7) Expected in escript mode — debug, not warning.
+            Logger.debug(
               "SessionStorage.Store: Repo not started (escript mode?); skipping disk recovery"
             )
 

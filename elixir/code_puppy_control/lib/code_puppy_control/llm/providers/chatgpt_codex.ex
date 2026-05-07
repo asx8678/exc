@@ -188,85 +188,176 @@ defmodule CodePuppyControl.LLM.Providers.ChatGPTCodex do
   # Convert OpenAI-style messages to Responses-style input items.
   # System messages are extracted as `instructions` (handled separately),
   # not included in input. User/assistant/tool messages become input items.
+  #
+  # (code_puppy-be7.2) Threads an ID tracker through message processing so
+  # that synthetic IDs generated for empty tool_call ids are consistent
+  # between the assistant function_call and the corresponding tool-result
+  # function_call_output. Without this, the Responses API would reject the
+  # request with "invalid input[*].id" when tool-result call_ids don't match
+  # any function_call id.
   defp messages_to_input(messages) do
-    messages
-    |> Enum.reject(fn
-      %{role: "system"} -> true
-      %{"role" => "system"} -> true
-      _ -> false
-    end)
-    |> Enum.flat_map(&input_items_from_message/1)
+    tracker = %{by_id: %{}, empty_queue: :queue.new()}
+
+    {items, _tracker} =
+      messages
+      |> Enum.reject(fn
+        %{role: "system"} -> true
+        %{"role" => "system"} -> true
+        _ -> false
+      end)
+      |> Enum.map_reduce(tracker, &input_items_from_message/2)
+
+    Enum.concat(items)
   end
 
   # Assistant messages with tool_calls produce the message item AND separate
   # function_call items in the flat input array.  This matches the Responses API
   # wire format where tool calls are siblings of messages, not nested inside them.
-  defp input_items_from_message(%{role: role, content: content} = msg)
+  defp input_items_from_message(%{role: role, content: content} = msg, tracker)
        when role in ["user", "assistant"] do
     item = %{"role" => role, "content" => content || ""}
 
     case Map.get(msg, :tool_calls) do
       nil ->
-        [item]
+        {[item], tracker}
 
       tool_calls ->
-        function_calls = Enum.map(tool_calls, &format_tool_call_for_input/1)
-        [item | function_calls]
+        {fcs, tracker} = Enum.map_reduce(tool_calls, tracker, &format_tool_call_for_input/2)
+        {[item | fcs], tracker}
     end
   end
 
-  defp input_items_from_message(%{"role" => role, "content" => content} = msg)
+  defp input_items_from_message(%{"role" => role, "content" => content} = msg, tracker)
        when role in ["user", "assistant"] do
     item = %{"role" => role, "content" => content || ""}
 
     case Map.get(msg, "tool_calls") do
       nil ->
-        [item]
+        {[item], tracker}
 
       tool_calls ->
-        function_calls = Enum.map(tool_calls, &format_tool_call_for_input/1)
-        [item | function_calls]
+        {fcs, tracker} = Enum.map_reduce(tool_calls, tracker, &format_tool_call_for_input/2)
+        {[item | fcs], tracker}
     end
   end
 
-  defp input_items_from_message(%{role: "tool", content: content, tool_call_id: call_id}) do
-    [%{"type" => "function_call_output", "call_id" => call_id || "", "output" => content || ""}]
+  defp input_items_from_message(%{role: "tool", content: content, tool_call_id: call_id}, tracker) do
+    # (code_puppy-be7) Never emit empty call_id — generate a safe one
+    # so the Responses API doesn't reject the request.
+    # (code_puppy-be7.2) Look up the tracker for previously generated IDs
+    # (from format_tool_call_for_input) to ensure matching call_ids.
+    # (code_puppy-be7.3) resolve returns {safe_id, updated_tracker} so the
+    # empty_queue is properly consumed.
+    {safe_id, tracker} = resolve_tool_result_call_id(call_id, tracker)
+
+    {[%{"type" => "function_call_output", "call_id" => safe_id, "output" => content || ""}],
+     tracker}
   end
 
-  defp input_items_from_message(%{
-         "role" => "tool",
-         "content" => content,
-         "tool_call_id" => call_id
-       }) do
-    [%{"type" => "function_call_output", "call_id" => call_id || "", "output" => content || ""}]
+  defp input_items_from_message(
+         %{
+           "role" => "tool",
+           "content" => content,
+           "tool_call_id" => call_id
+         },
+         tracker
+       ) do
+    {safe_id, tracker} = resolve_tool_result_call_id(call_id, tracker)
+
+    {[%{"type" => "function_call_output", "call_id" => safe_id, "output" => content || ""}],
+     tracker}
   end
 
-  defp input_items_from_message(%{role: role, content: content}) do
-    [%{"role" => role, "content" => content || ""}]
+  defp input_items_from_message(%{role: role, content: content}, tracker) do
+    {[%{"role" => role, "content" => content || ""}], tracker}
   end
 
-  defp input_items_from_message(%{"role" => role, "content" => content}) do
-    [%{"role" => role, "content" => content || ""}]
+  defp input_items_from_message(%{"role" => role, "content" => content}, tracker) do
+    {[%{"role" => role, "content" => content || ""}], tracker}
   end
 
-  defp format_tool_call_for_input(%{id: id, type: _type, function: func}) do
-    %{
-      "type" => "function_call",
-      "id" => id || "",
-      "call_id" => id || "",
-      "name" => func.name,
-      "arguments" => func.arguments
-    }
+  defp format_tool_call_for_input(%{id: id, type: _type, function: func}, tracker) do
+    # (code_puppy-be7) Never emit empty id/call_id — generate a safe
+    # deterministic ID when the provider history lacks a valid one.
+    safe_id = sanitize_tool_call_id(id, func.name)
+
+    # (code_puppy-be7.2) Track synthetic IDs for tool-result matching.
+    # When the original ID was empty, the tool-result tool_call_id will
+    # also be empty — use this tracker to retrieve the same synthetic ID.
+    tracker = track_id(tracker, id, func.name, safe_id)
+
+    {%{
+       "type" => "function_call",
+       "id" => safe_id,
+       "call_id" => safe_id,
+       "name" => func.name,
+       "arguments" => func.arguments
+     }, tracker}
   end
 
-  defp format_tool_call_for_input(%{"id" => id, "type" => _type, "function" => func}) do
-    %{
-      "type" => "function_call",
-      "id" => id || "",
-      "call_id" => id || "",
-      "name" => func["name"],
-      "arguments" => func["arguments"]
-    }
+  defp format_tool_call_for_input(%{"id" => id, "type" => _type, "function" => func}, tracker) do
+    safe_id = sanitize_tool_call_id(id, func["name"])
+    tracker = track_id(tracker, id, func["name"], safe_id)
+
+    {%{
+       "type" => "function_call",
+       "id" => safe_id,
+       "call_id" => safe_id,
+       "name" => func["name"],
+       "arguments" => func["arguments"]
+     }, tracker}
+  end
+
+  # Track synthetic IDs so tool-result call_ids can look up the matching
+  # function_call id.  The tracker is a map with two keys:
+  #   :by_id       — map of original_id => safe_id for non-empty original IDs
+  #   :empty_queue — :queue of safe_ids for empty/nil original IDs (FIFO)
+  #
+  # (code_puppy-be7.3) Using a queue for empty IDs prevents the bug where
+  # multiple empty-id tool calls overwrite tracker[""], causing all
+  # function_call_output items to reference the last synthetic ID.
+  defp track_id(tracker, id, _name, safe_id) when is_binary(id) and id != "" do
+    # Original ID was non-empty. Track it by original id so tool results
+    # with the same original call_id find the matching synthetic ID.
+    put_in(tracker, [:by_id, id], safe_id)
+  end
+
+  defp track_id(tracker, _id, _name, safe_id) do
+    # Original ID was empty/nil — enqueue the synthetic ID so tool results
+    # with empty call_id consume them in order.
+    update_in(tracker, [:empty_queue], &:queue.in(safe_id, &1))
+  end
+
+  # Resolve tool-result call_id by looking up the tracker, returning
+  # {safe_id, updated_tracker} so the FIFO queue is properly consumed.
+  #
+  # (code_puppy-be7.3) Empty/nil call_ids consume from the FIFO queue so
+  # multiple empty-id tool calls pair correctly in order.
+  # Invalid non-empty call_ids look up in :by_id first; if absent,
+  # sanitize/generate a safe ID.
+  defp resolve_tool_result_call_id(call_id, tracker) when is_binary(call_id) and call_id != "" do
+    # Try tracker first (in case the original ID was sanitized to a different
+    # value in format_tool_call_for_input, e.g., invalid characters stripped)
+    case tracker.by_id[call_id] do
+      nil ->
+        # Not tracked; sanitize invalid characters to prevent 400 errors
+        {sanitize_tool_call_id(call_id, nil), tracker}
+
+      safe_id ->
+        {safe_id, tracker}
+    end
+  end
+
+  defp resolve_tool_result_call_id(_call_id, tracker) do
+    # Empty/nil call_id: consume the next synthetic ID from the FIFO queue.
+    case :queue.out(tracker.empty_queue) do
+      {{:value, safe_id}, rest} ->
+        {safe_id, %{tracker | empty_queue: rest}}
+
+      {:empty, _rest} ->
+        # No queued IDs (shouldn't happen in normal flows); generate fallback
+        {sanitize_tool_call_id(nil, nil), tracker}
+    end
   end
 
   # If system_prompt is provided via opts, put it as `instructions`.
@@ -343,5 +434,34 @@ defmodule CodePuppyControl.LLM.Providers.ChatGPTCodex do
       extra when is_list(extra) -> headers ++ extra
       _ -> headers
     end
+  end
+
+  # (code_puppy-be7) Sanitize tool-call IDs for the Responses API.
+  # The API requires IDs that contain only letters, numbers, underscores,
+  # and dashes. Empty IDs cause 400 errors. When no valid ID is available,
+  # generate a deterministic safe ID.
+  #
+  # (code_puppy-be7.2) Also validate the character set for non-empty IDs:
+  # existing IDs with characters outside [A-Za-z0-9_-] are sanitized too.
+  @spec sanitize_tool_call_id(String.t() | nil, String.t() | nil) :: String.t()
+  defp sanitize_tool_call_id(id, name) when is_binary(id) and id != "" do
+    # Validate character set: Responses API only allows [A-Za-z0-9_-]
+    if Regex.match?(~r/^[A-Za-z0-9_-]+$/, id), do: id, else: generate_safe_call_id(name)
+  end
+
+  defp sanitize_tool_call_id(_id, name) do
+    generate_safe_call_id(name)
+  end
+
+  defp generate_safe_call_id(name) do
+    base = name || "call"
+    safe_base = String.replace(base, ~r/[^A-Za-z0-9_-]/, "_")
+    "call_#{safe_base}_#{safe_id_suffix()}"
+  end
+
+  # Generate a short, deterministic-safe suffix for synthetic call IDs.
+  defp safe_id_suffix do
+    System.unique_integer([:positive])
+    |> Integer.to_string()
   end
 end

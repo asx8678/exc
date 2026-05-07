@@ -101,11 +101,13 @@ defmodule CodePuppyControl.Agent.LLMAdapter do
   end
 
   defp normalize_tool_call(%{id: id, name: name, arguments: args}) do
-    %{id: id || "", name: safe_atomize(name), arguments: args}
+    # (code_puppy-be7) Never persist empty tool_call IDs — generate a safe one
+    # so history cannot carry empty tool_call_id values.
+    %{id: sanitize_tool_call_id(id, name), name: safe_atomize(name), arguments: args}
   end
 
   defp normalize_tool_call(%{"id" => id, "name" => name, "arguments" => args}) do
-    %{id: id || "", name: safe_atomize(name), arguments: args}
+    %{id: sanitize_tool_call_id(id, name), name: safe_atomize(name), arguments: args}
   end
 
   defp normalize_tool_call(other), do: other
@@ -244,16 +246,21 @@ defmodule CodePuppyControl.Agent.LLMAdapter do
   # safe_atomize/1 during inbound response normalization.
 
   defp to_provider_tool_call(%{id: id, name: name, arguments: args}) do
+    # (code_puppy-be7) Never emit empty id — generate a safe deterministic ID.
+    safe_id = sanitize_tool_call_id(id, name)
+
     %{
-      id: id || "",
+      id: safe_id,
       type: "function",
       function: %{name: to_string(name), arguments: encode_arguments(args)}
     }
   end
 
   defp to_provider_tool_call(%{"id" => id, "name" => name, "arguments" => args}) do
+    safe_id = sanitize_tool_call_id(id, name)
+
     %{
-      id: id || "",
+      id: safe_id,
       type: "function",
       function: %{name: to_string(name), arguments: encode_arguments(args)}
     }
@@ -263,7 +270,11 @@ defmodule CodePuppyControl.Agent.LLMAdapter do
   defp to_provider_tool_call(other) do
     Logger.warning("LLMAdapter: malformed tool_call in message history: #{inspect(other)}")
 
-    %{id: "", type: "function", function: %{name: "unknown", arguments: "{}"}}
+    %{
+      id: "call_malformed_#{safe_id_suffix()}",
+      type: "function",
+      function: %{name: "unknown", arguments: "{}"}
+    }
   end
 
   defp encode_arguments(args) when is_binary(args), do: args
@@ -279,6 +290,36 @@ defmodule CodePuppyControl.Agent.LLMAdapter do
   end
 
   defp encode_arguments(_), do: "{}"
+
+  # (code_puppy-be7) Sanitize empty tool-call IDs. Provider APIs (especially
+  # ChatGPT Codex Responses API) reject empty id fields. When no valid ID
+  # is available, generate a deterministic safe ID containing only
+  # letters, numbers, underscores, and dashes.
+  # (code_puppy-be7.2) Also validate character set for non-empty IDs:
+  # IDs with characters outside [A-Za-z0-9_-] are sanitized too.
+  @spec sanitize_tool_call_id(String.t() | nil, String.t() | nil) :: String.t()
+  defp sanitize_tool_call_id(id, name) when is_binary(id) and id != "" do
+    if Regex.match?(~r/^[A-Za-z0-9_-]+$/, id), do: id, else: generate_safe_call_id(name)
+  end
+
+  defp sanitize_tool_call_id(_id, name) do
+    generate_safe_call_id(name)
+  end
+
+  defp generate_safe_call_id(name) do
+    base = name || "call"
+
+    safe_base =
+      to_string(base)
+      |> String.replace(~r/[^A-Za-z0-9_-]/, "_")
+
+    "call_#{safe_base}_#{safe_id_suffix()}"
+  end
+
+  defp safe_id_suffix do
+    System.unique_integer([:positive])
+    |> Integer.to_string()
+  end
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)

@@ -32,6 +32,12 @@ defmodule CodePuppyControl.Agent.Loop.ToolDispatch do
       resolved_name = resolve_tool_name(tool_call.name, allowed)
       tool_call = %{tool_call | name: resolved_name}
 
+      # (code_puppy-be7.3) Sanitize tool_call.id before using it in
+      # result messages and events. A custom llm_module that bypasses
+      # LLMAdapter may produce empty/invalid IDs.
+      safe_id = sanitize_tool_call_id(tool_call.id)
+      tool_call = %{tool_call | id: safe_id}
+
       if MapSet.member?(allowed, resolved_name) do
         execute_tool_call(state, tool_call, acc)
       else
@@ -41,7 +47,7 @@ defmodule CodePuppyControl.Agent.Loop.ToolDispatch do
 
         result_msg = %{
           role: "tool",
-          tool_call_id: tool_call.id,
+          tool_call_id: safe_id,
           content: "Error: tool #{inspect(resolved_name)} is not available"
         }
 
@@ -51,7 +57,7 @@ defmodule CodePuppyControl.Agent.Loop.ToolDispatch do
             state.session_id,
             resolved_name,
             {:error, :tool_not_allowed},
-            tool_call.id
+            safe_id
           )
         )
 
@@ -85,13 +91,19 @@ defmodule CodePuppyControl.Agent.Loop.ToolDispatch do
   """
   @spec execute_tool_call(map(), map(), [map()]) :: [map()]
   def execute_tool_call(state, tool_call, messages) do
+    # (code_puppy-be7.3) Sanitize tool_call.id before emitting events
+    # and storing in message history. Defense-in-depth: IDs should already
+    # be sanitized by sanitize_tool_call_ids/1 in finalize_turn/3, but
+    # we guard here too in case dispatch_tool_calls is called directly.
+    safe_id = sanitize_tool_call_id(tool_call.id)
+
     Events.publish(
       Events.tool_call_start(
         state.run_id,
         state.session_id,
         tool_call.name,
         tool_call.arguments,
-        tool_call.id
+        safe_id
       )
     )
 
@@ -105,7 +117,7 @@ defmodule CodePuppyControl.Agent.Loop.ToolDispatch do
     result = Runner.invoke(tool_call.name, tool_call.arguments, context)
 
     Events.publish(
-      Events.tool_call_end(state.run_id, state.session_id, tool_call.name, result, tool_call.id)
+      Events.tool_call_end(state.run_id, state.session_id, tool_call.name, result, safe_id)
     )
 
     # Check if agent wants to halt
@@ -113,7 +125,7 @@ defmodule CodePuppyControl.Agent.Loop.ToolDispatch do
       {:cont, _new_agent_state} ->
         result_msg = %{
           role: "tool",
-          tool_call_id: tool_call.id,
+          tool_call_id: safe_id,
           content: format_tool_result(result)
         }
 
@@ -124,6 +136,41 @@ defmodule CodePuppyControl.Agent.Loop.ToolDispatch do
 
         messages
     end
+  end
+
+  defp generate_safe_dispatch_id do
+    "call_dispatch_#{System.unique_integer([:positive])}"
+  end
+
+  @doc """
+  Sanitize a single tool_call ID.
+
+  Ensures the ID is a non-empty string containing only `[A-Za-z0-9_-]+`.
+  Invalid, empty, or nil IDs are replaced with a generated safe ID.
+
+  This is the single source of truth for tool-call ID sanitization
+  across `Agent.Loop` and `ToolDispatch`.
+  """
+  @spec sanitize_tool_call_id(String.t() | nil | term()) :: String.t()
+  def sanitize_tool_call_id(id) when is_binary(id) and id != "" do
+    if Regex.match?(~r/^[A-Za-z0-9_-]+$/, id), do: id, else: generate_safe_dispatch_id()
+  end
+
+  def sanitize_tool_call_id(_id), do: generate_safe_dispatch_id()
+
+  @doc """
+  Sanitize tool_call IDs across a list of tool calls.
+
+  Returns the list with each tool_call's `:id` field replaced by its
+  sanitized value. Called by `Agent.Loop.finalize_turn/3` before
+  building the assistant message so that assistant `tool_calls[i].id`
+  and tool result `tool_call_id` always match.
+  """
+  @spec sanitize_tool_call_ids([map()]) :: [map()]
+  def sanitize_tool_call_ids(tool_calls) when is_list(tool_calls) do
+    Enum.map(tool_calls, fn tc ->
+      %{tc | id: sanitize_tool_call_id(tc[:id])}
+    end)
   end
 
   @doc """

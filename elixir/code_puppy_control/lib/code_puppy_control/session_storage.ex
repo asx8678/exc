@@ -569,9 +569,21 @@ defmodule CodePuppyControl.SessionStorage do
   # Private Helpers
   # ---------------------------------------------------------------------------
 
+  # (code_puppy-be7) Check both Store process AND Repo availability.
+  # In escript/degraded mode, Store may be registered but Repo is not
+  # started, causing all Store operations to fail :repo_unavailable.
+  # When Repo is unavailable, route to FileBackend instead.
   @spec store_available?() :: boolean()
   defp store_available? do
-    Process.whereis(Store) != nil
+    Process.whereis(Store) != nil and repo_available?()
+  end
+
+  @spec repo_available?() :: boolean()
+  defp repo_available? do
+    case Process.whereis(CodePuppyControl.Repo) do
+      nil -> false
+      _pid -> true
+    end
   end
 
   @spec store_entry_to_metadata(map()) :: session_metadata()
