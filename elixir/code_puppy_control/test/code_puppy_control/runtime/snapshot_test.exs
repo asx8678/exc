@@ -34,7 +34,7 @@ defmodule CodePuppyControl.Runtime.SnapshotTest do
 
     test "supervisors have current/max/utilization" do
       %{supervisors: sups} = Snapshot.snapshot()
-      assert Map.has_key?(sups, :python_workers)
+      assert Map.has_key?(sups, :mcp_servers)
       assert Map.has_key?(sups, :runs)
 
       for {_key, entry} <- sups do
@@ -46,7 +46,7 @@ defmodule CodePuppyControl.Runtime.SnapshotTest do
 
     test "limits has all Limits.all/0 keys" do
       %{limits: limits} = Snapshot.snapshot()
-      assert Map.has_key?(limits, :max_python_workers)
+      assert Map.has_key?(limits, :max_mcp_servers)
       assert Map.has_key?(limits, :max_runs)
       assert Map.has_key?(limits, :cpu_concurrency)
     end

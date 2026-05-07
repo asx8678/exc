@@ -3,14 +3,14 @@ defmodule CodePuppyControl.Run.Manager do
   Coordinates run lifecycle between Registry, State, and Executors.
 
   This is the high-level API for managing runs:
-  - Starting runs with an appropriate executor (Elixir or Python)
+  - Starting runs with the native Elixir executor
   - Tracking run state and progress
   - Cancelling and cleaning up runs
   - Querying run information
 
-  The executor is selected via `Run.Executor` based on `PUP_RUNTIME`:
-  - Unset/auto/elixir → Elixir-native executor (no Python required)
-  - python → Python bridge executor
+  All runs use the native Elixir executor. The executor module is
+  stored in run metadata so lifecycle operations remain consistent
+  even if the app-env override changes mid-flight.
 
   ## Usage
 
@@ -18,7 +18,7 @@ defmodule CodePuppyControl.Run.Manager do
       Run.Manager.get_run(run_id)
       Run.Manager.cancel_run(run_id)
 
-  Refs: code-puppy-96g
+  Refs: code-puppy-96g, code-puppy-3o7.6
   """
 
   require Logger
@@ -28,7 +28,7 @@ defmodule CodePuppyControl.Run.Manager do
   @doc """
   Starts a new run with an associated executor.
 
-  The executor is selected automatically based on `PUP_RUNTIME`.
+  The executor is always the native Elixir executor.
 
   ## Options
 
@@ -132,7 +132,7 @@ defmodule CodePuppyControl.Run.Manager do
 
       {:ok, state} ->
         # Use the executor module stored in metadata at start time,
-        # not the current runtime — a mid-flight PUP_RUNTIME change
+        # not the current runtime — a mid-flight executor change
         # must not redirect cancellation to the wrong backend.
         executor_mod = Map.get(state.metadata, :executor_module, Executor.executor_module())
 
@@ -246,7 +246,7 @@ defmodule CodePuppyControl.Run.Manager do
 
       {:ok, state} ->
         # Use the executor module stored in metadata at start time,
-        # not the current runtime — a mid-flight PUP_RUNTIME change
+        # not the current runtime — a mid-flight executor change
         # must not redirect tool execution to the wrong backend.
         executor_mod = Map.get(state.metadata, :executor_module, Executor.executor_module())
 

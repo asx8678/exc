@@ -7,7 +7,6 @@ defmodule CodePuppyControlWeb.RunControllerTest do
   - Missing tool_name => 400
   - Run not found => 404
   - Successful execution delegates through the stored executor backend
-  - No direct PythonWorker.Port references in RunController
 
   Refs: code-puppy-zyh
   """
@@ -15,9 +14,6 @@ defmodule CodePuppyControlWeb.RunControllerTest do
   use CodePuppyControlWeb.ConnCase, async: false
 
   alias CodePuppyControl.Run.Manager
-
-  # Env vars we mutate; must be async: false
-  @pup_runtime "PUP_RUNTIME"
 
   # A fake executor for controller-level testing that records calls.
   defmodule FakeExecutorForController do
@@ -68,20 +64,12 @@ defmodule CodePuppyControlWeb.RunControllerTest do
 
   describe "POST /api/runs/:id/execute" do
     setup do
-      saved_runtime = System.get_env(@pup_runtime)
-      System.delete_env(@pup_runtime)
-
       saved_app =
         Application.get_env(:code_puppy_control, :run_executor_module)
 
       Application.delete_env(:code_puppy_control, :run_executor_module)
 
       on_exit(fn ->
-        case saved_runtime do
-          nil -> System.delete_env(@pup_runtime)
-          v -> System.put_env(@pup_runtime, v)
-        end
-
         case saved_app do
           nil -> Application.delete_env(:code_puppy_control, :run_executor_module)
           v -> Application.put_env(:code_puppy_control, :run_executor_module, v)
@@ -156,7 +144,7 @@ defmodule CodePuppyControlWeb.RunControllerTest do
       assert body["tool_name"] == "my_tool"
       assert body["executed_at"]
 
-      # The result comes from FakeExecutorForController, not PythonWorker.Port
+      # The result comes from FakeExecutorForController
       assert is_map(body["result"])
 
       # Verify the fake executor handled the call (not Python)
@@ -300,36 +288,19 @@ defmodule CodePuppyControlWeb.RunControllerTest do
     end
 
     setup do
-      saved_runtime = System.get_env(@pup_runtime)
-      System.delete_env(@pup_runtime)
-
       saved_app =
         Application.get_env(:code_puppy_control, :run_executor_module)
 
       Application.delete_env(:code_puppy_control, :run_executor_module)
 
-      # Ensure no Python worker script env leaks
-      saved_pws = System.get_env("PUP_PYTHON_WORKER_SCRIPT")
-      saved_lws = System.get_env("PYTHON_WORKER_SCRIPT")
-      System.delete_env("PUP_PYTHON_WORKER_SCRIPT")
-      System.delete_env("PYTHON_WORKER_SCRIPT")
-
       # Register the deterministic tool
       :ok = CodePuppyControl.Tool.Registry.register(DeterministicTestTool)
 
       on_exit(fn ->
-        case saved_runtime do
-          nil -> System.delete_env(@pup_runtime)
-          v -> System.put_env(@pup_runtime, v)
-        end
-
         case saved_app do
           nil -> Application.delete_env(:code_puppy_control, :run_executor_module)
           v -> Application.put_env(:code_puppy_control, :run_executor_module, v)
         end
-
-        if saved_pws, do: System.put_env("PUP_PYTHON_WORKER_SCRIPT", saved_pws)
-        if saved_lws, do: System.put_env("PYTHON_WORKER_SCRIPT", saved_lws)
 
         CodePuppyControl.Tool.Registry.unregister(:deterministic_test_tool)
       end)
@@ -337,8 +308,7 @@ defmodule CodePuppyControlWeb.RunControllerTest do
       :ok
     end
 
-    test "executes a deterministic tool through Tool.Runner without Python" do
-      # Default executor is Elixir — no :run_executor_module override, no PUP_RUNTIME
+    test "executes a deterministic tool through Tool.Runner" do
       assert {:ok, run_id} = Manager.start_run("elixir-native-session", "elixir-agent")
 
       conn =
@@ -354,7 +324,7 @@ defmodule CodePuppyControlWeb.RunControllerTest do
       assert body["executed_at"]
 
       # Result came through Tool.Runner → DeterministicTestTool.invoke/2
-      # NOT through PythonWorker.Port
+      # NOT through a Python bridge
       assert is_map(body["result"])
       assert body["result"]["echo"] == "hello"
       assert body["result"]["tool"] == "deterministic_test_tool"
@@ -368,24 +338,6 @@ defmodule CodePuppyControlWeb.RunControllerTest do
       assert state.metadata.executor_module == CodePuppyControl.Run.Executor.Elixir
 
       Manager.delete_run(run_id)
-    end
-  end
-
-  # ---------------------------------------------------------------------------
-  # Grep-based regression: RunController must not reference PythonWorker.Port
-  # ---------------------------------------------------------------------------
-
-  describe "RunController no direct PythonWorker.Port references" do
-    test "controller source does not alias or call PythonWorker.Port" do
-      source =
-        File.read!("lib/code_puppy_control_web/controllers/run_controller.ex")
-
-      # Must NOT contain any direct PythonWorker.Port references
-      refute source =~ "PythonWorker.Port",
-             "RunController must not reference PythonWorker.Port directly (code-puppy-zyh)"
-
-      refute source =~ "alias CodePuppyControl.PythonWorker",
-             "RunController must not alias PythonWorker modules (code-puppy-zyh)"
     end
   end
 end

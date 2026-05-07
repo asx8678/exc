@@ -11,9 +11,9 @@ defmodule CodePuppyControlWeb.HealthControllerTest do
 
       assert %{"processes" => %{"current" => _, "limit" => _}} = body
       assert %{"supervisors" => supervisors} = body
-      assert Map.has_key?(supervisors, "python_workers")
+      assert Map.has_key?(supervisors, "mcp_servers")
       assert %{"limits" => limits} = body
-      assert Map.has_key?(limits, "max_python_workers")
+      assert Map.has_key?(limits, "max_mcp_servers")
     end
   end
 end

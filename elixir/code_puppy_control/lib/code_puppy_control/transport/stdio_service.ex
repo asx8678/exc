@@ -169,7 +169,7 @@ defmodule CodePuppyControl.Transport.StdioService do
   ## Security
 
   All file operations use the same `FileOps.sensitive_path?/1` validation
-  as the bridge mode. Access to SSH keys, cloud credentials, and system
+  as the native runtime. Access to SSH keys, cloud credentials, and system
   secrets is blocked.
 
   ## Configuration

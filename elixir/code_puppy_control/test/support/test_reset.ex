@@ -20,7 +20,7 @@ defmodule CodePuppyControl.TestSupport.Reset do
   Resets are performed in reverse dependency order to avoid issues:
 
   1. Ensure all GenServers are started (CRITICAL - before any reset calls)
-  2. DynamicSupervisor children terminated first (Run, MCP, PythonWorker)
+  2. DynamicSupervisor children terminated first (Run, MCP)
   3. GenServer state resets (ProcessManager, RequestTracker)
   4. GenServer ETS resets (PolicyEngine, ModelAvailability, RoundRobinModel, etc.)
   5. ETS-only table clears (AgentModelPinning, Limiter counters, Token cache)
@@ -97,13 +97,12 @@ defmodule CodePuppyControl.TestSupport.Reset do
     @doc """
     Terminate all children in dynamic supervisors.
 
-    This terminates all active runs, MCP servers, and Python workers.
+    This terminates all active runs and MCP servers.
     """
     @spec terminate_all() :: :ok
     def terminate_all do
       terminate_run_children()
       terminate_mcp_children()
-      terminate_python_worker_children()
       :ok
     end
 
@@ -165,24 +164,6 @@ defmodule CodePuppyControl.TestSupport.Reset do
 
           if length(children) > 0 do
             Logger.debug("Reset: terminated #{length(children)} MCP servers")
-          end
-      end
-    end
-
-    defp terminate_python_worker_children do
-      case Process.whereis(CodePuppyControl.PythonWorker.Supervisor) do
-        nil ->
-          :ok
-
-        _pid ->
-          children = CodePuppyControl.PythonWorker.Supervisor.list_workers()
-
-          Enum.each(children, fn {run_id, _pid} ->
-            CodePuppyControl.PythonWorker.Supervisor.terminate_worker(run_id)
-          end)
-
-          if length(children) > 0 do
-            Logger.debug("Reset: terminated #{length(children)} Python workers")
           end
       end
     end

@@ -368,7 +368,7 @@ defmodule CodePuppyControl.CLI.Smoke.Phases do
   #   2. `--help`     must exit 0 and contain the markers
   #                   `Usage: pup [OPTIONS] [PROMPT]` and `--prompt`.
   #   3. Interactive bootstrap/quit — pipes `/quit\n` into the binary
-  #      with a sandboxed PUP_EX_HOME and PUP_RUNTIME=elixir, then
+  #      with a sandboxed PUP_EX_HOME, then
   #      asserts the process exits 0 without crash indicators in
   #      its output.  This catches escript startup failures where
   #      erlexec cannot find its exec-port, the supervision tree

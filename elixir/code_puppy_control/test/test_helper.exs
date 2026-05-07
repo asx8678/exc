@@ -14,8 +14,6 @@
 
 # .ex files in test/support are compiled automatically via elixirc_paths.
 # Only use Code.require_file for .exs files that are not compiled.
-# (Previously, mock_python_worker.ex and e2e_case.ex were require_file'd
-# here, causing redefinition warnings since they're already in elixirc_paths.)
 
 # Support .ex files in test/support are automatically loaded via compilation
 # This includes: test_reset.ex, stateful_case.ex, stdio_test_helper.ex

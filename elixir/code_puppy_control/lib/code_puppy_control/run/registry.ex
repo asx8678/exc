@@ -3,7 +3,7 @@ defmodule CodePuppyControl.Run.Registry do
   Registry for tracking run-related processes.
 
   Uses a partitioned Registry for concurrent access.
-  Keys are tuples like `{:python_worker, run_id}`, `{:run_executor, run_id}`
+  Keys are tuples like `{:run_executor, run_id}`
   or `{:run_state, run_id}`.
   """
 
@@ -13,14 +13,6 @@ defmodule CodePuppyControl.Run.Registry do
       name: __MODULE__,
       partitions: System.schedulers_online()
     )
-  end
-
-  @doc """
-  Returns the via tuple for a run's Python worker.
-  """
-  @spec python_worker(String.t()) :: {:via, module(), {module(), term()}}
-  def python_worker(run_id) do
-    {:via, Registry, {__MODULE__, {:python_worker, run_id}}}
   end
 
   @doc """

@@ -4,7 +4,6 @@ defmodule CodePuppyControl.E2ETest do
 
   Tests the full lifecycle:
   - Elixir control plane (Run.Manager, EventBus, EventStore)
-  - Python worker integration (PythonWorker.Port)
   - Event distribution via PubSub
   - Scheduler task execution via Oban
   - MCP server lifecycle
@@ -14,7 +13,7 @@ defmodule CodePuppyControl.E2ETest do
   These tests require:
   - Database running (`mix ecto.create`)
   - PubSub available (started in test_helper or application)
-  - Python bridge module available for mocking
+  - Elixir-native executor available for mocking
 
   ## Running
 
@@ -34,7 +33,7 @@ defmodule CodePuppyControl.E2ETest do
   @moduletag :e2e
   @moduletag timeout: 120_000
 
-  alias CodePuppyControl.{Run, EventBus, EventStore, PythonWorker, Scheduler, MCP}
+  alias CodePuppyControl.{Run, EventBus, EventStore, Scheduler, MCP}
 
   setup_all do
     # Ensure EventStore is started for E2E tests

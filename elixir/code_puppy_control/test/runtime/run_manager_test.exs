@@ -2,20 +2,18 @@ defmodule CodePuppyControl.Runtime.RunManagerTest do
   @moduledoc """
   Tests for Run.Manager — run lifecycle coordination.
 
-  With the executor boundary (code-puppy-96g), Manager.start_run/3
-  no longer requires a Python worker.  Default/Elixir mode uses
+  With the native-only runtime (code-puppy-3o7.6), all runs use
   Run.Executor.Elixir which starts a lightweight GenServer.
-  Python mode (PUP_RUNTIME=python) uses Run.Executor.Python.
 
   These tests cover:
   - Run.State safe_status_atom/1 (unit-level)
   - Run.Supervisor operations
   - Manager error paths (not_found)
   - Manager.start_run/3 with Elixir executor (no Python required)
-  - Manager.start_run/3 with Python executor (fails gracefully)
   - Cancel/delete operations through the executor boundary
+  - Executor boundary: explicit-module variants for test overrides
 
-  Refs: code-puppy-96g
+  Refs: code-puppy-96g, code-puppy-3o7.6
   """
 
   use ExUnit.Case, async: false
@@ -23,37 +21,9 @@ defmodule CodePuppyControl.Runtime.RunManagerTest do
   alias CodePuppyControl.Run.{Manager, State, Supervisor, Executor}
   alias CodePuppyControl.Run.Executor.Supervisor, as: ExecutorSupervisor
 
-  # Env vars we mutate; must be async: false
-  @pup_runtime "PUP_RUNTIME"
-
   # ---------------------------------------------------------------------------
   # Helpers
   # ---------------------------------------------------------------------------
-
-  defp save_env(vars) do
-    for var <- vars, into: %{} do
-      {var, System.get_env(var)}
-    end
-  end
-
-  defp restore_env(saved) do
-    for {var, val} <- saved do
-      case val do
-        nil -> System.delete_env(var)
-        v -> System.put_env(var, v)
-      end
-    end
-  end
-
-  defp with_saved_env(vars, fun) do
-    saved = save_env(vars)
-
-    try do
-      fun.()
-    after
-      restore_env(saved)
-    end
-  end
 
   defp with_app_env(key, fun) do
     original = Application.get_env(:code_puppy_control, key)
@@ -159,68 +129,26 @@ defmodule CodePuppyControl.Runtime.RunManagerTest do
   end
 
   # ---------------------------------------------------------------------------
-  # Executor module selection (code-puppy-96g)
+  # Executor module selection (code-puppy-96g, code-puppy-3o7.6)
   # ---------------------------------------------------------------------------
 
   describe "Executor.executor_module/0" do
-    test "defaults to Elixir executor when PUP_RUNTIME is unset" do
-      with_saved_env([@pup_runtime], fn ->
-        System.delete_env(@pup_runtime)
-
-        with_app_env(:run_executor_module, fn ->
-          Application.delete_env(:code_puppy_control, :run_executor_module)
-          assert Executor.executor_module() == CodePuppyControl.Run.Executor.Elixir
-        end)
+    test "defaults to Elixir executor" do
+      with_app_env(:run_executor_module, fn ->
+        Application.delete_env(:code_puppy_control, :run_executor_module)
+        assert Executor.executor_module() == CodePuppyControl.Run.Executor.Elixir
       end)
     end
 
-    test "selects Elixir executor when PUP_RUNTIME=elixir" do
-      with_saved_env([@pup_runtime], fn ->
-        System.put_env(@pup_runtime, "elixir")
+    test "app env :run_executor_module overrides default (test injection)" do
+      with_app_env(:run_executor_module, fn ->
+        Application.put_env(
+          :code_puppy_control,
+          :run_executor_module,
+          CodePuppyControl.Run.Executor.Elixir
+        )
 
-        with_app_env(:run_executor_module, fn ->
-          Application.delete_env(:code_puppy_control, :run_executor_module)
-          assert Executor.executor_module() == CodePuppyControl.Run.Executor.Elixir
-        end)
-      end)
-    end
-
-    test "selects Elixir executor when PUP_RUNTIME=auto" do
-      with_saved_env([@pup_runtime], fn ->
-        System.put_env(@pup_runtime, "auto")
-
-        with_app_env(:run_executor_module, fn ->
-          Application.delete_env(:code_puppy_control, :run_executor_module)
-          assert Executor.executor_module() == CodePuppyControl.Run.Executor.Elixir
-        end)
-      end)
-    end
-
-    test "selects Python executor when PUP_RUNTIME=python" do
-      with_saved_env([@pup_runtime], fn ->
-        System.put_env(@pup_runtime, "python")
-
-        with_app_env(:run_executor_module, fn ->
-          Application.delete_env(:code_puppy_control, :run_executor_module)
-          assert Executor.executor_module() == CodePuppyControl.Run.Executor.Python
-        end)
-      end)
-    end
-
-    test "app env :run_executor_module overrides runtime selection" do
-      with_saved_env([@pup_runtime], fn ->
-        System.put_env(@pup_runtime, "python")
-
-        with_app_env(:run_executor_module, fn ->
-          Application.put_env(
-            :code_puppy_control,
-            :run_executor_module,
-            CodePuppyControl.Run.Executor.Elixir
-          )
-
-          # App env should win over PUP_RUNTIME=python
-          assert Executor.executor_module() == CodePuppyControl.Run.Executor.Elixir
-        end)
+        assert Executor.executor_module() == CodePuppyControl.Run.Executor.Elixir
       end)
     end
   end
@@ -231,22 +159,12 @@ defmodule CodePuppyControl.Runtime.RunManagerTest do
 
   describe "Manager.start_run/3 with Elixir executor" do
     setup do
-      # Ensure Elixir executor is selected
-      saved_runtime = System.get_env(@pup_runtime)
-
-      System.delete_env(@pup_runtime)
-
       saved_app =
         Application.get_env(:code_puppy_control, :run_executor_module)
 
       Application.delete_env(:code_puppy_control, :run_executor_module)
 
       on_exit(fn ->
-        case saved_runtime do
-          nil -> System.delete_env(@pup_runtime)
-          v -> System.put_env(@pup_runtime, v)
-        end
-
         case saved_app do
           nil -> Application.delete_env(:code_puppy_control, :run_executor_module)
           v -> Application.put_env(:code_puppy_control, :run_executor_module, v)
@@ -265,12 +183,7 @@ defmodule CodePuppyControl.Runtime.RunManagerTest do
 
       File.mkdir_p!(empty_path)
 
-      saved_pws = System.get_env("PUP_PYTHON_WORKER_SCRIPT")
-      saved_lws = System.get_env("PYTHON_WORKER_SCRIPT")
-
       System.put_env("PATH", empty_path)
-      System.delete_env("PUP_PYTHON_WORKER_SCRIPT")
-      System.delete_env("PYTHON_WORKER_SCRIPT")
 
       try do
         assert {:ok, run_id} = Manager.start_run("test-session", "test-agent")
@@ -286,12 +199,6 @@ defmodule CodePuppyControl.Runtime.RunManagerTest do
         Manager.delete_run(run_id)
       after
         System.put_env("PATH", saved_path)
-        System.delete_env("PUP_PYTHON_WORKER_SCRIPT")
-        System.delete_env("PYTHON_WORKER_SCRIPT")
-
-        if saved_pws, do: System.put_env("PUP_PYTHON_WORKER_SCRIPT", saved_pws)
-        if saved_lws, do: System.put_env("PYTHON_WORKER_SCRIPT", saved_lws)
-
         File.rm_rf(empty_path)
       end
     end
@@ -305,62 +212,17 @@ defmodule CodePuppyControl.Runtime.RunManagerTest do
   end
 
   # ---------------------------------------------------------------------------
-  # Manager.start_run/3 — Python executor (fails gracefully)
-  # ---------------------------------------------------------------------------
-
-  describe "Manager.start_run/3 with Python executor" do
-    setup do
-      saved_runtime = System.get_env(@pup_runtime)
-
-      on_exit(fn ->
-        case saved_runtime do
-          nil -> System.delete_env(@pup_runtime)
-          v -> System.put_env(@pup_runtime, v)
-        end
-      end)
-
-      :ok
-    end
-
-    test "returns error when PUP_RUNTIME=python and no script configured" do
-      with_saved_env([@pup_runtime, "PUP_PYTHON_WORKER_SCRIPT", "PYTHON_WORKER_SCRIPT"], fn ->
-        System.put_env(@pup_runtime, "python")
-        System.delete_env("PUP_PYTHON_WORKER_SCRIPT")
-        System.delete_env("PYTHON_WORKER_SCRIPT")
-
-        with_app_env(:python_worker_script, fn ->
-          Application.delete_env(:code_puppy_control, :python_worker_script)
-          Application.delete_env(:code_puppy_control, :run_executor_module)
-
-          result = Manager.start_run("test-session-py", "test-agent-py")
-
-          assert {:error, _reason} = result
-        end)
-      end)
-    end
-  end
-
-  # ---------------------------------------------------------------------------
   # Cancel and delete through executor boundary
   # ---------------------------------------------------------------------------
 
   describe "Manager.cancel_run/2 through Elixir executor" do
     setup do
-      saved_runtime = System.get_env(@pup_runtime)
-
-      System.delete_env(@pup_runtime)
-
       saved_app =
         Application.get_env(:code_puppy_control, :run_executor_module)
 
       Application.delete_env(:code_puppy_control, :run_executor_module)
 
       on_exit(fn ->
-        case saved_runtime do
-          nil -> System.delete_env(@pup_runtime)
-          v -> System.put_env(@pup_runtime, v)
-        end
-
         case saved_app do
           nil -> Application.delete_env(:code_puppy_control, :run_executor_module)
           v -> Application.put_env(:code_puppy_control, :run_executor_module, v)
@@ -400,21 +262,12 @@ defmodule CodePuppyControl.Runtime.RunManagerTest do
 
   describe "Manager.delete_run/1 through Elixir executor" do
     setup do
-      saved_runtime = System.get_env(@pup_runtime)
-
-      System.delete_env(@pup_runtime)
-
       saved_app =
         Application.get_env(:code_puppy_control, :run_executor_module)
 
       Application.delete_env(:code_puppy_control, :run_executor_module)
 
       on_exit(fn ->
-        case saved_runtime do
-          nil -> System.delete_env(@pup_runtime)
-          v -> System.put_env(@pup_runtime, v)
-        end
-
         case saved_app do
           nil -> Application.delete_env(:code_puppy_control, :run_executor_module)
           v -> Application.put_env(:code_puppy_control, :run_executor_module, v)
@@ -438,8 +291,7 @@ defmodule CodePuppyControl.Runtime.RunManagerTest do
   # ---------------------------------------------------------------------------
   # Regression: lifecycle operations must use the executor module stored
   # in the run's metadata at start time, not the current runtime selection.
-  # If PUP_RUNTIME changes mid-flight, cancel/delete must still route to
-  # the original executor.
+  # This is now relevant for test overrides, not runtime switching.
 
   # Two fake executor modules that record which module handled each call.
   defmodule FakeExecutorA do
@@ -540,7 +392,7 @@ defmodule CodePuppyControl.Runtime.RunManagerTest do
       :ok
     end
 
-    test "cancel_run uses original executor even when runtime changes" do
+    test "cancel_run uses original executor even when app env changes" do
       # Start with FakeExecutorA
       Application.put_env(:code_puppy_control, :run_executor_module, FakeExecutorA)
       Application.put_env(:code_puppy_control, :executor_test_pid, self())
@@ -562,7 +414,7 @@ defmodule CodePuppyControl.Runtime.RunManagerTest do
       Manager.delete_run(run_id)
     end
 
-    test "delete_run uses original executor even when runtime changes" do
+    test "delete_run uses original executor even when app env changes" do
       # Start with FakeExecutorA
       Application.put_env(:code_puppy_control, :run_executor_module, FakeExecutorA)
       Application.put_env(:code_puppy_control, :executor_test_pid, self())
@@ -616,7 +468,7 @@ defmodule CodePuppyControl.Runtime.RunManagerTest do
                Manager.execute_tool("nonexistent-run-99999", "some_tool", %{})
     end
 
-    test "uses original executor even when runtime changes" do
+    test "uses original executor even when app env changes" do
       # Start with FakeExecutorA
       Application.put_env(:code_puppy_control, :run_executor_module, FakeExecutorA)
       Application.put_env(:code_puppy_control, :executor_test_pid, self())
@@ -680,9 +532,6 @@ defmodule CodePuppyControl.Runtime.RunManagerTest do
     alias CodePuppyControl.Run.State
 
     setup do
-      saved_runtime = System.get_env(@pup_runtime)
-      System.delete_env(@pup_runtime)
-
       saved_app =
         Application.get_env(:code_puppy_control, :run_executor_module)
 
@@ -699,11 +548,6 @@ defmodule CodePuppyControl.Runtime.RunManagerTest do
       on_exit(fn ->
         # Always clean up the run, even on assertion failure
         Manager.delete_run(run_id)
-
-        case saved_runtime do
-          nil -> System.delete_env(@pup_runtime)
-          v -> System.put_env(@pup_runtime, v)
-        end
 
         case saved_app do
           nil -> Application.delete_env(:code_puppy_control, :run_executor_module)
@@ -848,11 +692,6 @@ defmodule CodePuppyControl.Runtime.RunManagerTest do
   # ---------------------------------------------------------------------------
   # Executor supervisor split: capacity semantics (code-puppy-6sj)
   # ---------------------------------------------------------------------------
-  # Before this fix, each Elixir run consumed 2 children under
-  # Run.Supervisor (State + Executor), so PUP_MAX_RUNS=N allowed only
-  # floor(N/2) logical runs. After the fix, executor GenServers live
-  # under Run.Executor.Supervisor, so each logical run consumes exactly
-  # 1 slot in each supervisor.
 
   describe "Run.Executor.Supervisor executor_count/0" do
     test "returns a non-negative integer" do
@@ -863,20 +702,12 @@ defmodule CodePuppyControl.Runtime.RunManagerTest do
 
   describe "Elixir run increments both supervisors by 1" do
     setup do
-      saved_runtime = System.get_env(@pup_runtime)
-      System.delete_env(@pup_runtime)
-
       saved_app =
         Application.get_env(:code_puppy_control, :run_executor_module)
 
       Application.delete_env(:code_puppy_control, :run_executor_module)
 
       on_exit(fn ->
-        case saved_runtime do
-          nil -> System.delete_env(@pup_runtime)
-          v -> System.put_env(@pup_runtime, v)
-        end
-
         case saved_app do
           nil -> Application.delete_env(:code_puppy_control, :run_executor_module)
           v -> Application.put_env(:code_puppy_control, :run_executor_module, v)

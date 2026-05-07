@@ -4,8 +4,7 @@ Elixir-native Phoenix control plane for the code_puppy project.
 
 ## Architecture
 
-This application is an Elixir-native runtime by default. Python is required
-only when explicitly running in bridge mode (`PUP_RUNTIME=python`). There is no
+This application is an Elixir-native runtime. There is no
 `pup-ex` executable: `pup_ex` is the Mix task namespace, while the native CLI is
 `./pup` (escript) or a `code_puppy_control_*` Burrito binary.
 
@@ -13,24 +12,21 @@ only when explicitly running in bridge mode (`PUP_RUNTIME=python`). There is no
 - **Registry** - Process registry for run and worker tracking
 - **PubSub** - Event distribution across processes
 - **Oban** - Job scheduling for background tasks
-- **Runtime Selector** - Routes capabilities to Elixir or Python backend (`RuntimeSelector`)
-- **Run Executor** - Elixir-native `Tool.Runner` by default; Python `Port` only in bridge mode
-- **Python Bridge** *(opt-in)* - Port-based communication with Python processes when `PUP_RUNTIME=python`
+- **Run Executor** - Elixir-native `Tool.Runner`
 
 ## Directory Structure
 
 ```
 lib/code_puppy_control/
 ├── application.ex # OTP supervision tree
-├── protocol.ex # JSON-RPC encoding/decoding (bridge mode)
+├── protocol.ex # JSON-RPC encoding/decoding
 ├── request_tracker.ex # Prompt correlation
-├── runtime_selector.ex # Elixir/Python capability router
 ├── run/
-│   ├── executor.ex # Executor facade (runtime-selected)
+│   ├── executor.ex # Executor facade (native Elixir)
 │   ├── executor/
 │   │   ├── behaviour.ex # Executor behaviour
-│   │   ├── elixir.ex # Elixir-native executor (default)
-│   │   └── python.ex # Python bridge executor
+│   │   ├── elixir.ex # Elixir-native executor
+│   │   └── supervisor.ex # DynamicSupervisor for executors
 │   ├── manager.ex # Run lifecycle management
 │   ├── registry.ex # Run registry
 │   ├── state.ex # Run state GenServer
@@ -40,9 +36,6 @@ lib/code_puppy_control/
 │   ├── registry.ex # Tool discovery and registration
 │   ├── schema.ex # Tool parameter schemas
 │   └── behaviour.ex # Tool behaviour definition
-├── python_worker/ # Bridge mode only (PUP_RUNTIME=python)
-│   ├── port.ex # GenServer owning Python Port
-│   └── supervisor.ex # DynamicSupervisor for workers
 └── web/
     ├── endpoint.ex # Phoenix endpoint
     ├── router.ex # API routes
@@ -120,7 +113,7 @@ precedence over environment variables.
 | `/api/runs` | POST | Create new run |
 | `/api/runs/:id` | GET | Get run status |
 | `/api/runs/:id` | DELETE | Stop run |
-| `/api/runs/:id/execute` | POST | Execute tool (runtime-selected: `Tool.Runner` by default, Python `Port` only when `PUP_RUNTIME=python`) |
+| `/api/runs/:id/execute` | POST | Execute tool |
 | `/api/runs/:id/history` | GET | Get history |
 
 ## Configuration
@@ -131,11 +124,9 @@ precedence over environment variables.
 |----------|-------------|----------|
 | `PUP_SECRET_KEY_BASE` | Phoenix secret key | Production (auto-generated for Burrito) |
 | `PUP_DATABASE_PATH` | SQLite database path | Production (auto-defaulted for Burrito) |
-| `PUP_RUNTIME` | Runtime mode: `auto` (default), `elixir`, or `python` | No |
-| `PUP_PYTHON_WORKER_SCRIPT` | Path to Python worker script | Only when `PUP_RUNTIME=python` |
 
-> **Legacy env vars** `SECRET_KEY_BASE`, `DATABASE_PATH`, and
-> `PYTHON_WORKER_SCRIPT` are still accepted but deprecated. They log a
+> **Legacy env vars** `SECRET_KEY_BASE` and
+> `DATABASE_PATH` are still accepted but deprecated. They log a
 > warning on use. Prefer the `PUP_`-prefixed names.
 >
 > `PUPPY_HOME` is also deprecated in favour of `PUP_EX_HOME` — see
@@ -191,24 +182,17 @@ Re-authenticate with `mix pup_ex.auth.login` (OAuth scaffolding; full flow pendi
 ```bash
 iex -S mix
 
-# Check current runtime mode
-CodePuppyControl.RuntimeSelector.mode()
-# => :auto (Elixir-native default)
-
 # Check active runs
 CodePuppyControl.Run.Supervisor.list_runs()
 
-# Start a run (uses Elixir executor by default)
+# Start a run (uses Elixir executor)
 CodePuppyControl.Run.Supervisor.start_run("test-run-1", %{})
-
-# Check Python bridge workers (only in PUP_RUNTIME=python mode)
-CodePuppyControl.PythonWorker.Supervisor.list_workers()
 ```
 
-### JSON-RPC Protocol (Bridge Mode Only)
+### JSON-RPC Protocol
 
-When running in Python bridge mode (`PUP_RUNTIME=python`), the control plane
-communicates with Python workers using JSON-RPC 2.0 with Content-Length framing:
+The control plane uses JSON-RPC 2.0 with Content-Length framing
+for select communication paths (e.g. MCP protocol):
 
 ```
 Content-Length: 47\r\n
@@ -217,7 +201,6 @@ Content-Length: 47\r\n
 ```
 
 See `lib/code_puppy_control/protocol.ex` for encoding/decoding functions.
-This protocol is **not used** in the default Elixir-native runtime.
 
 ### Running Evals
 

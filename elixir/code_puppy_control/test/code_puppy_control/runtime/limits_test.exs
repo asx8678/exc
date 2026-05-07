@@ -57,10 +57,6 @@ defmodule CodePuppyControl.Runtime.LimitsTest do
   # ── Default (laptop) Profile ─────────────────────────────────────────────
 
   describe "default (:laptop) profile" do
-    test "max_python_workers defaults to 6" do
-      assert Limits.max_python_workers() == 6
-    end
-
     test "max_mcp_servers defaults to 12" do
       assert Limits.max_mcp_servers() == 12
     end
@@ -111,7 +107,6 @@ defmodule CodePuppyControl.Runtime.LimitsTest do
     end
 
     test "switches all defaults to desktop values" do
-      assert Limits.max_python_workers() == 12
       assert Limits.max_mcp_servers() == 24
       assert Limits.max_mcp_clients() == 24
       assert Limits.max_runs() == 24
@@ -136,7 +131,6 @@ defmodule CodePuppyControl.Runtime.LimitsTest do
     test "switches all defaults to server values" do
       schedulers = System.schedulers_online()
 
-      assert Limits.max_python_workers() == 24
       assert Limits.max_mcp_servers() == 48
       assert Limits.max_mcp_clients() == 48
       assert Limits.max_runs() == 48
@@ -153,11 +147,6 @@ defmodule CodePuppyControl.Runtime.LimitsTest do
   # ── Per-key Env Var Override ──────────────────────────────────────────────
 
   describe "per-key env var override" do
-    test "PUP_MAX_PYTHON_WORKERS beats profile default" do
-      System.put_env("PUP_MAX_PYTHON_WORKERS", "99")
-      assert Limits.max_python_workers() == 99
-    end
-
     test "PUP_CPU_CONCURRENCY beats profile default" do
       System.put_env("PUP_CPU_CONCURRENCY", "16")
       assert Limits.cpu_concurrency() == 16
@@ -252,11 +241,10 @@ defmodule CodePuppyControl.Runtime.LimitsTest do
   # ── all/0 ─────────────────────────────────────────────────────────────────
 
   describe "all/0" do
-    test "returns map with all 11 keys" do
+    test "returns map with all 10 keys" do
       result = Limits.all()
 
       assert Map.has_key?(result, :profile)
-      assert Map.has_key?(result, :max_python_workers)
       assert Map.has_key?(result, :max_mcp_servers)
       assert Map.has_key?(result, :max_mcp_clients)
       assert Map.has_key?(result, :max_runs)
@@ -267,15 +255,14 @@ defmodule CodePuppyControl.Runtime.LimitsTest do
       assert Map.has_key?(result, :finch_pool_count)
       assert Map.has_key?(result, :finch_pool_size)
 
-      # 10 limit keys + :profile = 11 keys
-      assert map_size(result) == 11
+      # 9 limit keys + :profile = 10 keys
+      assert map_size(result) == 10
     end
 
     test "all values are positive integers (except :profile atom)" do
       result = Limits.all()
 
       for key <- [
-            :max_python_workers,
             :max_mcp_servers,
             :max_mcp_clients,
             :max_runs,

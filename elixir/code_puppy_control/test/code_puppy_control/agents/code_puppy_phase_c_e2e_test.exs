@@ -2,8 +2,8 @@ defmodule CodePuppyControl.Agents.CodePuppyPhaseCE2ETest do
   @moduledoc """
   Phase C exit-gate E2E test for CodePuppyControl.Agents.CodePuppy.
 
-  Proves the full tool-using LLM round-trip with PUP_RUNTIME=elixir
-  and **zero Python imports**. The real CodePuppy agent module is used
+  Proves the full tool-using LLM round-trip in native Elixir runtime
+  with **zero Python imports**. The real CodePuppy agent module is used
   with mock LLM + mock tools to assert the complete pipeline:
 
   `CodePuppy agent → Loop → LLM → Normalizer → Tool.Runner → Registry → Events`
@@ -730,7 +730,7 @@ defmodule CodePuppyControl.Agents.CodePuppyPhaseCE2ETest do
   end
 
   # ---------------------------------------------------------------------------
-  # Test 5: No Python imports — PUP_RUNTIME=elixir
+  # Test 5: No Python imports — native Elixir runtime
   # ---------------------------------------------------------------------------
 
   describe "zero Python dependency" do

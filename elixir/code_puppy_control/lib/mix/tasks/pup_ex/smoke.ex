@@ -41,8 +41,7 @@ defmodule Mix.Tasks.PupEx.Smoke do
   ## No-Python mode
 
   When `--no-python` is passed, the smoke runner validates the
-  Python-free runtime guarantee: in-process phases run with
-  `PUP_RUNTIME=elixir`, and packaged probes (escript/burrito)
+  Python-free runtime guarantee: packaged probes (escript/burrito)
   are spawned with a sanitized `PATH` that excludes `python3`/
   `python`.  This proves the packaged CLI starts and shows
   help/version without Python installed.

@@ -92,13 +92,6 @@ defmodule CodePuppyControl.CLI.ParserTest do
     end
   end
 
-  describe "parse/1 — bridge-mode flag" do
-    test "--bridge-mode is parsed" do
-      assert {:ok, opts} = Parser.parse(["--bridge-mode"])
-      assert opts[:bridge_mode] == true
-    end
-  end
-
   describe "parse/1 — positional prompt" do
     test "positional arg becomes prompt when -p not given" do
       assert {:ok, opts} = Parser.parse(["explain this code"])
@@ -126,15 +119,13 @@ defmodule CodePuppyControl.CLI.ParserTest do
                  "-a",
                  "code-puppy",
                  "-c",
-                 "-i",
-                 "--bridge-mode"
+                 "-i"
                ])
 
       assert opts[:model] == "gpt-4"
       assert opts[:agent] == "code-puppy"
       assert opts[:continue] == true
       assert opts[:interactive] == true
-      assert opts[:bridge_mode] == true
     end
   end
 
@@ -159,7 +150,6 @@ defmodule CodePuppyControl.CLI.ParserTest do
       assert opts[:version] == false
       assert opts[:continue] == false
       assert opts[:interactive] == false
-      assert opts[:bridge_mode] == false
       assert opts[:model] == nil
       assert opts[:agent] == nil
       assert opts[:prompt] == nil

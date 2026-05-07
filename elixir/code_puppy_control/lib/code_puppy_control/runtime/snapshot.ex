@@ -31,7 +31,6 @@ defmodule CodePuppyControl.Runtime.Snapshot do
           memory_mb: map(),
           schedulers: map(),
           supervisors: %{
-            python_workers: sup_entry(),
             mcp_servers: sup_entry(),
             mcp_clients: sup_entry(),
             runs: sup_entry(),
@@ -120,9 +119,6 @@ defmodule CodePuppyControl.Runtime.Snapshot do
 
   defp supervisor_snapshot do
     %{
-      # Bridge-mode only; always 0 workers under default native runtime
-      python_workers:
-        sup_entry(CodePuppyControl.PythonWorker.Supervisor, Limits.max_python_workers()),
       mcp_servers: sup_entry(CodePuppyControl.MCP.Supervisor, Limits.max_mcp_servers()),
       mcp_clients: sup_entry(CodePuppyControl.MCP.ClientSupervisor, Limits.max_mcp_clients()),
       runs: sup_entry(CodePuppyControl.Run.Supervisor, Limits.max_runs()),

@@ -52,7 +52,7 @@ defmodule CodePuppyControl.Sessions do
     # preserve existing values from the database row instead of defaulting
     # to false/nil — which would silently clear registered terminal recovery
     # metadata. The Store layer resolves these before calling us, but direct
-    # callers (e.g. python_worker/port.ex) bypass the Store.
+    # callers (e.g. external bridge ports) bypass the Store.
     {has_terminal, terminal_meta} =
       resolve_terminal_attrs(name, opts)
 

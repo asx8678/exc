@@ -4,7 +4,7 @@ defmodule CodePuppyControl.Run.Executor.Elixir do
 
   Starts a supervised lightweight GenServer for the run context,
   with no dependency on a Python worker subprocess.  Selected when
-  `PUP_RUNTIME` is unset, `auto`, or `elixir`.
+  the native Elixir executor (default).
 
   The Elixir executor provides the same lifecycle interface as the
   Python executor but operates entirely within the BEAM.  It does

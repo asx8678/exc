@@ -20,9 +20,6 @@ defmodule CodePuppyControl.CLI do
     * `-c`, `--continue` - Resume the most recent persisted session
     * `-p`, `--prompt PROMPT` - Execute a single prompt and exit
     * `-i`, `--interactive` - Run in interactive mode
-    * `--bridge-mode` - Force Python runtime (sets `PUP_RUNTIME=python` for the session)
-    This delegates all capabilities to the Python bridge, effectively
-    running the Elixir CLI as a thin frontend. See `RuntimeSelector` (code_puppy-bwt).
   """
 
   alias CodePuppyControl.CLI.Parser
@@ -102,12 +99,6 @@ defmodule CodePuppyControl.CLI do
   """
   @spec run(map()) :: no_return()
   def run(opts) do
-    # --bridge-mode forces PUP_RUNTIME=python for this session,
-    # so RuntimeSelector delegates all capabilities to the Python bridge.
-    if opts[:bridge_mode] do
-      System.put_env("PUP_RUNTIME", "python")
-    end
-
     # Ensure the OTP app is started for full invocations.
     # On failure, print a clear fatal message and halt — do NOT enter
     # the REPL with a dead supervision tree (that causes confusing
@@ -123,9 +114,7 @@ defmodule CodePuppyControl.CLI do
 
         This usually means a dependency (like erlexec) could not find its
         native port. If you are running as an escript or Burrito binary,
-        ensure the native port files are bundled correctly, or set
-        PUP_RUNTIME=elixir and check that the application supervision tree
-        can start without erlexec.
+        ensure the native port files are bundled correctly.
         """)
 
         halt(1)
@@ -260,7 +249,7 @@ defmodule CodePuppyControl.CLI do
       This indicates the application supervision tree is degraded.
       Check logs above for the root cause (e.g. erlexec startup failure).
       If running as an escript, ensure the native port files are bundled
-      correctly, or set PUP_RUNTIME=elixir.
+      correctly.
       """)
 
       halt(1)
@@ -309,7 +298,6 @@ defmodule CodePuppyControl.CLI do
       -c, --continue        Resume the most recent persisted session
       -p, --prompt PROMPT   Execute a single prompt and exit
       -i, --interactive     Run in interactive mode
-      --bridge-mode         Force Python runtime (sets PUP_RUNTIME=python for this session)
       -w, --worker          Start as a headless pack worker node
           --sname SNAME     Short node name for Erlang distribution
           --name NAME       Full node name for Erlang distribution

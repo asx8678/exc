@@ -11,8 +11,6 @@ defmodule CodePuppyControl.Application do
   5a. CodePuppyControl.SessionStorage.Store - ETS-backed session store + PubSub + terminal recovery (code_puppy-ctj.1)
   5b. CodePuppyControl.SessionStorage.AutosaveTracker - Autosave debounce/dedup
   6. CodePuppyControl.RuntimeState - Global runtime state (autosave ID, session model)
-  6a. CodePuppyControl.FeatureFlags - Per-capability feature flags for Phase H cutover (code_puppy-djs.4)
-  6b. CodePuppyControl.Rollout - Gradual rollout controller with percentage routing + rollback detection (code_puppy-djs.6)
   7. CodePuppyControl.Callbacks.Registry - ETS-backed callback storage (must start before PolicyEngine)
   7a. CodePuppyControl.HookEngine - Configurable hook script engine (must start after Callbacks.Registry)
   8. CodePuppyControl.PolicyEngine - Priority-based policy rule engine
@@ -30,8 +28,7 @@ defmodule CodePuppyControl.Application do
   13. CodePuppyControl.Tool.Registry - ETS-backed tool registry
   14. CodePuppyControl.Run.Supervisor - DynamicSupervisor for run state processes
   14b. CodePuppyControl.Run.Executor.Supervisor - DynamicSupervisor for Elixir executor processes (code-puppy-6sj)
-  15. CodePuppyControl.PythonWorker.Supervisor - DynamicSupervisor for Python bridge workers (bridge-mode only; idle under default native runtime)
-  16. CodePuppyControl.MCP.Registry - Process registry for MCP servers
+  15. CodePuppyControl.MCP.Registry - Process registry for MCP servers
   17. CodePuppyControl.MCP.Supervisor - DynamicSupervisor for MCP servers
   18. CodePuppyControl.Concurrency.Supervisor - Concurrency limiter (ETS-backed)
   18b. CodePuppyControl.Plugins.PackParallelism.Supervisor - Pack run semaphore (replaces Python _async_active HACK)
@@ -307,10 +304,6 @@ defmodule CodePuppyControl.Application do
         # Autosave debounce/dedup tracker for session storage
         CodePuppyControl.SessionStorage.AutosaveTracker,
         CodePuppyControl.RuntimeState,
-        # Feature flags for Phase H cutover
-        CodePuppyControl.FeatureFlags,
-        # Gradual rollout controller
-        CodePuppyControl.Rollout,
         # Workflow state tracking for /flags command
         {CodePuppyControl.Workflow.State, name: CodePuppyControl.Workflow.State},
         # Callback registry (ETS-backed GenServer)
@@ -353,7 +346,6 @@ defmodule CodePuppyControl.Application do
         # two slots in one supervisor.  (code-puppy-6sj)
         {CodePuppyControl.Run.Executor.Supervisor, []},
         CodePuppyControl.Agent.State.Supervisor,
-        CodePuppyControl.PythonWorker.Supervisor,
         # MCP Server supervision
         {Registry, keys: :unique, name: CodePuppyControl.MCP.Registry},
         CodePuppyControl.MCP.Supervisor,

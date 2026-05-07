@@ -2,66 +2,52 @@ defmodule CodePuppyControl.Run.Executor do
   @moduledoc """
   Executor facade for run lifecycle operations.
 
-  Routes run lifecycle calls to the appropriate backend based on
-  `PUP_RUNTIME`:
-
-  | PUP_RUNTIME   | Backend                      |
-  |---------------|------------------------------|
-  | `python`      | `Run.Executor.Python`        |
-  | `elixir`      | `Run.Executor.Elixir`        |
-  | `auto`/unset  | `Run.Executor.Elixir`        |
-
-  The default is Elixir (no Python required), matching the Phase J.1
-  Elixir-native default in `RuntimeSelector`.
+  All runs use the native Elixir executor (`Run.Executor.Elixir`).
+  The executor abstraction is preserved so that `Run.Manager` can
+  route lifecycle operations through a consistent interface and so
+  that the executor module stored in run metadata can be used for
+  mid-run consistency.
 
   ## App-env override for tests
 
   `Application.put_env(:code_puppy_control, :run_executor_module, SomeModule)`
-  overrides runtime selection.  This is intended **only** for test
-  injection; production should rely on `PUP_RUNTIME`.
+  overrides the default executor.  This is intended **only** for test
+  injection; production always uses `Run.Executor.Elixir`.
 
-  Refs: code-puppy-96g
+  Refs: code-puppy-96g, code-puppy-3o7.6
   """
 
-  alias CodePuppyControl.RuntimeSelector
-
   @app_env_key :run_executor_module
+  @default_executor CodePuppyControl.Run.Executor.Elixir
 
   # ===========================================================================
   # Public API
   # ===========================================================================
 
   @doc """
-  Returns the executor module selected for the current runtime mode.
+  Returns the executor module for the current configuration.
 
   Resolution order:
     1. `:run_executor_module` app env (test override)
-    2. `RuntimeSelector.select("run_executor")` → `:elixir` or `:python`
+    2. `Run.Executor.Elixir` (default, native-only)
   """
   @spec executor_module() :: module()
   def executor_module do
     case Application.get_env(:code_puppy_control, @app_env_key) do
-      nil ->
-        case RuntimeSelector.select("run_executor") do
-          :python -> CodePuppyControl.Run.Executor.Python
-          :elixir -> CodePuppyControl.Run.Executor.Elixir
-        end
-
-      mod when is_atom(mod) ->
-        mod
+      nil -> @default_executor
+      mod when is_atom(mod) -> mod
     end
   end
 
   # ── Runtime-selected (facade) API ───────────────────────────────────
   #
-  # These functions select the executor module from PUP_RUNTIME / app env
-  # at call time.  Prefer the explicit-module variants below for all
-  # lifecycle operations on an *existing* run so that the executor
-  # module used at start time is preserved even if the runtime mode
-  # changes mid-flight.
+  # These functions select the executor module at call time.
+  # Prefer the explicit-module variants below for all lifecycle
+  # operations on an *existing* run so that the executor module
+  # used at start time is preserved.
 
   @doc """
-  Start an executor process for the given run (runtime-selected module).
+  Start an executor process for the given run.
 
   Delegates to `executor_module().start_executor/2`.
   """
@@ -72,7 +58,7 @@ defmodule CodePuppyControl.Run.Executor do
   end
 
   @doc """
-  Begin execution of a previously-started run (runtime-selected module).
+  Begin execution of a previously-started run.
 
   Delegates to `executor_module().begin_run/2`.
   """
@@ -83,7 +69,7 @@ defmodule CodePuppyControl.Run.Executor do
   end
 
   @doc """
-  Cancel a running run (runtime-selected module).
+  Cancel a running run.
 
   Delegates to `executor_module().cancel_run/1`.
   """
@@ -94,7 +80,7 @@ defmodule CodePuppyControl.Run.Executor do
   end
 
   @doc """
-  Terminate the executor process for a run (runtime-selected module).
+  Terminate the executor process for a run.
 
   Delegates to `executor_module().terminate_executor/1`.
   """
@@ -105,7 +91,7 @@ defmodule CodePuppyControl.Run.Executor do
   end
 
   @doc """
-  Execute a tool within a run (runtime-selected module).
+  Execute a tool within a run.
 
   Delegates to `executor_module().execute_tool/4`.
 
@@ -122,8 +108,7 @@ defmodule CodePuppyControl.Run.Executor do
   #
   # These accept an explicit executor module (typically derived from
   # the run's stored metadata) so that lifecycle operations always use
-  # the same executor backend that was selected at start time, even if
-  # PUP_RUNTIME or the app-env override changes mid-flight.
+  # the same executor backend that was selected at start time.
 
   @doc """
   Start an executor process for the given run using an explicit module.

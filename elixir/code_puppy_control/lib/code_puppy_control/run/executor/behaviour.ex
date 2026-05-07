@@ -6,10 +6,10 @@ defmodule CodePuppyControl.Run.Executor.Behaviour do
   starting, cancelling, and terminating a run's execution context.
 
   The executor abstraction allows `Run.Manager` to route run lifecycle
-  through either a Python worker (bridge mode) or a native Elixir
-  executor, depending on `PUP_RUNTIME`.
+  through a consistent interface. The native Elixir executor is the
+  default and only runtime.
 
-  Refs: code-puppy-96g
+  Refs: code-puppy-96g, code-puppy-3o7.6
   """
 
   @type run_id :: String.t()

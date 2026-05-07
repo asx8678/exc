@@ -2,27 +2,23 @@ defmodule CodePuppyControl.NativeParitySmokeTest do
   @moduledoc """
   Native agent→tool→model-provider parity smoke test (code-puppy-hwv).
 
-  Exercises the full native Elixir runtime workflow with zero Python involvement:
+  Exercises the full native Elixir runtime workflow:
 
-    1. RuntimeSelector routes all capabilities to `:elixir` in default mode
-    2. Agent.Loop completes turns via a fake LLM provider (no network / no API keys)
-    3. Tool.Runner dispatches a registered tool through the Tool.Registry path
-    4. PythonWorker.Supervisor has zero active children throughout
+    1. Agent.Loop completes turns via a fake LLM provider (no network / no API keys)
+    2. Tool.Runner dispatches a registered tool through the Tool.Registry path
+    3. No Python bridge processes are started (native-only runtime)
 
   This test is NOT tagged `:integration` — it uses in-process mocks and runs
   in the default fast suite.  CI may also run it as a named gate:
 
       mix test test/code_puppy_control/native_parity_smoke_test.exs
 
-  Refs: code-puppy-hwv, code-puppy-v2o, code-puppy-db8 §6.6.
+  Refs: code-puppy-hwv, code-puppy-v2o, code-puppy-db8 §6.6, code-puppy-3o7.6.
   """
-
   use ExUnit.Case, async: false
 
   alias CodePuppyControl.Agent.Loop
   alias CodePuppyControl.Callbacks
-  alias CodePuppyControl.PythonWorker.Supervisor, as: PythonWorkerSup
-  alias CodePuppyControl.RuntimeSelector
   alias CodePuppyControl.Tool.Registry
   alias CodePuppyControl.Tool.Runner
 
@@ -163,58 +159,6 @@ defmodule CodePuppyControl.NativeParitySmokeTest do
     :ok
   end
 
-  # ── RuntimeSelector parity ─────────────────────────────────────────────
-
-  describe "native runtime selector parity" do
-    test "default/auto mode routes to :elixir for core capabilities" do
-      saved = System.get_env("PUP_RUNTIME")
-
-      try do
-        System.delete_env("PUP_RUNTIME")
-
-        # Default (unset) → :auto
-        assert RuntimeSelector.mode() == :auto
-
-        # Core capabilities must route to :elixir, never :python
-        for cap <- ["agent", "tool", "model_provider", "parse", "file_ops"] do
-          assert RuntimeSelector.select(cap) == :elixir,
-                 "Expected :elixir for #{inspect(cap)}, got #{inspect(RuntimeSelector.select(cap))}"
-        end
-      after
-        restore_env("PUP_RUNTIME", saved)
-      end
-    end
-
-    test "PUP_RUNTIME=elixir forces :elixir for all capabilities" do
-      saved = System.get_env("PUP_RUNTIME")
-
-      try do
-        System.put_env("PUP_RUNTIME", "elixir")
-
-        assert RuntimeSelector.mode() == :elixir
-        assert RuntimeSelector.select("agent") == :elixir
-        assert RuntimeSelector.select("tool") == :elixir
-        assert RuntimeSelector.select("model_provider") == :elixir
-      after
-        restore_env("PUP_RUNTIME", saved)
-      end
-    end
-  end
-
-  # ── PythonWorker.Supervisor zero-children guarantee ────────────────────
-
-  describe "PythonWorker.Supervisor has zero workers in native mode" do
-    test "worker_count is zero" do
-      assert PythonWorkerSup.worker_count() == 0,
-             "PythonWorker.Supervisor should have zero workers in native Elixir runtime"
-    end
-
-    test "list_workers is empty" do
-      assert PythonWorkerSup.list_workers() == [],
-             "PythonWorker.Supervisor should list zero workers in native Elixir runtime"
-    end
-  end
-
   # ── Agent → fake LLM path (text-only) ──────────────────────────────────
 
   describe "native agent→LLM path (text-only turn)" do
@@ -304,31 +248,27 @@ defmodule CodePuppyControl.NativeParitySmokeTest do
     end
   end
 
-  # ── Full native parity: no PythonWorker children after agent run ───────
+  # ── Full native parity: no Python bridge processes after agent run ──────
 
-  describe "full native parity: no PythonWorker children after agent→tool cycle" do
-    test "after agent→tool→LLM cycle, PythonWorker still at zero" do
-      # Verify clean slate
-      assert PythonWorkerSup.worker_count() == 0
-
+  describe "full native parity: no bridge processes after agent→tool cycle" do
+    test "after agent→tool→LLM cycle, runtime remains native-only" do
       {:ok, pid} =
         Loop.start_link(
           NativeSmokeAgent,
           [%{role: "user", content: "Run the smoke tool"}],
           llm_module: FakeToolCallLLM,
-          run_id: "native-smoke-zero-workers"
+          run_id: "native-smoke-no-bridge"
         )
 
       :ok = Loop.run_until_done(pid, 10_000)
 
       GenServer.stop(pid)
 
-      # Assert: no PythonWorker children were started during the full cycle
-      assert PythonWorkerSup.worker_count() == 0,
-             "PythonWorker.Supervisor should have zero workers after native agent→tool cycle"
-
-      assert PythonWorkerSup.list_workers() == [],
-             "PythonWorker.Supervisor list should be empty after native agent→tool cycle"
+      # The native-only runtime should have no Python bridge processes
+      # running. This assertion replaces the previous PythonWorker.Supervisor
+      # zero-children check.
+      refute Process.whereis(CodePuppyControl.PythonWorker.Supervisor) != nil,
+             "PythonWorker.Supervisor should not exist in native-only runtime"
     end
   end
 
@@ -359,9 +299,4 @@ defmodule CodePuppyControl.NativeParitySmokeTest do
       assert r2.tool_calls == []
     end
   end
-
-  # ── Helpers ─────────────────────────────────────────────────────────────
-
-  defp restore_env(var, nil), do: System.delete_env(var)
-  defp restore_env(var, val), do: System.put_env(var, val)
 end

@@ -18,9 +18,6 @@ config :code_puppy_control, CodePuppyControlWeb.Endpoint,
 # Print only warnings and errors during test
 config :logger, level: :warning
 
-# Python worker script for testing (mock path)
-config :code_puppy_control, :python_worker_script, "/tmp/mock_python_worker.py"
-
 # WebSocket auth secret for testing
 config :code_puppy_control, :websocket_secret, "test_websocket_secret_for_testing"
 

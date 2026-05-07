@@ -14,7 +14,6 @@ defmodule CodePuppyControl.CLI.Parser do
     continue: :boolean,
     prompt: :string,
     interactive: :boolean,
-    bridge_mode: :boolean,
     worker: :boolean,
     sname: :string,
     name: :string,
@@ -87,7 +86,6 @@ defmodule CodePuppyControl.CLI.Parser do
     |> Map.put_new(:version, false)
     |> Map.put_new(:continue, false)
     |> Map.put_new(:interactive, false)
-    |> Map.put_new(:bridge_mode, false)
     |> Map.put_new(:worker, false)
     |> Map.put_new(:sname, nil)
     |> Map.put_new(:name, nil)

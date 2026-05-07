@@ -52,15 +52,12 @@ defmodule CodePuppyControl.CLI.Smoke do
   When `no_python: true` is passed, the smoke runner validates that
   the CLI works without Python installed:
 
-    - Sets `PUP_RUNTIME=elixir` for in-process phases so the executor
-      boundary selects the Elixir-native executor.
     - For packaged probes (escript/burrito), sanitizes `PATH` to
-      exclude `python3`/`python` and passes `PUP_RUNTIME=elixir`
-      plus `PUP_SMOKE_PROBE=1` in the child environment.
-    - Deletes/avoids `PUP_PYTHON_WORKER_SCRIPT` and legacy
-      `PYTHON_WORKER_SCRIPT` in the probe environment.
+      exclude `python3`/`python` and passes `PUP_SMOKE_PROBE=1`
+      in the child environment.
 
-  This proves the Python-free runtime guarantee (code-puppy-osy).
+  Note: The native-only runtime no longer uses `PUP_RUNTIME` or
+  Python worker script env vars (code-puppy-3o7.6).
 
   Phase implementations live in `CodePuppyControl.CLI.Smoke.Phases`
   to keep this module under the 600-line cap.
@@ -74,9 +71,9 @@ defmodule CodePuppyControl.CLI.Smoke do
       (off by default; deterministically skips when no artifact is
       available so CI without a Zig toolchain stays green).
     * `:no_python` — `boolean()`; if `true`, run all phases with a
-      sanitized PATH that excludes `python3`/`python` and set
-      `PUP_RUNTIME=elixir` to validate the Python-free runtime
-      guarantee (off by default; see code-puppy-osy).
+      sanitized PATH that excludes `python3`/`python` to validate
+      the Python-free runtime guarantee (off by default; see
+      code-puppy-osy, code-puppy-3o7.6).
 
   ## Determinism guarantees
 
@@ -160,8 +157,8 @@ defmodule CodePuppyControl.CLI.Smoke do
   def run_phases(opts, sandbox) when is_map(sandbox) do
     no_python = Keyword.get(opts, :no_python, false)
 
-    # When no_python is enabled, set PUP_RUNTIME=elixir for in-process
-    # phases so the executor boundary selects the Elixir executor.
+    # When no_python is enabled, the no_python env helpers are
+    # invoked (no-op in native-only runtime, code-puppy-3o7.6).
     runtime_snapshot = if no_python, do: save_no_python_env(), else: nil
 
     if no_python do
@@ -176,8 +173,8 @@ defmodule CodePuppyControl.CLI.Smoke do
       try do
         Enum.map(requested_phases, &run_phase(&1, sandbox, opts))
       after
-        # Always restore PUP_RUNTIME / Python env vars even if a phase
-        # raises unexpectedly, so the test/app environment does not leak.
+        # Always restore env vars even if a phase raises unexpectedly,
+        # so the test/app environment does not leak.
         if no_python and runtime_snapshot do
           restore_no_python_env(runtime_snapshot)
         end
@@ -400,51 +397,23 @@ defmodule CodePuppyControl.CLI.Smoke do
 
   # ── No-Python env helpers ──────────────────────────────────────────
   #
-  # When --no-python is active, we set PUP_RUNTIME=elixir for in-process
-  # phases and clean up Python-related env vars so the executor boundary
-  # selects the Elixir-native executor.  For packaged CLI probes,
-  # we also sanitize PATH in the child environment (see Phases).
+  # The native-only runtime no longer uses PUP_RUNTIME or Python worker
+  # script env vars. These helpers preserve the no_python option interface
+  # for backward compatibility with smoke test phases, but no longer
+  # manipulate those env vars. (code-puppy-3o7.6)
 
-  @pup_runtime_env "PUP_RUNTIME"
-  @pup_python_worker_env "PUP_PYTHON_WORKER_SCRIPT"
-  @legacy_python_worker_env "PYTHON_WORKER_SCRIPT"
-
-  defp save_no_python_env do
-    %{
-      pup_runtime: System.get_env(@pup_runtime_env),
-      pup_python_worker: System.get_env(@pup_python_worker_env),
-      legacy_python_worker: System.get_env(@legacy_python_worker_env)
-    }
-  end
-
-  defp apply_no_python_env do
-    System.put_env(@pup_runtime_env, "elixir")
-    System.delete_env(@pup_python_worker_env)
-    System.delete_env(@legacy_python_worker_env)
-    :ok
-  end
-
-  defp restore_no_python_env(snapshot) do
-    restore_env(@pup_runtime_env, snapshot.pup_runtime)
-    restore_env(@pup_python_worker_env, snapshot.pup_python_worker)
-    restore_env(@legacy_python_worker_env, snapshot.legacy_python_worker)
-    :ok
-  end
+  defp save_no_python_env, do: %{}
+  defp apply_no_python_env, do: :ok
+  defp restore_no_python_env(_snapshot), do: :ok
 
   @doc """
-  Build a sanitized environment map for packaged CLI probes in
-  no-Python mode.
+  Build a sanitized environment map for packaged CLI probes.
 
   Removes directories containing `python3`/`python` from PATH and
-  adds `PUP_RUNTIME=elixir`, `PUP_SMOKE_PROBE=1`, a sandboxed
-  `PUP_EX_HOME`, and unsets any `PUP_PYTHON_WORKER_SCRIPT` /
-  `PYTHON_WORKER_SCRIPT` entries by setting them to `nil` (which
-  `System.cmd/3` interprets as "unset in child process").
+  adds `PUP_SMOKE_PROBE=1` and a sandboxed `PUP_EX_HOME`.
 
-  Unlike the previous implementation that replaced PATH with a tiny
-  directory containing only `sh`, this version filters python from
-  the system PATH while preserving all other tools (erl, escript,
-  etc.) needed for escript and Burrito execution.
+  Note: PUP_RUNTIME, PUP_PYTHON_WORKER_SCRIPT, and PYTHON_WORKER_SCRIPT
+  are no longer included — the native-only runtime does not use them.
   """
   @spec no_python_packaged_env(keyword()) :: list({String.t(), String.t() | nil})
   def no_python_packaged_env(_opts \\ []) do
@@ -458,13 +427,7 @@ defmodule CodePuppyControl.CLI.Smoke do
     [
       {"PATH", filtered_path},
       {"PUP_EX_HOME", System.get_env("PUP_EX_HOME") || ""},
-      {"PUP_SMOKE_PROBE", "1"},
-      {"PUP_RUNTIME", "elixir"},
-      # nil values are interpreted by System.cmd/3 as "unset in
-      # child process", so the packaged CLI never sees a stale
-      # or empty-string path to a Python worker script.
-      {"PUP_PYTHON_WORKER_SCRIPT", nil},
-      {"PYTHON_WORKER_SCRIPT", nil}
+      {"PUP_SMOKE_PROBE", "1"}
     ]
   end
 

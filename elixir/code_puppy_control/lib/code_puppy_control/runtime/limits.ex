@@ -10,7 +10,6 @@ defmodule CodePuppyControl.Runtime.Limits do
 
   | Key | :laptop | :desktop | :server | Env Var |
   |-----|---------|----------|---------|---------|
-  | `max_python_workers` | 6 | 12 | 24 | `PUP_MAX_PYTHON_WORKERS` |
   | `max_mcp_servers` | 12 | 24 | 48 | `PUP_MAX_MCP_SERVERS` |
   | `max_mcp_clients` | 12 | 24 | 48 | `PUP_MAX_MCP_CLIENTS` |
   | `max_runs` | 12 | 24 | 48 | `PUP_MAX_RUNS` |
@@ -36,8 +35,7 @@ defmodule CodePuppyControl.Runtime.Limits do
 
   @type profile :: :laptop | :desktop | :server
   @type limit_key ::
-          :max_python_workers
-          | :max_mcp_servers
+          :max_mcp_servers
           | :max_mcp_clients
           | :max_runs
           | :max_agent_states
@@ -52,7 +50,6 @@ defmodule CodePuppyControl.Runtime.Limits do
   # `nil` means "resolve at runtime via System.schedulers_online()"
   @profile_defaults %{
     laptop: %{
-      max_python_workers: 6,
       max_mcp_servers: 12,
       max_mcp_clients: 12,
       max_runs: 12,
@@ -64,7 +61,6 @@ defmodule CodePuppyControl.Runtime.Limits do
       finch_pool_size: 25
     },
     desktop: %{
-      max_python_workers: 12,
       max_mcp_servers: 24,
       max_mcp_clients: 24,
       max_runs: 24,
@@ -76,7 +72,6 @@ defmodule CodePuppyControl.Runtime.Limits do
       finch_pool_size: 50
     },
     server: %{
-      max_python_workers: 24,
       max_mcp_servers: 48,
       max_mcp_clients: 48,
       max_runs: 48,
@@ -92,7 +87,6 @@ defmodule CodePuppyControl.Runtime.Limits do
   # ── Env var → key mapping ────────────────────────────────────────────────
 
   @env_var_map %{
-    max_python_workers: "PUP_MAX_PYTHON_WORKERS",
     max_mcp_servers: "PUP_MAX_MCP_SERVERS",
     max_mcp_clients: "PUP_MAX_MCP_CLIENTS",
     max_runs: "PUP_MAX_RUNS",
@@ -115,10 +109,6 @@ defmodule CodePuppyControl.Runtime.Limits do
       _ -> :laptop
     end
   end
-
-  @doc "Returns the maximum number of Python worker processes."
-  @spec max_python_workers() :: pos_integer()
-  def max_python_workers, do: resolve(:max_python_workers)
 
   @doc "Returns the maximum number of MCP server processes."
   @spec max_mcp_servers() :: pos_integer()

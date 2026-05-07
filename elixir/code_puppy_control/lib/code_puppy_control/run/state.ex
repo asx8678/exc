@@ -13,7 +13,7 @@ defmodule CodePuppyControl.Run.State do
   This process is started on demand and exits when the run completes
   or after a period of inactivity.
 
-  Refs: code-puppy-96g (executor boundary refactor)
+  Refs: code-puppy-96g (executor boundary refactor), code-puppy-3o7.6
   """
 
   use GenServer
@@ -446,7 +446,7 @@ defmodule CodePuppyControl.Run.State do
       elapsed > @inactivity_timeout * 2 ->
         # Force shutdown even if still running (something is wrong).
         # Use the executor module stored in metadata at start time
-        # so a mid-flight PUP_RUNTIME change does not redirect
+        # so a mid-flight executor change does not redirect
         # termination to the wrong backend.
         executor_mod = Map.get(state.metadata, :executor_module, RunExecutor)
         executor_mod.terminate_executor(state.run_id)

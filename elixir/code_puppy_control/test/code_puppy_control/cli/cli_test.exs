@@ -46,7 +46,6 @@ defmodule CodePuppyControl.CLITest do
             "--continue",
             "--prompt PROMPT",
             "--interactive",
-            "--bridge-mode",
             "--worker",
             "--sname SNAME",
             "--name NAME",

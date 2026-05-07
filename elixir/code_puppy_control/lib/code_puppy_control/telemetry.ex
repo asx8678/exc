@@ -22,13 +22,6 @@ defmodule CodePuppyControl.Telemetry do
   |-------|-------------|----------|
   | `[:code_puppy, :request, :duration]` | `duration_ms`, `system_time` | `run_id`, `method`, `request_id` |
 
-  ### Python Worker
-
-  | Event | Measurements | Metadata |
-  |-------|-------------|----------|
-  | `[:code_puppy, :python_worker, :start]` | `system_time`, `monotonic_time` | `run_id`, `worker_pid` |
-  | `[:code_puppy, :python_worker, :stop]` | `system_time`, `monotonic_time` | `run_id`, `worker_pid`, `reason` |
-
   ### MCP Connections
 
   | Event | Measurements | Metadata |
@@ -243,7 +236,7 @@ defmodule CodePuppyControl.Telemetry do
   ## Examples
 
       result = Telemetry.measure_request("run-123", "run/start", "req-456", fn ->
-        PythonWorker.Port.call(run_id, method, params)
+        Executor.execute_tool(run_id, method, params)
       end)
   """
   @spec measure_request(run_id(), String.t(), String.t(), (-> result)) :: result when result: var
@@ -253,55 +246,6 @@ defmodule CodePuppyControl.Telemetry do
     request_duration(run_id, method, request_id, duration_ms)
 
     result
-  end
-
-  # ============================================================================
-  # Python Worker Events
-  # ============================================================================
-
-  @doc """
-  Emits a Python worker start event.
-
-  ## Examples
-
-      Telemetry.python_worker_start("run-123", self())
-  """
-  @spec python_worker_start(run_id(), pid()) :: :ok
-  def python_worker_start(run_id, worker_pid) do
-    :telemetry.execute(
-      [:code_puppy, :python_worker, :start],
-      %{
-        system_time: System.system_time(:millisecond),
-        monotonic_time: System.monotonic_time(:millisecond)
-      },
-      %{
-        run_id: run_id,
-        worker_pid: worker_pid
-      }
-    )
-  end
-
-  @doc """
-  Emits a Python worker stop event.
-
-  ## Examples
-
-      Telemetry.python_worker_stop("run-123", self(), :normal)
-  """
-  @spec python_worker_stop(run_id(), pid(), term()) :: :ok
-  def python_worker_stop(run_id, worker_pid, reason) do
-    :telemetry.execute(
-      [:code_puppy, :python_worker, :stop],
-      %{
-        system_time: System.system_time(:millisecond),
-        monotonic_time: System.monotonic_time(:millisecond)
-      },
-      %{
-        run_id: run_id,
-        worker_pid: worker_pid,
-        reason: reason
-      }
-    )
   end
 
   # ============================================================================
