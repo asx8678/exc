@@ -104,9 +104,9 @@ API calls are made.
 | Script | Purpose | Status |
 |--------|---------|--------|
 | `scripts/bench_baseline_harness.py` | Baseline metrics (tools + LLM) | ✅ Active |
-| `scripts/bench_elixir_vs_python.py` | Control plane vs Python-only | ✅ Active |
 | `scripts/bench_message_transport.py` | Message processing comparison | ✅ Active |
 | `benchmarks/bench_message_ops.py` | Message operations (pytest) | ✅ Active |
+| `mix bench` | Native Elixir runtime benchmarks | ✅ Active |
 
 ## Environment Variables
 
