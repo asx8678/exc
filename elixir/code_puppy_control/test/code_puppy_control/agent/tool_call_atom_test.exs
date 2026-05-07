@@ -369,10 +369,10 @@ defmodule CodePuppyControl.Agent.ToolCallAtomTest do
           compaction_enabled: false
         )
 
-      # The loop should NOT fail — the string "atom_fix_tool" should be
-      # resolved to :atom_fix_tool and dispatched via Runner.
+      # The loop reaches max_turns=5 but the string "atom_fix_tool" should
+      # be resolved to :atom_fix_tool and dispatched via Runner.
       result = Loop.run_until_done(pid, 10_000)
-      assert result == :ok
+      assert {:error, :max_turns_reached} = result
 
       # Use get_messages/1 (returns raw message list) not get_state/1 (view map)
       messages = Loop.get_messages(pid)
@@ -410,8 +410,8 @@ defmodule CodePuppyControl.Agent.ToolCallAtomTest do
         )
 
       result = Loop.run_until_done(pid, 10_000)
-      # Should complete (not crash), but the tool call should be rejected
-      assert result == :ok
+      # Should stop at max_turns (not crash), but the tool call should be rejected
+      assert {:error, :max_turns_reached} = result
 
       messages = Loop.get_messages(pid)
       # Should have a tool message with "not available" error

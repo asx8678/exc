@@ -589,10 +589,10 @@ defmodule CodePuppyControl.Integration.AgentTurnE2ETest do
       # CountingLLM emits tool calls every turn, so the loop cannot
       # short-circuit via :text_response. It will stop at max_turns: 3.
       result = Loop.run_until_done(pid, 10_000)
-      assert result == :ok
+      assert {:error, :max_turns_reached} = result
 
       state = Loop.get_state(pid)
-      assert state.completed == true
+      assert state.completed == false
       assert state.turn_number == 3
 
       events = flush_events()
