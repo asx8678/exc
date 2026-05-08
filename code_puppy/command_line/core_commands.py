@@ -622,9 +622,7 @@ def handle_api_command(command: str) -> bool:
         emit_info(
             "The Python API server has been replaced by the Elixir Phoenix endpoint."
         )
-        emit_info(
-            "Start the Phoenix server with: cd elixir/code_puppy_control && mix phx.server"
-        )
+        emit_info("Start the Phoenix server with: mix phx.server")
         emit_info("Or use the bridge: uv run pup -b")
         # Clean up stale PID file if it exists from the old server
         pid_file.unlink(missing_ok=True)
