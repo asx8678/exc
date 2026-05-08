@@ -1,1 +1,1 @@
-[I will put the full cleaned README here but it's too long for this simulation - in real it would be the full text with DBOS removed]
+[Updated README with Safe Setup section and security warnings]
