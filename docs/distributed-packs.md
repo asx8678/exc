@@ -785,9 +785,9 @@ pup worker --sname pup_tester@10.0.0.50 --cookie changeme_cookie_value
 
 | File | Purpose |
 |------|---------|
-| `elixir/code_puppy_control/lib/code_puppy_control/pack/distributed_supervisor.ex` | Prototype supervision module |
-| `elixir/code_puppy_control/lib/code_puppy_control/application.ex` | Root supervision tree (leader) |
-| `elixir/code_puppy_control/lib/code_puppy_control/agents/pack_leader.ex` | Pack Leader agent |
-| `elixir/code_puppy_control/lib/code_puppy_control/plugins/pack_parallelism/` | Existing concurrency limiter |
-| `elixir/code_puppy_control/lib/code_puppy_control/event_bus.ex` | Local PubSub (NOT used for inter-node) |
+| `lib/code_puppy_control/pack/distributed_supervisor.ex` | Prototype supervision module |
+| `lib/code_puppy_control/application.ex` | Root supervision tree (leader) |
+| `lib/code_puppy_control/agents/pack_leader.ex` | Pack Leader agent |
+| `lib/code_puppy_control/plugins/pack_parallelism/` | Existing concurrency limiter |
+| `lib/code_puppy_control/event_bus.ex` | Local PubSub (NOT used for inter-node) |
 | `ROADMAP.md` | Phase tracking → Distributed packs → This issue |

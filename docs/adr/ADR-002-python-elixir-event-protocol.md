@@ -293,7 +293,7 @@ These were not required for the migration epic and remain future work.
 
 ## Testing
 
-Tests are in `elixir/code_puppy_control/test/python_worker/port_protocol_test.exs`:
+Tests are in `test/python_worker/port_protocol_test.exs`:
 
 ```elixir
 test "handles generic event method with agent_response event_type", %{pid: pid} do

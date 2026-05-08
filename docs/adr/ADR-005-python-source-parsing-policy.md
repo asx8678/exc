@@ -26,12 +26,12 @@ The Python parser lives entirely in the Elixir codebase:
 
 | File | Role | Technology |
 |------|------|-----------|
-| `elixir/code_puppy_control/src/python_lexer.xrl` | Leex lexer definition | Elixir-build (`:leex` compiler) |
-| `elixir/code_puppy_control/src/python_lexer.erl` | Generated Erlang lexer | Auto-generated |
-| `elixir/code_puppy_control/src/python_parser.yrl` | Yecc parser grammar | Elixir-build (`:yecc` compiler) |
-| `elixir/code_puppy_control/src/python_parser.erl` | Generated Erlang parser | Auto-generated |
-| `elixir/code_puppy_control/lib/.../lexers/python_lexer.ex` | Elixir wrapper | Pure Elixir |
-| `elixir/code_puppy_control/lib/.../parsers/python_parser.ex` | Elixir parser + symbol extraction | Pure Elixir |
+| `src/python_lexer.xrl` | Leex lexer definition | Elixir-build (`:leex` compiler) |
+| `src/python_lexer.erl` | Generated Erlang lexer | Auto-generated |
+| `src/python_parser.yrl` | Yecc parser grammar | Elixir-build (`:yecc` compiler) |
+| `src/python_parser.erl` | Generated Erlang parser | Auto-generated |
+| `lib/.../lexers/python_lexer.ex` | Elixir wrapper | Pure Elixir |
+| `lib/.../parsers/python_parser.ex` | Elixir parser + symbol extraction | Pure Elixir |
 
 It is compiled alongside the Elixir, Erlang, JavaScript, TypeScript, TSX, and
 Rust parsers via `[:leex, :yecc] ++ Mix.compilers()` in `mix.exs`. It requires
@@ -174,10 +174,10 @@ not Python runtime. No fixture replacement needed.
 ### F4: .py file guard needs allowlist
 
 The CI guard "fail if .py files in repo" must exclude:
-- `elixir/code_puppy_control/src/python_lexer.{xrl,erl}`
-- `elixir/code_puppy_control/src/python_parser.{yrl,erl}`
-- `elixir/code_puppy_control/test/**/*python_parser*`
-- `elixir/code_puppy_control/test/**/*python_lexer*`
+- `src/python_lexer.{xrl,erl}`
+- `src/python_parser.{yrl,erl}`
+- `test/**/*python_parser*`
+- `test/**/*python_lexer*`
 - Test fixtures under `test/support/` or `test/**/fixtures/` that use `.py`
   for parser testing
 

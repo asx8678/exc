@@ -53,7 +53,7 @@ The per-session PubSub API in the abandoned branch was an Elixir-only addition w
 
 ### 2.1 `CodePuppyControl.SessionStorage` (facade, ~300 lines)
 
-**Location**: `elixir/code_puppy_control/lib/code_puppy_control/session_storage.ex`
+**Location**: `lib/code_puppy_control/session_storage.ex`
 
 The facade delegates to `Store` when available, `FileBackend` otherwise. Current public API:
 
@@ -84,7 +84,7 @@ The facade delegates to `Store` when available, `FileBackend` otherwise. Current
 
 ### 2.2 `CodePuppyControl.SessionStorage.Store` (GenServer, ~290 lines)
 
-**Location**: `elixir/code_puppy_control/lib/code_puppy_control/session_storage/store.ex`
+**Location**: `lib/code_puppy_control/session_storage/store.ex`
 
 - **ETS tables**: `:session_store_ets` (sessions), `:session_terminal_ets` (terminals)
 - **SQLite**: via `CodePuppyControl.Sessions` (Ecto context)

@@ -27,10 +27,9 @@
 | Erlang/OTP | 26+ |
 | Zig (optional) | Any — for Burrito single-binary builds |
 
-Install Elixir/Erlang via `asdf`, `brew`, or your preferred version manager, then:
+Install Elixir/Erlang via `asdf`, `brew`, or your preferred version manager, then run from the repository root:
 
 ```bash
-cd elixir/code_puppy_control
 mix deps.get
 ```
 
@@ -225,7 +224,7 @@ The `pup` escript is a self-contained CLI binary that requires only the Erlang r
 MIX_ENV=prod mix escript.build
 ```
 
-Produces `./pup` in the Elixir project root. This is the Elixir-native `pup`, not the Python `codepp` legacy alias.
+Produces `./pup` in the repository root. This is the Elixir-native `pup`, not the Python `codepp` legacy alias.
 
 ### Verify
 
@@ -242,10 +241,10 @@ mix pup_ex.smoke --escript
 The Burrito binary is the **recommended production runtime** — a fully self-contained executable with no Erlang/Elixir/Python required on the target machine. It includes the complete OTP release (Repo/Oban/Phoenix Endpoint), providing database, scheduler, admin UI, and all production services that the escript lacks.
 
 ```bash
-scripts/build-burrito.sh
+./scripts/build-burrito.sh
 ```
 
-Requires Zig on PATH. See [docs/burrito-release.md](../elixir/code_puppy_control/docs/burrito-release.md) for the platform matrix and prerequisites.
+Requires Zig on PATH. See [release/burrito-release.md](release/burrito-release.md) for the platform matrix and prerequisites.
 
 Pre-built Burrito binaries are published to [GitHub Releases](https://github.com/mpfaffenberger/code_puppy/releases) for each tagged Elixir release.
 
@@ -264,7 +263,7 @@ Pre-built Burrito binaries are published to [GitHub Releases](https://github.com
 
 ### `pup` command reference
 
-This section describes the **Elixir escript** built as `./pup` from `elixir/code_puppy_control`. If your shell resolves bare `pup` to the installed Python `codepp` console script instead, use `./pup` or the packaged Elixir binary path. Within the Python/PyPI package, `pup` is the legacy alias and `code-puppy` is canonical.
+This section describes the **Elixir escript** built as `./pup` from the repository root. If your shell resolves bare `pup` to the installed Python `codepp` console script instead, use `./pup` or the packaged Elixir binary path. Within the Python/PyPI package, `pup` is the legacy alias and `code-puppy` is canonical.
 
 ```
 Usage: pup [OPTIONS] [PROMPT]

@@ -30,16 +30,16 @@ Use the provided helper script:
 
 ```bash
 # Build all targets
-scripts/build-burrito.sh
+./scripts/build-burrito.sh
 
 # Build only for the current host platform
-scripts/build-burrito.sh --host-only
+./scripts/build-burrito.sh --host-only
 
 # Build a specific target
-scripts/build-burrito.sh --target macos_arm64
-scripts/build-burrito.sh --target linux_x86_64
-scripts/build-burrito.sh --target linux_musl_x86_64
-scripts/build-burrito.sh --target windows_x86_64
+./scripts/build-burrito.sh --target macos_arm64
+./scripts/build-burrito.sh --target linux_x86_64
+./scripts/build-burrito.sh --target linux_musl_x86_64
+./scripts/build-burrito.sh --target windows_x86_64
 ```
 
 Or manually:
@@ -170,7 +170,7 @@ If you need to sign a Windows binary outside CI (e.g. a manual release), use the
 
 ```powershell
 # From the project root, after building the Windows target:
-powershell -File scripts/sign-windows.ps1 -ExePath elixir/code_puppy_control/burrito_out/code_puppy_control_windows_x86_64.exe
+powershell -File scripts/sign-windows.ps1 -ExePath burrito_out/code_puppy_control_windows_x86_64.exe
 ```
 
 Or directly with `signtool.exe`:
@@ -187,7 +187,7 @@ Burrito uses Zig's built-in musl cross-compilation support — no separate musl 
 
 ```bash
 # Build the musl target for Alpine
-scripts/build-burrito.sh --target linux_musl_x86_64
+./scripts/build-burrito.sh --target linux_musl_x86_64
 ```
 
 When using `--host-only` on a musl-based system (detected via `/etc/alpine-release` or `ldd --version` containing "musl"), the script automatically selects the `linux_musl_*` target.
@@ -204,7 +204,7 @@ targets from `mix.exs` are available via local cross-compilation.
 | `linux-x86_64` | `linux_x86_64` | `ubuntu-latest` |
 | `windows-x86_64` | `windows_x86_64` | `windows-latest` |
 
-Targets **not** built by CI (available via `scripts/build-burrito.sh --target <name>`):
+Targets **not** built by CI (available via `./scripts/build-burrito.sh --target <name>`):
 
 | Target | Notes |
 |--------|-------|
@@ -281,4 +281,4 @@ Burrito binaries are self-contained and do **not** use these overlays. Both work
 | Workflow | Command | Output | Requires Erlang on target |
 |----------|---------|--------|---------------------------|
 | Mix release | `mix release` | `_build/prod/rel/` | Yes |
-| Burrito | `scripts/build-burrito.sh` | `burrito_out/` | No |
+| Burrito | `./scripts/build-burrito.sh` | `burrito_out/` | No |

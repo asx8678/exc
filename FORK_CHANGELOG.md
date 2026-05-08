@@ -20,7 +20,7 @@ For per-commit detail, see `git log`.
 
 ### Architecture & Runtime
 
-- **Elixir-native runtime and Phoenix control plane** (`elixir/code_puppy_control/`)
+- **Elixir-native runtime and Phoenix control plane** (repository-root Elixir app: `mix.exs`, `lib/`, `priv/`, `rel/`)
   are now the default for agent execution, tooling, session management,
   scheduling, and orchestration.
 - **Python compatibility path**: The Python package/CLI remains available for
@@ -43,7 +43,7 @@ For per-commit detail, see `git log`.
   upstream). Installed Python entry points remain `code-puppy`, legacy alias
   `pup` (being deprecated — see deprecation plan), and `gac` for compatibility with existing workflows. The Python `0.0.x`
   version stream is independent from the Elixir-native `0.1.x` stream in
-  `elixir/code_puppy_control/mix.exs`.
+  root `mix.exs`.
 - Requires **Python 3.14+** when using the Python package/CLI, Python bridge, or
   free-threaded compatibility path.
 

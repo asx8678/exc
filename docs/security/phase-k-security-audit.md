@@ -128,9 +128,9 @@ All release/CI scripts are executable (`-rwxr-xr-x`):
 | `scripts/codesign_macos.sh` | ✅ | ✅ |
 | `scripts/install-git-hooks.sh` | ✅ | ✅ |
 | `scripts/run_dev.sh` | ✅ | ✅ |
-| `elixir/.../build-burrito.sh` | ✅ | ✅ |
-| `elixir/.../smoke-packaged.sh` | ✅ | ✅ |
-| `elixir/.../validate_mvp.sh` | ✅ | ✅ |
+| `scripts/build-burrito.sh` | ✅ | ✅ |
+| `scripts/smoke-packaged.sh` | ✅ | ✅ |
+| `scripts/validate_mvp.sh` | ✅ | ✅ |
 
 No scripts found without executable permission. All use `set -e` or `set -euo`.
 
