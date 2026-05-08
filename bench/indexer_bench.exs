@@ -18,8 +18,8 @@ end
 
 alias CodePuppyControl.Indexer
 
-# Path to the code_puppy project root (from elixir/code_puppy_control/)
-project_root = Path.expand("../../", __DIR__)
+# Path to the repository root (bench/ is at the Mix project root after migration)
+project_root = Path.expand("../", __DIR__)
 
 IO.puts("Benchmarking indexer on: #{project_root}")
 IO.puts("")

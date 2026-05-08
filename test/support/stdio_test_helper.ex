@@ -38,9 +38,8 @@ defmodule CodePuppyControl.Support.StdioTestHelper do
 
     File.write!(input_file, Enum.join(inputs, "\n") <> "\n")
 
-    # Find the project root (where mix.exs lives)
-    # __DIR__ is test/support/
-    # We need to go up to elixir/code_puppy_control/
+    # Find the Mix project root (where mix.exs lives)
+    # __DIR__ is test/support/ → up 2 = repository root (Mix project root after migration)
     project_path = Path.expand(Path.join(__DIR__, "../.."))
 
     # Verify mix.exs exists

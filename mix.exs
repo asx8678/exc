@@ -5,7 +5,7 @@ defmodule CodePuppyControl.MixProject do
     [
       app: :code_puppy_control,
       # Elixir/native release stream. Python/PyPI compatibility stream lives in
-      # ../../pyproject.toml and is intentionally independent during migration.
+      # pyproject.toml and is intentionally independent during migration.
       version: "0.1.0",
       elixir: "~> 1.15",
       elixirc_paths: elixirc_paths(Mix.env()),
