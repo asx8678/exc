@@ -137,11 +137,7 @@ fi
 # -----------------------------------------------------------------------------
 log_step "Checking Python bridge..."
 
-# Navigate to project root if we're in the elixir directory
-if [ -f "../../pyproject.toml" ]; then
-    cd "../.."
-fi
-
+# Python package is at the same level as mix.exs (repo root)
 if [ -d "code_puppy" ] && [ -f "pyproject.toml" ]; then
     # Try to import the bridge module
     if python3 -c "
@@ -160,8 +156,7 @@ else
     log_warning "Python project not found at expected location"
 fi
 
-# Return to elixir directory
-cd "$PROJECT_ROOT"
+# PROJECT_ROOT is already the repo root (mix.exs + pyproject.toml)
 
 # -----------------------------------------------------------------------------
 # Step 6: Run E2E tests with mock worker
@@ -210,7 +205,7 @@ fi
 echo ""
 echo "Next steps:"
 echo "  Start control plane: cd $PROJECT_ROOT && mix phx.server"
-echo "  Run with Python:     cd $PROJECT_ROOT/../.. && CODE_PUPPY_BRIDGE=1 python -m code_puppy"
+echo "  Run with Python:     cd $PROJECT_ROOT && CODE_PUPPY_BRIDGE=1 python -m code_puppy"
 echo "  Run E2E tests:       mix test.e2e"
 echo ""
 echo "Finished at: $(date)"

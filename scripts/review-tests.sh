@@ -7,8 +7,8 @@
 #
 # Usage:
 #   ./scripts/review-tests.sh <file_or_dir> [file_or_dir ...]
-#   ./scripts/review-tests.sh elixir/code_puppy_control/test/llm/
-#   ./scripts/review-tests.sh elixir/code_puppy_control/test/bar_test.exs
+#   ./scripts/review-tests.sh test/llm/
+#   ./scripts/review-tests.sh test/bar_test.exs
 #
 # Exit codes:
 #   0 - All reviews passed (or only advisory findings)
@@ -52,8 +52,8 @@ Options:
   --help        Show this help
 
 Examples:
-  $(basename "$0") elixir/code_puppy_control/test/llm/
-  $(basename "$0") elixir/code_puppy_control/test/bar_test.exs
+  $(basename "$0") test/llm/
+  $(basename "$0") test/bar_test.exs
 
 Environment:
   REVIEW_BLOCKING=1          Treat findings as blocking (default: advisory)

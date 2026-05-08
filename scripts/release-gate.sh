@@ -30,7 +30,7 @@ Default gates:
     uv run ruff check code_puppy tests scripts
     uv run pytest tests
 
-  Elixir (from elixir/code_puppy_control):
+  Elixir (from repository root):
     mix format --check-formatted
     mix compile --warnings-as-errors
     mix test
@@ -84,7 +84,7 @@ find_repo_root() {
 
   local dir="$start_dir"
   while [[ "$dir" != "/" ]]; do
-    if [[ -f "$dir/pyproject.toml" && -f "$dir/elixir/code_puppy_control/mix.exs" ]]; then
+    if [[ -f "$dir/pyproject.toml" && -f "$dir/mix.exs" ]]; then
       printf '%s\n' "$dir"
       return 0
     fi
@@ -185,7 +185,7 @@ run_python_gate() {
 }
 
 run_elixir_gate() {
-  local elixir_dir="$REPO_ROOT/elixir/code_puppy_control"
+  local elixir_dir="$REPO_ROOT"
 
   if [[ "$SKIP_ELIXIR" == "true" ]]; then
     record_skip "Elixir gate" "--skip-elixir"
