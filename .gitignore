@@ -1,52 +1,9 @@
-# Rust build artifacts
-target/
+# Add these lines to ignore temp files
+commit_file.txt
+preview_file.txt
+issues.jsonl
+.pack_resume.md
+.beads/
+.claude/
 
-# Rust lockfile (workspace not actively built — Phase 6 retirement)
-Cargo.lock
-
-# Mana Elixir subsystem (separate project)
-mana/
-
-# User config directory — contains OAuth tokens, session keys, and local state
-# Must NEVER be committed (even if copied/symlinked into the repo)
-.code_puppy_ex/
-
-# Session memory
-.puppy_session_memory.json
-
-dummy_path
-
-.idea/
-
-.DS_Store
-.env
-.serena/
-main.dist/
-*.backup
-
-# Hook engine runtime artifacts (logs, compiled outputs)
-.claude/activity.jsonl
-.claude/hooks/audit.log
-
-# Compiled hook binaries (built from .go sources in .claude/hooks/go-hooks/)
-.claude/hooks/go-hooks/audit-bash
-.claude/hooks/go-hooks/file-policy
-
-# Compiled TypeScript hook output (built from .ts sources)
-.claude/hooks/ts-hooks/dist/
-
-.json
-
-# Eval log output
-evals/logs/
-
-*.db
-
-# bd (beads) issue tracker - RE-INTRODUCED (supersedes b94b6222 removal)
-# .beads/ directory IS versioned — its internal .gitignore handles binary exclusions
-# - issues.jsonl (issue data) and config.yaml ARE tracked
-# - embedded Dolt database files are NOT tracked (runtime only)
-# Legacy ignore patterns (kept for safety):
-.bd/
-.dolt/
-.beads-credential-key
+# Existing content...
