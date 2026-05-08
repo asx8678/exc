@@ -340,6 +340,8 @@ defmodule CodePuppyControl.Application do
         CodePuppyControl.CLI.SlashCommands.Commands.AddModelPersistence.LockKeeper,
         # Staged changes sandbox for diff-preview system
         CodePuppyControl.Tools.StagedChanges,
+        # One-shot approval store for file operations requiring user confirmation
+        CodePuppyControl.Approvals,
         {CodePuppyControl.Run.Supervisor, []},
         # Executor supervisor — separated from Run.Supervisor so each logical
         # run consumes one slot in each supervisor (State + Executor) instead of

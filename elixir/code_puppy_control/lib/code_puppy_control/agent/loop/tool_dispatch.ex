@@ -120,10 +120,23 @@ defmodule CodePuppyControl.Agent.Loop.ToolDispatch do
     )
 
     # Dispatch via Tool.Runner (registry + permission check + validation + timeout)
+    # Include interactive_approval flag from agent loop metadata so that
+    # REPL sessions can prompt the user for approval on AskUser decisions.
+    metadata =
+      case Map.get(state, :metadata, %{}) do
+        metadata when is_map(metadata) -> metadata
+        _ -> %{}
+      end
+
+    approval_flag =
+      Map.get(metadata, :interactive_approval, false) or
+        Map.get(metadata, "interactive_approval", false)
+
     context =
       Runner.build_context(
         run_id: state.run_id,
-        session_id: state.session_id
+        session_id: state.session_id,
+        interactive_approval?: approval_flag
       )
 
     result = Runner.invoke(tool_call.name, tool_call.arguments, context)

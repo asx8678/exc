@@ -307,7 +307,8 @@ defmodule CodePuppyControl.REPL.Dispatch do
           :repl_llm_module,
           CodePuppyControl.Agent.LLMAdapter
         ),
-      compaction_opts: compaction_opts
+      compaction_opts: compaction_opts,
+      metadata: %{interactive_approval: true}
     ]
 
     case Loop.start_link(agent_module, messages, opts) do

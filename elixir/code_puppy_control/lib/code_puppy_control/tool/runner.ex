@@ -60,7 +60,8 @@ defmodule CodePuppyControl.Tool.Runner do
   alias CodePuppyControl.Callbacks.FilePermission
   alias CodePuppyControl.Tool.Registry
   alias CodePuppyControl.Tool.Schema
-  alias CodePuppyControl.PolicyEngine.PolicyRule.{Allow, Deny}
+  alias CodePuppyControl.Approvals
+  alias CodePuppyControl.PolicyEngine.PolicyRule.{Allow, Deny, AskUser}
 
   @default_timeout_ms 60_000
 
@@ -384,13 +385,141 @@ defmodule CodePuppyControl.Tool.Runner do
       case FilePermission.check(context, file_path, operation, nil, nil, nil,
              tool_name: Atom.to_string(tool_name)
            ) do
-        %Allow{} -> :ok
-        %Deny{reason: reason} -> {:error, "permission denied: #{reason}"}
-        # AskUser from policy — for now, deny (no interactive prompt in Runner)
-        # TODO(code_puppy-mmk.3): Integrate with user interaction for ask_user
-        _ -> {:error, "File operation requires user approval"}
+        %Allow{} ->
+          :ok
+
+        %Deny{reason: reason} ->
+          {:error, "permission denied: #{reason}"}
+
+        %AskUser{prompt: prompt} ->
+          handle_ask_user(tool_name, file_path, operation, prompt, args, context)
       end
     end
+  end
+
+  # Handles the AskUser decision from PolicyEngine by checking for
+  # one-shot approvals, optionally prompting the user in interactive CLI
+  # contexts, and recording the request as pending for later `/approve`
+  # resolution.
+  #
+  # Resolution order:
+  #   1. Consume a matching one-shot approval from the Approvals store → :ok
+  #   2. Record pending (so `/approve last` works even if the interactive
+  #      prompt times out or the process is killed)
+  #   3. Interactive CLI prompt (when `interactive_approval?` is true):
+  #        - approved → remove the pending entry, return :ok
+  #        - declined / EOF → leave pending, return error with guidance
+  #   4. Non-interactive → leave pending, return error with guidance
+  @spec handle_ask_user(atom(), String.t(), String.t(), String.t() | nil, map(), map()) ::
+          :ok | {:error, String.t()}
+  defp handle_ask_user(tool_name, file_path, operation, prompt, args, context) do
+    request =
+      Approvals.Request.new(
+        operation: operation,
+        file_path: file_path,
+        tool_name: Atom.to_string(tool_name),
+        prompt: prompt,
+        session_id: Map.get(context, :session_id),
+        run_id: Map.get(context, :run_id),
+        args: args
+      )
+
+    # Step 1: Check for a pre-existing one-shot approval
+    case Approvals.consume_approval(request) do
+      :allowed ->
+        :ok
+
+      :no_match ->
+        # Step 2: Always record pending BEFORE attempting interactive
+        # prompt, so `/approve last` can resolve the request even if the
+        # interactive prompt times out, is killed, or receives EOF.
+        :ok = Approvals.record_pending(request)
+
+        # Step 3: Interactive CLI prompt (only when explicitly enabled)
+        if interactive_approval?(context) do
+          interactive_prompt_and_approve(request, prompt, context)
+        else
+          # Non-interactive → leave pending, return error with guidance
+          {:error, format_approval_required_msg(request, prompt, context)}
+        end
+    end
+  end
+
+  # Returns true when the tool invocation context indicates an interactive
+  # REPL session that supports terminal prompts. Guarded by an explicit
+  # context flag to prevent blocking non-interactive contexts (e.g. TUI,
+  # HTTP API, subagent runs).
+  @spec interactive_approval?(map()) :: boolean()
+  defp interactive_approval?(context) do
+    Map.get(context, :interactive_approval?, false) or
+      Map.get(context, :approval_mode) == :cli
+  end
+
+  # Prompts the user in the terminal for approval of a file operation.
+  # Returns :ok if the user types "y" or "yes"; returns an error otherwise.
+  # On EOF (piped input), fails closed.
+  #
+  # The pending request has **already** been recorded by `handle_ask_user/6`
+  # before this function is called, so `/approve last` works even if the
+  # interactive prompt is interrupted.  When the user approves inline, we
+  # remove the pending entry so it does not remain as a stale pending.
+  #
+  # The actual IO reader is injectable via `context[:approval_reader]`
+  # so that tests can simulate yes/no/eof without relying on IO.gets
+  # inside Task.async.  The default reader is `&IO.gets/1`.
+  @spec interactive_prompt_and_approve(Approvals.Request.t(), String.t() | nil, map()) ::
+          :ok | {:error, String.t()}
+  defp interactive_prompt_and_approve(request, prompt, context) do
+    reader = Map.get(context, :approval_reader, &IO.gets/1)
+    prompt_text = prompt || "Confirm file operation"
+    label = "#{request.operation} #{request.file_path} (#{request.tool_name})"
+    IO.puts("")
+    IO.puts(IO.ANSI.yellow() <> "    ⚠ #{prompt_text}: #{label}" <> IO.ANSI.reset())
+    IO.write(IO.ANSI.yellow() <> "    Approve? [y/N] " <> IO.ANSI.reset())
+
+    # The reader function returns the line string (including newline)
+    # or :eof when no more input is available.
+    case reader.("") do
+      :eof ->
+        # Non-interactive (piped input) — leave pending, fail closed
+        {:error, format_approval_required_msg(request, prompt, context)}
+
+      line when is_binary(line) ->
+        trimmed = String.trim(line)
+
+        if trimmed in ["y", "Y", "yes", "YES", "Yes"] do
+          IO.puts(IO.ANSI.green() <> "    ✓ Approved" <> IO.ANSI.reset())
+          # Approved inline — remove the pending entry so it does not
+          # remain as a stale pending request.
+          :ok = Approvals.remove_pending(request.id)
+          :ok
+        else
+          # Declined — leave pending for later `/approve last`
+          {:error, format_approval_required_msg(request, prompt, context)}
+        end
+    end
+  end
+
+  # Formats the error message when a file operation requires user approval.
+  # Guidance is context-aware:
+  #   - In interactive CLI contexts, mention both `/approve last` and the
+  #     inline y/N prompt.
+  #   - In non-interactive / declined contexts, prefer `/approve last`
+  #     (typing y at the normal REPL prompt will not help).
+  @spec format_approval_required_msg(Approvals.Request.t(), String.t() | nil, map()) ::
+          String.t()
+  defp format_approval_required_msg(_request, prompt, context) do
+    base = "File operation requires user approval"
+    detail = if prompt && prompt != "", do: ": #{prompt}", else: ""
+
+    guidance =
+      if interactive_approval?(context) do
+        ". Use /approve last to approve and retry"
+      else
+        ". Use /approve last to approve and retry"
+      end
+
+    base <> detail <> guidance
   end
 
   defp tool_name_from_module(module) when is_atom(module) do

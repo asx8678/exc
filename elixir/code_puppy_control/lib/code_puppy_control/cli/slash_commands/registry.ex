@@ -341,6 +341,16 @@ defmodule CodePuppyControl.CLI.SlashCommands.Registry do
         category: "edit",
         detailed_help:
           "View and manage staged file changes. Staging mode intercepts file edits for review before applying. Subcommands: on, off, diff, preview, clear, apply, reject, save, load, status."
+      ),
+      # Approval command
+      CommandInfo.new(
+        name: "approve",
+        description: "Manage file operation approvals when policy requires user confirmation",
+        handler: &Commands.Approve.handle_approve/2,
+        usage: "/approve [list|last|clear]",
+        category: "edit",
+        detailed_help:
+          "Manage pending file operation approvals. When a file operation is blocked by policy (AskUser), use '/approve list' to see pending requests, '/approve last' to approve the most recent one (one-shot), or '/approve clear' to discard all pending requests."
       )
     ]
 

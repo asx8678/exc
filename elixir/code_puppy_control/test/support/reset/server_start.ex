@@ -85,6 +85,9 @@ defmodule CodePuppyControl.TestSupport.Reset.ServerStart do
     # (code_puppy-i1n)
     ensure_gen_server_started(CodePuppyControl.Tools.StagedChanges)
 
+    # Approvals must be available for file approval tests.
+    ensure_gen_server_started(CodePuppyControl.Approvals)
+
     # RateLimiter.Supervisor + RateLimiter must be available.
     # (code_puppy-i1n)
     ensure_gen_server_started(CodePuppyControl.RateLimiter.Supervisor)

@@ -241,6 +241,9 @@ defmodule CodePuppyControl.TestSupport.Reset do
       # ModelPacks: reset current pack to default "single"
       safe_call(CodePuppyControl.ModelPacks, :set_current_pack, ["single"])
 
+      # Approvals: clear pending requests and one-shot approvals
+      safe_call(CodePuppyControl.Approvals, :clear, [])
+
       # CodeContext: invalidate cache
       reset_code_context()
 

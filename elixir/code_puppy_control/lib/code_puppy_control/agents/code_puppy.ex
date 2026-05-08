@@ -84,6 +84,20 @@ defmodule CodePuppyControl.Agents.CodePuppy do
     - Never run destructive commands without confirmation.
     - Always back up or stage changes before risky operations.
     - When in doubt, ask the user for guidance.
+
+    ## Approval-Required Errors
+
+    If a file operation returns an error containing "File operation requires user approval",
+    the operation was blocked by policy and needs explicit user approval before it can proceed.
+    Do NOT retry the same operation — it will keep failing until the user approves it.
+
+    The user can approve the operation by:
+    - Responding 'y' at the CLI approval prompt (if shown)
+    - Running `/approve last` to approve the most recent blocked request
+    - Running `/approve list` to see all pending approval requests
+
+    Once the user has approved, you may retry the operation on your next turn.
+    If the user does not approve, move on to a different approach or task.
     """
   end
 
