@@ -1,0 +1,53 @@
+## ─────────────────────────────────────────────────────────────
+## Code Puppy Elixir Control Plane — VM flags
+##
+## Tuned for an M4 MacBook Air (10 cores: 4P + 6E, 16 GB RAM, fanless).
+## These are HARD CAPS — ERL_FLAGS env var, if set, will be appended.
+##
+## Override any line at runtime via `ERL_FLAGS="+P 262144"` etc.
+## ─────────────────────────────────────────────────────────────
+
+## Process / port caps — protect a 16 GB laptop from runaway fanout.
+## Default BEAM is +P 1048576, +Q 65536. Code Puppy's real working set
+## is a few thousand procs, so we cap an order of magnitude lower.
++P 131072
++Q 16384
+
+## Scheduler tuning: leave 2 cores for macOS + REPL/UI.
++S 8:8
+
+## Dirty-CPU schedulers for parsing / hashing (Parsing.Parser, xxhash).
++SDcpu 4:4
+
+## Dirty-IO schedulers for SQLite + file scans.
++SDio 4
+
+## Disable scheduler busy-wait: huge battery + thermal win on fanless Macs.
+## Idle schedulers will sleep instead of spinning.
++sbwt none
++sbwtdcpu none
++sbwtdio none
+
+## Lower wakeup threshold so we don't wake too many schedulers at once.
++swt low
+
+## Allocator: address-order best-fit works well for long-lived servers.
++MBas aobf
++MHas aobf
+
+## Max mmap carriers — keeps RSS more predictable.
++MMmcs 30
+
+## ─────────────────────────────────────────────────────────────
+## TLS for Erlang distribution (code_puppy-jqr.1)
+##
+## Uncomment the following lines and set PUP_DIST_TLS=1 to
+## enable encrypted inter-node communication via inet_tls.
+## Requires ssl_dist.conf + certificates in place.
+## See docs/distributed-packs.md §9 for setup instructions.
+##
+## -proto_dist inet_tls
+## -ssl_dist_optfile {{release_dir}}/ssl_dist.conf
+
+## Crash dump quiet mode — don't dump 100 MB on every crash in dev.
+-env ERL_CRASH_DUMP_SECONDS 0

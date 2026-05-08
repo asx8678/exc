@@ -1,0 +1,543 @@
+defmodule CodePuppyControl.ModelRegistry do
+  @moduledoc """
+  Model configuration registry with ETS-backed caching.
+
+  Ports Python's ModelFactory.load_config() and model_config.py registry.
+  Loads models from bundled JSON + overlay files, caches in ETS for fast lookup.
+
+  ## Architecture
+
+  - **ETS table** (`:model_configs`): `:set` type with read concurrency enabled
+    for fast concurrent lookups. Keys are model names (strings), values are
+    model config maps.
+  - **GenServer**: Coordinates writes (initial load, reload) to prevent
+    race conditions.
+  - **Config sources**:
+    - Bundled: `priv/models.json` (shipped with the application)
+    - Overlays (optional, read from both legacy and Elixir homes):
+      - Legacy home (read-only, via `Isolation.read_only_legacy/1`):
+        - `~/.code_puppy/models.json`
+        - `~/.code_puppy/extra_models.json`
+        - `~/.code_puppy/chatgpt_models.json`
+        - `~/.code_puppy/claude_models.json`
+      - Elixir home (`~/.code_puppy_ex/`, via `Paths.models_file/0` and siblings):
+        - `models.json`
+        - `extra_models.json`, `chatgpt_models.json`, `claude_models.json`
+      Precedence: base → legacy `models.json` → legacy `extra_models.json` →
+      legacy `chatgpt_models.json` → legacy `claude_models.json` →
+      Elixir `models.json` → Elixir `extra_models.json` →
+      Elixir `chatgpt_models.json` → Elixir `claude_models.json`
+      (later wins on conflicts).
+
+  ## Model Type Registry
+
+  Known model types:
+  - `"openai"` - OpenAI GPT models
+  - `"anthropic"` - Anthropic Claude models
+  - `"custom_anthropic"` - Custom Anthropic-compatible endpoint
+  - `"azure_openai"` - Azure OpenAI Service
+  - `"custom_openai"` - Custom OpenAI-compatible endpoint
+  - `"zai_coding"` - ZAI Coding models
+  - `"zai_api"` - ZAI API models
+  - `"cerebras"` - Cerebras models
+  - `"claude_code"` - Claude Code OAuth models
+  - `"chatgpt_oauth"` - ChatGPT OAuth Codex models
+  - `"openrouter"` - OpenRouter multi-provider gateway
+  - `"round_robin"` - Round-robin model rotation
+  - `"gemini"` - Google Gemini models
+  - `"gemini_oauth"` - Gemini with OAuth authentication
+  - `"custom_gemini"` - Custom Gemini-compatible endpoint
+
+  ## API
+
+  - `start_link/1` - Start the GenServer
+  - `get_config/1` - Get config for a specific model name
+  - `get_all_configs/0` - Get all model configs as a map
+  - `reload/0` - Force reload from JSON files
+  - `get_model_type/1` - Resolve model type from config
+  - `list_model_names/0` - List all available model names
+  - `list_model_types/0` - List all unique model types from current configs
+  - `type_supported?/1` - Check if a model type is known
+
+  ## Examples
+
+      iex> ModelRegistry.get_config("wafer-glm-5.1")
+      %{
+        "type" => "custom_openai",
+        "provider" => "wafer",
+        "name" => "GLM-5.1",
+        "context_length" => 200000
+      }
+
+      iex> ModelRegistry.list_model_names()
+      ["firepass-kimi-k2p5-turbo", "wafer-glm-5.1", ...]
+
+      iex> ModelRegistry.type_supported?("openai")
+      true
+
+      iex> ModelRegistry.type_supported?("unknown_type")
+      false
+  """
+
+  use GenServer
+
+  require Logger
+
+  alias CodePuppyControl.Config.Isolation
+  alias CodePuppyControl.Config.Paths
+
+  # Embed bundled models.json at compile time so escript builds (where
+  # :code.priv_dir/1 is unavailable) always have a base model set without
+  # needing PUP_BUNDLED_MODELS_PATH env var. The @external_resource tag
+  # ensures Mix recompiles this module when the JSON file changes.
+  @bundled_models_path Path.join([__DIR__, "../../priv/models.json"])
+  @external_resource @bundled_models_path
+  @bundled_models_json (case File.read(@bundled_models_path) do
+                          {:ok, content} -> content
+                          {:error, _} -> "{}"
+                        end)
+
+  @table :model_configs
+
+  # Known model types from Python model_config.py
+  @known_model_types [
+    "openai",
+    "anthropic",
+    "custom_anthropic",
+    "azure_openai",
+    "custom_openai",
+    "zai_coding",
+    "zai_api",
+    "cerebras",
+    "claude_code",
+    "chatgpt_oauth",
+    "openrouter",
+    "round_robin",
+    "gemini",
+    "gemini_oauth",
+    "custom_gemini"
+  ]
+
+  # ============================================================================
+  # Client API
+  # ============================================================================
+
+  @doc """
+  Starts the ModelRegistry GenServer.
+  """
+  @spec start_link(keyword()) :: GenServer.on_start()
+  def start_link(opts \\ []) do
+    GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+  end
+
+  @doc """
+  Gets the configuration for a specific model.
+
+  Returns the model config map if found, or `nil` if the model doesn't exist.
+
+  ## Examples
+
+      iex> ModelRegistry.get_config("wafer-glm-5.1")
+      %{"type" => "custom_openai", "provider" => "wafer", ...}
+
+      iex> ModelRegistry.get_config("nonexistent-model")
+      nil
+  """
+  @spec get_config(String.t()) :: map() | nil
+  def get_config(model_name) when is_binary(model_name) do
+    case :ets.lookup(@table, model_name) do
+      [{^model_name, config}] -> config
+      [] -> nil
+    end
+  end
+
+  def get_config(_), do: nil
+
+  @doc """
+  Gets all model configurations as a map.
+
+  Returns a map where keys are model names and values are config maps.
+
+  ## Examples
+
+      iex> ModelRegistry.get_all_configs()
+      %{
+        "wafer-glm-5.1" => %{"type" => "custom_openai", ...},
+        "firepass-kimi-k2p5-turbo" => %{...}
+      }
+  """
+  @spec get_all_configs() :: %{String.t() => map()}
+  def get_all_configs do
+    @table
+    |> :ets.tab2list()
+    |> Map.new(fn {name, config} -> {name, config} end)
+  end
+
+  @doc """
+  Forces a reload of model configurations from JSON files.
+
+  This re-reads the bundled models.json and all overlay files, then
+  repopulates the ETS cache. Returns `:ok` on success.
+
+  ## Examples
+
+      iex> ModelRegistry.reload()
+      :ok
+  """
+  @spec reload() :: :ok | {:error, term()}
+  def reload do
+    GenServer.call(__MODULE__, :reload)
+  end
+
+  @doc """
+  Resolves the model type from a configuration.
+
+  Returns the type string from the config, or `nil` if not specified
+  or if config is invalid.
+
+  ## Examples
+
+      iex> ModelRegistry.get_model_type(%{"type" => "openai"})
+      "openai"
+
+      iex> ModelRegistry.get_model_type(%{})
+      nil
+  """
+  @spec get_model_type(map()) :: String.t() | nil
+  def get_model_type(model_config) when is_map(model_config) do
+    Map.get(model_config, "type")
+  end
+
+  def get_model_type(_), do: nil
+
+  @doc """
+  Lists all available model names.
+
+  Returns a list of all model names currently loaded in the registry.
+
+  ## Examples
+
+      iex> ModelRegistry.list_model_names()
+      ["firepass-kimi-k2p5-turbo", "wafer-glm-5.1", ...]
+  """
+  @spec list_model_names() :: [String.t()]
+  def list_model_names do
+    @table
+    |> :ets.select([{{:"$1", :_}, [], [:"$1"]}])
+    |> Enum.sort()
+  end
+
+  @doc """
+  Lists all unique model types from currently loaded configurations.
+
+  This scans the actual loaded configs, not the known types list.
+
+  ## Examples
+
+      iex> ModelRegistry.list_model_types()
+      ["custom_openai"]
+  """
+  @spec list_model_types() :: [String.t()]
+  def list_model_types do
+    @table
+    |> :ets.select([{{:_, %{"type" => :"$1"}}, [], [:"$1"]}])
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  @doc """
+  Checks if a model type is known/supported.
+
+  Returns `true` if the type is in the known types list, `false` otherwise.
+  Note: This checks against the static known types list, not the
+  currently loaded configs. For loaded types, use `list_model_types/0`.
+
+  ## Examples
+
+      iex> ModelRegistry.type_supported?("openai")
+      true
+
+      iex> ModelRegistry.type_supported?("anthropic")
+      true
+
+      iex> ModelRegistry.type_supported?("unknown")
+      false
+  """
+  @spec type_supported?(String.t()) :: boolean()
+  def type_supported?(model_type) when is_binary(model_type) do
+    model_type in @known_model_types
+  end
+
+  def type_supported?(_), do: false
+
+  @doc """
+  Gets all known model types (static list).
+
+  Returns the list of all model types that the registry knows about,
+  regardless of whether any models of those types are currently loaded.
+
+  ## Examples
+
+      iex> ModelRegistry.known_model_types()
+      ["anthropic", "azure_openai", "cerebras", "custom_anthropic", ...]
+  """
+  @spec known_model_types() :: [String.t()]
+  def known_model_types do
+    @known_model_types
+  end
+
+  # ============================================================================
+  # Server Callbacks
+  # ============================================================================
+
+  @impl true
+  def init(_opts) do
+    # Create public set table for concurrent reads
+    table =
+      :ets.new(@table, [
+        :named_table,
+        :set,
+        :public,
+        read_concurrency: true
+      ])
+
+    # Load initial model configurations
+    case load_all_configs() do
+      {:ok, configs} ->
+        populate_ets(table, configs)
+        Logger.info("ModelRegistry initialized with #{map_size(configs)} models")
+        {:ok, %{table: table}}
+
+      {:error, reason} ->
+        # (code-puppy-be7) In escript mode, :code.priv_dir resolves to a
+        # path inside the zip archive (not a real file). Downgrade to
+        # warning so it doesn't pollute startup as an [error].
+        log_level =
+          case reason do
+            {:file_read_error, _path, :enotdir} -> :warning
+            _ -> :error
+          end
+
+        Logger.log(log_level, "ModelRegistry failed to load configs: #{inspect(reason)}")
+        # Still start the GenServer, but with empty config
+        {:ok, %{table: table}}
+    end
+  end
+
+  @impl true
+  def handle_call(:reload, _from, state) do
+    case load_all_configs() do
+      {:ok, configs} ->
+        # Clear existing entries and repopulate
+        :ets.delete_all_objects(state.table)
+        populate_ets(state.table, configs)
+        Logger.info("ModelRegistry reloaded with #{map_size(configs)} models")
+        {:reply, :ok, state}
+
+      {:error, reason} ->
+        Logger.error("ModelRegistry reload failed: #{inspect(reason)}")
+        {:reply, {:error, reason}, state}
+    end
+  end
+
+  @impl true
+  def handle_info(msg, state) do
+    Logger.warning("ModelRegistry received unexpected message: #{inspect(msg)}")
+    {:noreply, state}
+  end
+
+  # ============================================================================
+  # Private Functions
+  # ============================================================================
+
+  defp populate_ets(table, configs) do
+    for {name, config} <- configs do
+      :ets.insert(table, {name, config})
+    end
+  end
+
+  defp load_all_configs do
+    base_result = load_bundled_models()
+    overlay_configs = load_overlay_files()
+
+    case base_result do
+      {:ok, base_config} ->
+        {:ok, merge_configs(base_config, overlay_configs)}
+
+      {:error, _reason} ->
+        if overlay_configs != [] do
+          # Base missing but overlays exist — proceed with empty base
+          Logger.warning(
+            "ModelRegistry: bundled models file unavailable, " <>
+              "proceeding with #{length(overlay_configs)} overlay(s) as base"
+          )
+
+          {:ok, merge_configs(%{}, overlay_configs)}
+        else
+          # No base AND no overlays — preserve existing error
+          base_result
+        end
+    end
+  end
+
+  defp load_bundled_models do
+    # 1. PUP_BUNDLED_MODELS_PATH env var override (testing / ops)
+    env_path = System.get_env("PUP_BUNDLED_MODELS_PATH")
+
+    if env_path != nil and env_path != "" do
+      load_models_from_file(env_path)
+    else
+      # 2. Application env override (tests)
+      app_path = Application.get_env(:code_puppy_control, :bundled_models_path)
+
+      if app_path != nil and app_path != "" do
+        load_models_from_file(app_path)
+      else
+        # 3. :code.priv_dir (works in dev, release, and Burrito builds)
+        #    Returns charlist on success, {:error, _} on failure.
+        case :code.priv_dir(:code_puppy_control) do
+          {:error, _} ->
+            # 4. Escript mode: :code.priv_dir returns error because the
+            #    escript runs from a zip archive. Use the compile-time
+            #    embedded JSON instead.
+            Logger.debug(
+              "ModelRegistry: priv_dir unavailable (escript mode), " <>
+                "using compile-time embedded bundled models"
+            )
+
+            case Jason.decode(@bundled_models_json) do
+              {:ok, config} -> {:ok, config}
+              {:error, reason} -> {:error, {:json_decode_error, reason}}
+            end
+
+          priv_dir when is_list(priv_dir) ->
+            # Try reading from priv_dir (works in dev, release, Burrito).
+            # In escript mode, priv_dir returns a path inside the zip archive
+            # that File.read/1 cannot access (returns :enotdir). When the file
+            # can't be read, fall through to the compile-time embedded JSON.
+            path = Path.join(priv_dir, "models.json")
+
+            case load_models_from_file(path) do
+              {:ok, config} ->
+                {:ok, config}
+
+              {:error, _reason} ->
+                Logger.debug(
+                  "ModelRegistry: priv_dir path #{path} not readable " <>
+                    "(escript mode or missing file), " <>
+                    "falling back to compile-time embedded bundled models"
+                )
+
+                case Jason.decode(@bundled_models_json) do
+                  {:ok, config} -> {:ok, config}
+                  {:error, reason} -> {:error, {:json_decode_error, reason}}
+                end
+            end
+        end
+      end
+    end
+  end
+
+  defp load_models_from_file(path) do
+    case safe_read_file(path) do
+      {:ok, content} ->
+        case Jason.decode(content) do
+          {:ok, config} -> {:ok, config}
+          {:error, reason} -> {:error, {:json_decode_error, reason}}
+        end
+
+      {:error, reason} ->
+        {:error, {:file_read_error, path, reason}}
+    end
+  end
+
+  # Legacy home override for testing. Returns the configured override
+  # or the real legacy home from Paths. Avoids touching real ~/.code_puppy
+  # in tests.
+  @spec legacy_home_dir() :: String.t()
+  defp legacy_home_dir do
+    Application.get_env(:code_puppy_control, :legacy_home_dir) ||
+      Paths.legacy_home_dir()
+  end
+
+  # Load overlay files from BOTH legacy home (read-only) and Elixir home.
+  # Order: legacy overlays first, then Elixir-home overlays, so that
+  # Elixir-home overlays win on key conflicts (later wins).
+  # Within each home: models → extra → chatgpt → claude (models.json first).
+  # Full precedence: bundled → legacy models → legacy extra → legacy chatgpt →
+  # legacy claude → Elixir models → Elixir extra → Elixir chatgpt → Elixir claude.
+  defp load_overlay_files do
+    legacy_home = legacy_home_dir()
+
+    legacy_specs = [
+      {Path.join(legacy_home, "models.json"), "legacy models"},
+      {Path.join(legacy_home, "extra_models.json"), "legacy extra models"},
+      {Path.join(legacy_home, "chatgpt_models.json"), "legacy ChatGPT OAuth models"},
+      {Path.join(legacy_home, "claude_models.json"), "legacy Claude Code OAuth models"}
+    ]
+
+    elixir_specs = [
+      {Paths.models_file(), "models"},
+      {Paths.extra_models_file(), "extra models"},
+      {Paths.chatgpt_models_file(), "ChatGPT OAuth models"},
+      {Paths.claude_models_file(), "Claude Code OAuth models"}
+    ]
+
+    # Legacy first, then Elixir home — later overlays win on merge
+    read_overlay_files(legacy_specs) ++ read_overlay_files(elixir_specs)
+  end
+
+  # Read a file, routing through Isolation.read_only_legacy/1 when the
+  # path is under the real legacy home (~/.code_puppy). For paths outside
+  # the legacy home (e.g. test override dirs), uses File.read/1 directly.
+  # This satisfies ADR-003 compliance while preserving test overrides via
+  # Application.get_env(:code_puppy_control, :legacy_home_dir).
+  defp safe_read_file(path) do
+    if Paths.in_legacy_home?(path) do
+      Isolation.read_only_legacy(path)
+    else
+      File.read(path)
+    end
+  end
+
+  defp read_overlay_files(overlay_specs) do
+    overlay_specs
+    |> Enum.reduce([], fn {path, label}, acc ->
+      case safe_read_file(path) do
+        {:ok, content} ->
+          case Jason.decode(content) do
+            {:ok, config} when is_map(config) ->
+              Logger.debug("ModelRegistry: loaded #{label} from #{path}")
+              [config | acc]
+
+            {:ok, _} ->
+              Logger.warning("ModelRegistry: #{label} at #{path} is not a valid object")
+              acc
+
+            {:error, reason} ->
+              Logger.warning(
+                "ModelRegistry: failed to parse #{label} at #{path}: #{inspect(reason)}"
+              )
+
+              acc
+          end
+
+        {:error, :enoent} ->
+          # File doesn't exist - this is fine, overlays are optional
+          acc
+
+        {:error, reason} ->
+          Logger.warning("ModelRegistry: failed to read #{label} at #{path}: #{inspect(reason)}")
+          acc
+      end
+    end)
+    |> Enum.reverse()
+  end
+
+  defp merge_configs(base_config, overlay_configs) do
+    # Overlays merge INTO base, with later overlays winning on conflicts
+    Enum.reduce(overlay_configs, base_config, fn overlay, acc ->
+      Map.merge(acc, overlay)
+    end)
+  end
+end

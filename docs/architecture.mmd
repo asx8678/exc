@@ -1,0 +1,360 @@
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#6B46C1', 'secondaryColor': '#38A169', 'tertiaryColor': '#3182CE'}}}%%
+flowchart TB
+    subgraph TITLE["🐶 CODE PUPPY ARCHITECTURE"]
+        direction TB
+    end
+
+    %% ============================================================================
+    %% ELIXIR LAYER
+    %% ============================================================================
+    subgraph ELIXIR["🟣 ELIXIR CONTROL PLANE (lib/code_puppy_control/)"]
+        direction TB
+        
+        subgraph OTP["OTP Supervision Tree"]
+            APP[CodePuppyControl.Application]
+            ROOT_SUP[RootSupervisor]
+            APP --> ROOT_SUP
+        end
+        
+        subgraph HTTP["HTTP/WebSocket Layer"]
+            ENDPOINT[Phoenix.Endpoint]
+            RUN_CTRL[RunController]
+            MCP_CTRL[McpController]
+            HEALTH_CTRL[HealthController]
+            RUN_CHAN[RunChannel]
+            SESS_CHAN[SessionChannel]
+            USER_SOCK[UserSocket]
+            
+            ENDPOINT --> RUN_CTRL
+            ENDPOINT --> MCP_CTRL
+            ENDPOINT --> HEALTH_CTRL
+            ENDPOINT --> USER_SOCK
+            USER_SOCK --> RUN_CHAN
+            USER_SOCK --> SESS_CHAN
+        end
+        
+        subgraph CORE["Core Services"]
+            RUNTIME[RuntimeState]
+            POLICY[PolicyEngine]
+            EVENT_STORE[EventStore]
+            EVENT_BUS[EventBus]
+            REQ_TRACK[RequestTracker]
+            TELEMETRY[Telemetry]
+            SCHEDULER[Scheduler]
+            CRON[CronScheduler]
+            
+            SCHEDULER --> CRON
+        end
+        
+        subgraph MODELS["Model Services"]
+            MODEL_REG[ModelRegistry]
+            MODEL_AVAIL[ModelAvailability]
+            MODEL_PACKS[ModelPacks]
+            ROUND_ROBIN[RoundRobinModel]
+            AGENT_PIN[AgentModelPinning]
+            MODELS_DEV[ModelsDevParser]
+            ROUTER[Routing.Router]
+            
+            ROUTER --> MODEL_REG
+            ROUTER --> MODEL_AVAIL
+            ROUTER --> MODEL_PACKS
+            ROUTER --> ROUND_ROBIN
+        end
+        
+        subgraph FILE_OPS["File Operations"]
+            FILEOPS[FileOps]
+            LISTER[Lister]
+            GREP[Grep]
+            READER[Reader]
+            SECURITY[Security]
+            
+            FILEOPS --> LISTER
+            FILEOPS --> GREP
+            FILEOPS --> READER
+            FILEOPS --> SECURITY
+        end
+        
+        subgraph PARSING["Parsing Services"]
+            PARSER_REG[ParserRegistry]
+            PARSER[Parser]
+            PY_PARSER[PythonParser]
+            JS_PARSER[JavaScriptParser]
+            TS_PARSER[TypeScriptParser]
+            RUST_PARSER[RustParser]
+            EX_PARSER[ElixirParser]
+            ERL_PARSER[ErlangParser]
+            
+            PARSER_REG --> PARSER
+            PARSER --> PY_PARSER
+            PARSER --> JS_PARSER
+            PARSER --> TS_PARSER
+            PARSER --> RUST_PARSER
+            PARSER --> EX_PARSER
+            PARSER --> ERL_PARSER
+        end
+        
+        subgraph PROCS["Process Management"]
+            RUN_SUP[Run.Supervisor]
+            RUN_STATE[Run.State]
+            PY_WORK_SUP[PythonWorker.Supervisor]
+            PY_WORK_PORT[PythonWorker.Port]
+            MCP_SUP[MCP.Supervisor]
+            MCP_SERVER[MCP.Server]
+            
+            RUN_SUP -->|spawns| RUN_STATE
+            PY_WORK_SUP -->|spawns| PY_WORK_PORT
+            MCP_SUP -->|spawns| MCP_SERVER
+        end
+        
+        subgraph TRANSPORT["Transport Layer"]
+            STDIO[StdioService]
+            PROTOCOL[Protocol]
+            
+            STDIO --> PROTOCOL
+        end
+        
+        subgraph PERSIST["Persistence (SQLite/Ecto)"]
+            REPO[Repo]
+            CHAT_SESS[ChatSession]
+            SCHED_TASKS[ScheduledTasks]
+            OBAN[Oban Jobs]
+            
+            REPO --> CHAT_SESS
+            REPO --> SCHED_TASKS
+            REPO --> OBAN
+        end
+        
+        subgraph TEXT["Text Processing"]
+            FUZZY[FuzzyMatch]
+            DIFF[Diff]
+            REPLACE[ReplaceEngine]
+            HASHLINE[HashLine]
+            CONTENT_PREP[ContentPrep]
+        end
+        
+        subgraph CONCURRENCY["Concurrency Control"]
+            CONC_SUP[Concurrency.Supervisor]
+            LIMITER[Limiter]
+            
+            CONC_SUP --> LIMITER
+        end
+        
+        ROOT_SUP --> ENDPOINT
+        ROOT_SUP --> RUNTIME
+        ROOT_SUP --> POLICY
+        ROOT_SUP --> EVENT_STORE
+        ROOT_SUP --> EVENT_BUS
+        ROOT_SUP --> MODEL_REG
+        ROOT_SUP --> RUN_SUP
+        ROOT_SUP --> PY_WORK_SUP
+        ROOT_SUP --> MCP_SUP
+        ROOT_SUP --> REPO
+        ROOT_SUP --> CONC_SUP
+        ROOT_SUP --> PARSER_REG
+    end
+    
+    %% ============================================================================
+    %% ERLANG COMPONENTS
+    %% ============================================================================
+    subgraph ERLANG["📜 ERLANG COMPONENTS (src/)"]
+        direction LR
+        
+        subgraph LEXERS["Lexers (.xrl)"]
+            PY_LEX[python_lexer]
+            JS_LEX[javascript_lexer]
+            TS_LEX[typescript_lexer]
+            RUST_LEX[rust_lexer]
+        end
+        
+        subgraph PARSERS_ERL["Parsers (.yrl)"]
+            PY_PARSE_ERL[python_parser]
+            JS_PARSE_ERL[javascript_parser]
+            TS_PARSE_ERL[typescript_parser]
+            RUST_PARSE_ERL[rust_parser]
+        end
+        
+        PY_LEX --> PY_PARSE_ERL
+        JS_LEX --> JS_PARSE_ERL
+        TS_LEX --> TS_PARSE_ERL
+        RUST_LEX --> RUST_PARSE_ERL
+    end
+    
+    %% ============================================================================
+    %% COMMUNICATION LAYER
+    %% ============================================================================
+    subgraph COMM["📡 COMMUNICATION (JSON-RPC 2.0)"]
+        direction LR
+        
+        JSONRPC[JSON-RPC 2.0 Protocol]
+        CONTENT_LEN[Content-Length Framing]
+        NEWLINE_DEL[Newline Delimited]
+        
+        JSONRPC --> CONTENT_LEN
+        JSONRPC --> NEWLINE_DEL
+    end
+    
+    %% ============================================================================
+    %% PYTHON LAYER
+    %% ============================================================================
+    subgraph PYTHON["🐍 PYTHON WORKER PLANE (code_puppy/)"]
+        direction TB
+        
+        subgraph AGENTS["Agent Execution Engine"]
+            CODE_PUP[code-puppy]
+            PLAN_AGENT[planning-agent]
+            SEC_AUDIT[security-auditor]
+            QA_KIT[qa-kitten]
+            QA_EXP[qa-expert]
+            TURBO[turbo-executor]
+            PY_REV[python-reviewer]
+            JS_REV[javascript-reviewer]
+            FILE_PERM[file-permission-handler]
+        end
+        
+        subgraph CALLBACKS["Callback System (callbacks.py)"]
+            CB_STARTUP[startup/shutdown]
+            CB_AGENT[invoke_agent]
+            CB_PROMPT[load_prompt]
+            CB_FILE[file_permission]
+            CB_TOOL[pre/post_tool_call]
+            CB_STREAM[stream_event]
+            CB_CMD[custom_command]
+            CB_REG[register_tools/agents]
+        end
+        
+        subgraph PLUGINS["Plugins (plugins/)"]
+            PACK_PAR[pack_parallelism]
+            FILE_MENT[file_mentions]
+            USER_PLUG[user_plugins]
+        end
+        
+        subgraph LLM["LLM Integrations"]
+            ANTHROPIC[Anthropic/Claude]
+            OPENAI[OpenAI/GPT-4]
+            GEMINI[Google Gemini]
+            OPENROUTER[OpenRouter]
+            AZURE[Azure OpenAI]
+            CUSTOM_LLM[Custom Endpoints]
+        end
+        
+        subgraph FAST["Fast Puppy (Native Backend)"]
+            NATIVE_BACK[NativeBackend]
+            ELIXIR_FIRST[elixir_first profile]
+            PYTHON_ONLY[python_only profile]
+            
+            NATIVE_BACK --> ELIXIR_FIRST
+            NATIVE_BACK --> PYTHON_ONLY
+        end
+        
+        CODE_PUP --> CALLBACKS
+        PLAN_AGENT --> CALLBACKS
+        SEC_AUDIT --> CALLBACKS
+        
+        CALLBACKS --> PLUGINS
+        
+        CODE_PUP --> LLM
+        PLAN_AGENT --> LLM
+        QA_EXP --> LLM
+    end
+    
+    %% ============================================================================
+    %% EXTERNAL SYSTEMS
+    %% ============================================================================
+    subgraph EXTERNAL["☁️ EXTERNAL SYSTEMS"]
+        ANTHROPIC_API[Anthropic API]
+        OPENAI_API[OpenAI API]
+        GEMINI_API[Google AI API]
+        SQLITE_DB[(SQLite DB)]
+    end
+    
+    %% ============================================================================
+    %% CONNECTIONS BETWEEN LAYERS
+    %% ============================================================================
+    
+    PY_PARSER -.->|uses| PY_PARSE_ERL
+    JS_PARSER -.->|uses| JS_PARSE_ERL
+    TS_PARSER -.->|uses| TS_PARSE_ERL
+    RUST_PARSER -.->|uses| RUST_PARSE_ERL
+    
+    PY_WORK_PORT -->|Content-Length| COMM
+    STDIO -->|Newline| COMM
+    
+    COMM -->|JSON-RPC requests| NATIVE_BACK
+    COMM -->|Agent commands| CODE_PUP
+    
+    NATIVE_BACK -->|file_ops| FILEOPS
+    NATIVE_BACK -->|model_registry| MODEL_REG
+    NATIVE_BACK -->|sessions| CHAT_SESS
+    NATIVE_BACK -->|text_*| TEXT
+    
+    PY_WORK_PORT <-->|events| EVENT_BUS
+    EVENT_BUS --> RUN_CHAN
+    EVENT_BUS --> EVENT_STORE
+    
+    ANTHROPIC -->|HTTP| ANTHROPIC_API
+    OPENAI -->|HTTP| OPENAI_API
+    GEMINI -->|HTTP| GEMINI_API
+    REPO -->|Ecto| SQLITE_DB
+    
+    %% ============================================================================
+    %% DATA FLOW
+    %% ============================================================================
+    
+    subgraph FLOW["🔄 Data Flow: Agent Execution"]
+        direction LR
+        F1["1. HTTP POST /api/runs"]
+        F2["2. RunController"]
+        F3["3. Run.Supervisor"]
+        F4["4. PythonWorker.Port"]
+        F5["5. Agent executes"]
+        F6["6. Tool calls → Elixir"]
+        F7["7. Events → PubSub"]
+        F8["8. WebSocket → Client"]
+        
+        F1 --> F2 --> F3 --> F4 --> F5 --> F6 --> F7 --> F8
+    end
+    
+    %% ============================================================================
+    %% STYLING
+    %% ============================================================================
+    
+    classDef elixirCore fill:#6B46C1,stroke:#553C9A,color:#fff
+    classDef elixirService fill:#805AD5,stroke:#6B46C1,color:#fff
+    classDef elixirModel fill:#9F7AEA,stroke:#805AD5,color:#fff
+    classDef elixirFile fill:#B794F4,stroke:#9F7AEA,color:#000
+    classDef elixirProc fill:#D6BCFA,stroke:#B794F4,color:#000
+    classDef elixirPersist fill:#E9D8FD,stroke:#D6BCFA,color:#000
+    
+    classDef pythonAgent fill:#2B6CB0,stroke:#2C5282,color:#fff
+    classDef pythonCore fill:#3182CE,stroke:#2B6CB0,color:#fff
+    classDef pythonPlugin fill:#4299E1,stroke:#3182CE,color:#fff
+    classDef pythonLLM fill:#38A169,stroke:#2F855A,color:#fff
+    classDef pythonFast fill:#48BB78,stroke:#38A169,color:#fff
+    
+    classDef erlang fill:#DD6B20,stroke:#C05621,color:#fff
+    classDef comm fill:#ED8936,stroke:#DD6B20,color:#fff
+    classDef external fill:#718096,stroke:#4A5568,color:#fff
+    
+    class APP,ROOT_SUP elixirCore
+    class ENDPOINT,RUN_CTRL,MCP_CTRL,HEALTH_CTRL,RUN_CHAN,SESS_CHAN,USER_SOCK elixirService
+    class MODEL_REG,MODEL_AVAIL,MODEL_PACKS,ROUND_ROBIN,AGENT_PIN,MODELS_DEV,ROUTER elixirModel
+    class FILEOPS,LISTER,GREP,READER,SECURITY elixirFile
+    class RUN_SUP,RUN_STATE,PY_WORK_SUP,PY_WORK_PORT,MCP_SUP,MCP_SERVER elixirProc
+    class REPO,CHAT_SESS,SCHED_TASKS,OBAN elixirPersist
+    class RUNTIME,POLICY,EVENT_STORE,EVENT_BUS,REQ_TRACK,TELEMETRY,SCHEDULER,CRON elixirService
+    class PARSER_REG,PARSER,PY_PARSER,JS_PARSER,TS_PARSER,RUST_PARSER,EX_PARSER,ERL_PARSER elixirFile
+    class FUZZY,DIFF,REPLACE,HASHLINE,CONTENT_PREP elixirFile
+    class CONC_SUP,LIMITER elixirProc
+    class STDIO,PROTOCOL elixirService
+    
+    class CODE_PUP,PLAN_AGENT,SEC_AUDIT,QA_KIT,QA_EXP,TURBO,PY_REV,JS_REV,FILE_PERM pythonAgent
+    class CB_STARTUP,CB_AGENT,CB_PROMPT,CB_FILE,CB_TOOL,CB_STREAM,CB_CMD,CB_REG pythonCore
+    class PACK_PAR,FILE_MENT,USER_PLUG pythonPlugin
+    class ANTHROPIC,OPENAI,GEMINI,OPENROUTER,AZURE,CUSTOM_LLM pythonLLM
+    class NATIVE_BACK,ELIXIR_FIRST,PYTHON_ONLY pythonFast
+    
+    class PY_LEX,JS_LEX,TS_LEX,RUST_LEX,PY_PARSE_ERL,JS_PARSE_ERL,TS_PARSE_ERL,RUST_PARSE_ERL erlang
+    
+    class JSONRPC,CONTENT_LEN,NEWLINE_DEL comm
+    
+    class ANTHROPIC_API,OPENAI_API,GEMINI_API,SQLITE_DB external

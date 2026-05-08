@@ -1,0 +1,16 @@
+{
+  "name": "parity_gate",
+  "timestamp": "__TIMESTAMP__",
+  "model": "mock-model",
+  "duration_seconds": 1.5,
+  "response_text": "I'll read the file for you.",
+  "tool_calls": [
+    {
+      "name": "read_file",
+      "args": {
+        "path": "README.md"
+      },
+      "result": "# Code Puppy..."
+    }
+  ]
+}

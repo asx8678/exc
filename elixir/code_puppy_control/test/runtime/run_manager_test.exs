@@ -1,0 +1,763 @@
+defmodule CodePuppyControl.Runtime.RunManagerTest do
+  @moduledoc """
+  Tests for Run.Manager — run lifecycle coordination.
+
+  With the native-only runtime (code-puppy-3o7.6), all runs use
+  Run.Executor.Elixir which starts a lightweight GenServer.
+
+  These tests cover:
+  - Run.State safe_status_atom/1 (unit-level)
+  - Run.Supervisor operations
+  - Manager error paths (not_found)
+  - Manager.start_run/3 with Elixir executor (no Python required)
+  - Cancel/delete operations through the executor boundary
+  - Executor boundary: explicit-module variants for test overrides
+
+  Refs: code-puppy-96g, code-puppy-3o7.6
+  """
+
+  use ExUnit.Case, async: false
+
+  alias CodePuppyControl.Run.{Manager, State, Supervisor, Executor}
+  alias CodePuppyControl.Run.Executor.Supervisor, as: ExecutorSupervisor
+
+  # ---------------------------------------------------------------------------
+  # Helpers
+  # ---------------------------------------------------------------------------
+
+  defp with_app_env(key, fun) do
+    original = Application.get_env(:code_puppy_control, key)
+
+    try do
+      fun.()
+    after
+      case original do
+        nil -> Application.delete_env(:code_puppy_control, key)
+        _ -> Application.put_env(:code_puppy_control, key, original)
+      end
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Run.State (unit-level)
+  # ---------------------------------------------------------------------------
+
+  describe "Run.State safe_status_atom/1" do
+    alias CodePuppyControl.Run.State
+
+    test "converts valid string statuses" do
+      assert State.safe_status_atom("starting") == :starting
+      assert State.safe_status_atom("running") == :running
+      assert State.safe_status_atom("completed") == :completed
+      assert State.safe_status_atom("failed") == :failed
+      assert State.safe_status_atom("cancelled") == :cancelled
+      assert State.safe_status_atom("paused") == :paused
+      assert State.safe_status_atom("pending") == :pending
+    end
+
+    test "returns :unknown for invalid string" do
+      assert State.safe_status_atom("exploding") == :unknown
+      assert State.safe_status_atom("") == :unknown
+    end
+
+    test "passes through valid atoms" do
+      assert State.safe_status_atom(:running) == :running
+      assert State.safe_status_atom(:completed) == :completed
+    end
+
+    test "returns :unknown for invalid atoms" do
+      assert State.safe_status_atom(:exploding) == :unknown
+    end
+
+    test "handles non-string, non-atom input" do
+      assert State.safe_status_atom(123) == :unknown
+      assert State.safe_status_atom(nil) == :unknown
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Run.Supervisor
+  # ---------------------------------------------------------------------------
+
+  describe "Run.Supervisor.run_count/0" do
+    test "returns a non-negative integer" do
+      count = Supervisor.run_count()
+      assert is_integer(count) and count >= 0
+    end
+  end
+
+  describe "Run.Supervisor.terminate_run/1" do
+    test "returns not_found for nonexistent run" do
+      assert {:error, :not_found} = Supervisor.terminate_run("nonexistent-run-99999")
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Manager — error paths
+  # ---------------------------------------------------------------------------
+
+  describe "Manager.get_run/1" do
+    test "returns not_found for nonexistent run" do
+      assert {:error, :not_found} = Manager.get_run("nonexistent-run-99999")
+    end
+  end
+
+  describe "Manager.cancel_run/2" do
+    test "returns not_found for nonexistent run" do
+      assert {:error, :not_found} = Manager.cancel_run("nonexistent-run-99999")
+    end
+  end
+
+  describe "Manager.list_runs/1" do
+    test "returns a list" do
+      result = Manager.list_runs()
+      assert is_list(result)
+    end
+  end
+
+  describe "Manager.list_runs_with_details/1" do
+    test "returns a list" do
+      result = Manager.list_runs_with_details()
+      assert is_list(result)
+    end
+  end
+
+  describe "Manager.delete_run/1" do
+    test "returns not_found for nonexistent run" do
+      assert {:error, :not_found} = Manager.delete_run("nonexistent-run-99999")
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Executor module selection (code-puppy-96g, code-puppy-3o7.6)
+  # ---------------------------------------------------------------------------
+
+  describe "Executor.executor_module/0" do
+    test "defaults to Elixir executor" do
+      with_app_env(:run_executor_module, fn ->
+        Application.delete_env(:code_puppy_control, :run_executor_module)
+        assert Executor.executor_module() == CodePuppyControl.Run.Executor.Elixir
+      end)
+    end
+
+    test "app env :run_executor_module overrides default (test injection)" do
+      with_app_env(:run_executor_module, fn ->
+        Application.put_env(
+          :code_puppy_control,
+          :run_executor_module,
+          CodePuppyControl.Run.Executor.Elixir
+        )
+
+        assert Executor.executor_module() == CodePuppyControl.Run.Executor.Elixir
+      end)
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Manager.start_run/3 — Elixir executor (no Python required)
+  # ---------------------------------------------------------------------------
+
+  describe "Manager.start_run/3 with Elixir executor" do
+    setup do
+      saved_app =
+        Application.get_env(:code_puppy_control, :run_executor_module)
+
+      Application.delete_env(:code_puppy_control, :run_executor_module)
+
+      on_exit(fn ->
+        case saved_app do
+          nil -> Application.delete_env(:code_puppy_control, :run_executor_module)
+          v -> Application.put_env(:code_puppy_control, :run_executor_module, v)
+        end
+      end)
+
+      :ok
+    end
+
+    test "succeeds with no Python worker script and no python3 on PATH" do
+      # Sanitize PATH to remove python3
+      saved_path = System.get_env("PATH")
+
+      empty_path =
+        Path.join(System.tmp_dir!(), "no_python3_#{:erlang.unique_integer([:positive])}")
+
+      File.mkdir_p!(empty_path)
+
+      System.put_env("PATH", empty_path)
+
+      try do
+        assert {:ok, run_id} = Manager.start_run("test-session", "test-agent")
+        assert is_binary(run_id)
+        assert run_id =~ "run-"
+
+        # Verify run state was created
+        assert {:ok, state} = Manager.get_run(run_id)
+        assert state.session_id == "test-session"
+        assert state.agent_name == "test-agent"
+
+        # Cleanup
+        Manager.delete_run(run_id)
+      after
+        System.put_env("PATH", saved_path)
+        File.rm_rf(empty_path)
+      end
+    end
+
+    test "creates run state with executor metadata" do
+      assert {:ok, run_id} = Manager.start_run("test-session-meta", "test-agent-meta")
+      assert {:ok, state} = Manager.get_run(run_id)
+      assert state.metadata.executor_module == CodePuppyControl.Run.Executor.Elixir
+      Manager.delete_run(run_id)
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Cancel and delete through executor boundary
+  # ---------------------------------------------------------------------------
+
+  describe "Manager.cancel_run/2 through Elixir executor" do
+    setup do
+      saved_app =
+        Application.get_env(:code_puppy_control, :run_executor_module)
+
+      Application.delete_env(:code_puppy_control, :run_executor_module)
+
+      on_exit(fn ->
+        case saved_app do
+          nil -> Application.delete_env(:code_puppy_control, :run_executor_module)
+          v -> Application.put_env(:code_puppy_control, :run_executor_module, v)
+        end
+      end)
+
+      :ok
+    end
+
+    test "cancels a running Elixir-executor run" do
+      assert {:ok, run_id} = Manager.start_run("cancel-session", "cancel-agent")
+      assert {:ok, state} = Manager.get_run(run_id)
+      # The run should be starting or running (async notification)
+      assert state.status in [:starting, :running]
+
+      assert :ok = Manager.cancel_run(run_id, "test_cancel")
+
+      # Give the async cast a moment
+      Process.sleep(50)
+      assert {:ok, state} = Manager.get_run(run_id)
+      assert state.status == :cancelled
+
+      Manager.delete_run(run_id)
+    end
+
+    test "returns :ok for already-completed run" do
+      assert {:ok, run_id} = Manager.start_run("completed-session", "completed-agent")
+      # Manually set state to completed
+      State.set_status(run_id, :completed)
+      Process.sleep(50)
+
+      assert :ok = Manager.cancel_run(run_id)
+
+      Manager.delete_run(run_id)
+    end
+  end
+
+  describe "Manager.delete_run/1 through Elixir executor" do
+    setup do
+      saved_app =
+        Application.get_env(:code_puppy_control, :run_executor_module)
+
+      Application.delete_env(:code_puppy_control, :run_executor_module)
+
+      on_exit(fn ->
+        case saved_app do
+          nil -> Application.delete_env(:code_puppy_control, :run_executor_module)
+          v -> Application.put_env(:code_puppy_control, :run_executor_module, v)
+        end
+      end)
+
+      :ok
+    end
+
+    test "deletes a run and its executor process" do
+      assert {:ok, run_id} = Manager.start_run("delete-session", "delete-agent")
+      assert {:ok, _} = Manager.get_run(run_id)
+
+      assert :ok = Manager.delete_run(run_id)
+      assert {:error, :not_found} = Manager.get_run(run_id)
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Executor boundary: explicit-module variants (code-puppy-96g follow-up)
+  # ---------------------------------------------------------------------------
+  # Regression: lifecycle operations must use the executor module stored
+  # in the run's metadata at start time, not the current runtime selection.
+  # This is now relevant for test overrides, not runtime switching.
+
+  # Two fake executor modules that record which module handled each call.
+  defmodule FakeExecutorA do
+    @behaviour CodePuppyControl.Run.Executor.Behaviour
+
+    @impl true
+    def start_executor(run_id, _opts) do
+      send(test_process(), {:executor_a, :start, run_id})
+      CodePuppyControl.Run.Executor.Elixir.start_executor(run_id, opts: [])
+    end
+
+    @impl true
+    def begin_run(run_id, _opts) do
+      send(test_process(), {:executor_a, :begin, run_id})
+      :ok
+    end
+
+    @impl true
+    def cancel_run(run_id) do
+      send(test_process(), {:executor_a, :cancel, run_id})
+      :ok
+    end
+
+    @impl true
+    def terminate_executor(run_id) do
+      send(test_process(), {:executor_a, :terminate, run_id})
+      # Must also terminate the real Elixir executor process started by
+      # start_executor/2, otherwise the child leaks under
+      # Run.Executor.Supervisor and exhausts max_children (code-puppy-4yx,
+      # code-puppy-6sj).
+      CodePuppyControl.Run.Executor.Elixir.terminate_executor(run_id)
+      :ok
+    end
+
+    @impl true
+    def execute_tool(run_id, tool_name, arguments, opts) do
+      send(test_process(), {:executor_a, :execute_tool, run_id, tool_name, arguments, opts})
+      {:ok, %{executed_by: :executor_a, tool_name: tool_name}}
+    end
+
+    defp test_process, do: Application.get_env(:code_puppy_control, :executor_test_pid)
+  end
+
+  defmodule FakeExecutorB do
+    @behaviour CodePuppyControl.Run.Executor.Behaviour
+
+    @impl true
+    def start_executor(run_id, _opts) do
+      send(test_process(), {:executor_b, :start, run_id})
+      CodePuppyControl.Run.Executor.Elixir.start_executor(run_id, opts: [])
+    end
+
+    @impl true
+    def begin_run(run_id, _opts) do
+      send(test_process(), {:executor_b, :begin, run_id})
+      :ok
+    end
+
+    @impl true
+    def cancel_run(run_id) do
+      send(test_process(), {:executor_b, :cancel, run_id})
+      :ok
+    end
+
+    @impl true
+    def terminate_executor(run_id) do
+      send(test_process(), {:executor_b, :terminate, run_id})
+      # Must also terminate the real Elixir executor process started by
+      # start_executor/2, otherwise the child leaks under
+      # Run.Executor.Supervisor and exhausts max_children (code-puppy-4yx,
+      # code-puppy-6sj).
+      CodePuppyControl.Run.Executor.Elixir.terminate_executor(run_id)
+      :ok
+    end
+
+    @impl true
+    def execute_tool(run_id, tool_name, arguments, opts) do
+      send(test_process(), {:executor_b, :execute_tool, run_id, tool_name, arguments, opts})
+      {:ok, %{executed_by: :executor_b, tool_name: tool_name}}
+    end
+
+    defp test_process, do: Application.get_env(:code_puppy_control, :executor_test_pid)
+  end
+
+  describe "Executor boundary: explicit-module cancel/delete" do
+    setup do
+      saved_app = Application.get_env(:code_puppy_control, :run_executor_module)
+
+      on_exit(fn ->
+        case saved_app do
+          nil -> Application.delete_env(:code_puppy_control, :run_executor_module)
+          v -> Application.put_env(:code_puppy_control, :run_executor_module, v)
+        end
+
+        Application.delete_env(:code_puppy_control, :executor_test_pid)
+      end)
+
+      :ok
+    end
+
+    test "cancel_run uses original executor even when app env changes" do
+      # Start with FakeExecutorA
+      Application.put_env(:code_puppy_control, :run_executor_module, FakeExecutorA)
+      Application.put_env(:code_puppy_control, :executor_test_pid, self())
+
+      assert {:ok, run_id} = Manager.start_run("boundary-cancel-session", "boundary-agent")
+
+      # Should have received executor_a start and begin messages
+      assert_received {:executor_a, :start, ^run_id}
+      assert_received {:executor_a, :begin, ^run_id}
+
+      # Switch to FakeExecutorB mid-flight
+      Application.put_env(:code_puppy_control, :run_executor_module, FakeExecutorB)
+
+      # Cancel should still route through FakeExecutorA (the original)
+      assert :ok = Manager.cancel_run(run_id, "runtime_changed")
+      assert_received {:executor_a, :cancel, ^run_id}
+      refute_received {:executor_b, :cancel, _}
+
+      Manager.delete_run(run_id)
+    end
+
+    test "delete_run uses original executor even when app env changes" do
+      # Start with FakeExecutorA
+      Application.put_env(:code_puppy_control, :run_executor_module, FakeExecutorA)
+      Application.put_env(:code_puppy_control, :executor_test_pid, self())
+
+      assert {:ok, run_id} = Manager.start_run("boundary-delete-session", "boundary-agent")
+
+      # Switch to FakeExecutorB mid-flight
+      Application.put_env(:code_puppy_control, :run_executor_module, FakeExecutorB)
+
+      # Delete should still route through FakeExecutorA (the original)
+      assert :ok = Manager.delete_run(run_id)
+      assert_received {:executor_a, :terminate, ^run_id}
+      refute_received {:executor_b, :terminate, _}
+    end
+
+    test "metadata stores the executor module from start time" do
+      Application.put_env(:code_puppy_control, :run_executor_module, FakeExecutorA)
+      Application.put_env(:code_puppy_control, :executor_test_pid, self())
+
+      assert {:ok, run_id} = Manager.start_run("boundary-meta-session", "boundary-agent")
+
+      assert {:ok, state} = Manager.get_run(run_id)
+      assert state.metadata.executor_module == FakeExecutorA
+
+      Manager.delete_run(run_id)
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Manager.execute_tool/4 — executor boundary (code-puppy-zyh)
+  # ---------------------------------------------------------------------------
+
+  describe "Manager.execute_tool/4" do
+    setup do
+      saved_app = Application.get_env(:code_puppy_control, :run_executor_module)
+
+      on_exit(fn ->
+        case saved_app do
+          nil -> Application.delete_env(:code_puppy_control, :run_executor_module)
+          v -> Application.put_env(:code_puppy_control, :run_executor_module, v)
+        end
+
+        Application.delete_env(:code_puppy_control, :executor_test_pid)
+      end)
+
+      :ok
+    end
+
+    test "returns not_found for nonexistent run" do
+      assert {:error, :not_found} =
+               Manager.execute_tool("nonexistent-run-99999", "some_tool", %{})
+    end
+
+    test "uses original executor even when app env changes" do
+      # Start with FakeExecutorA
+      Application.put_env(:code_puppy_control, :run_executor_module, FakeExecutorA)
+      Application.put_env(:code_puppy_control, :executor_test_pid, self())
+
+      assert {:ok, run_id} = Manager.start_run("exec-boundary-session", "exec-agent")
+
+      # Switch to FakeExecutorB mid-flight
+      Application.put_env(:code_puppy_control, :run_executor_module, FakeExecutorB)
+
+      # execute_tool should still route through FakeExecutorA (the original)
+      assert {:ok, result} = Manager.execute_tool(run_id, "test_tool", %{"key" => "val"})
+
+      assert_received {:executor_a, :execute_tool, ^run_id, "test_tool", %{"key" => "val"}, []}
+      refute_received {:executor_b, :execute_tool, _, _, _, _}
+
+      assert result.executed_by == :executor_a
+
+      Manager.delete_run(run_id)
+    end
+
+    test "records request and response in run state" do
+      Application.put_env(:code_puppy_control, :run_executor_module, FakeExecutorA)
+      Application.put_env(:code_puppy_control, :executor_test_pid, self())
+
+      assert {:ok, run_id} = Manager.start_run("exec-history-session", "exec-agent")
+
+      assert {:ok, _result} = Manager.execute_tool(run_id, "history_tool", %{"x" => 1})
+
+      # Give async casts time to process
+      Process.sleep(50)
+
+      # Request and response should be recorded in state history
+      assert {:ok, state} = Manager.get_run(run_id)
+      assert length(state.request_history) >= 2
+
+      Manager.delete_run(run_id)
+    end
+
+    test "passes timeout option through to executor" do
+      Application.put_env(:code_puppy_control, :run_executor_module, FakeExecutorA)
+      Application.put_env(:code_puppy_control, :executor_test_pid, self())
+
+      assert {:ok, run_id} = Manager.start_run("exec-timeout-session", "exec-agent")
+
+      assert {:ok, _result} =
+               Manager.execute_tool(run_id, "timed_tool", %{}, timeout: 60_000)
+
+      assert_received {:executor_a, :execute_tool, ^run_id, "timed_tool", %{}, timeout: 60_000}
+
+      Manager.delete_run(run_id)
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Run.State terminal-state regression (code-puppy-gd0)
+  # ---------------------------------------------------------------------------
+  # Stale/late executor notifications or run events must not overwrite
+  # terminal states (:completed, :failed, :cancelled).
+
+  describe "Run.State terminal-state guard" do
+    alias CodePuppyControl.Run.State
+
+    setup do
+      saved_app =
+        Application.get_env(:code_puppy_control, :run_executor_module)
+
+      Application.delete_env(:code_puppy_control, :run_executor_module)
+
+      # Start the run BEFORE registering on_exit so run_id is captured
+      {:ok, run_id} = Manager.start_run("gd0-session", "gd0-agent")
+      Process.sleep(50)
+
+      # Look up the state PID for direct message sends
+      [{state_pid, _}] =
+        Registry.lookup(CodePuppyControl.Run.Registry, {:run_state, run_id})
+
+      on_exit(fn ->
+        # Always clean up the run, even on assertion failure
+        Manager.delete_run(run_id)
+
+        case saved_app do
+          nil -> Application.delete_env(:code_puppy_control, :run_executor_module)
+          v -> Application.put_env(:code_puppy_control, :run_executor_module, v)
+        end
+      end)
+
+      %{run_id: run_id, state_pid: state_pid}
+    end
+
+    test "stale executor_notification run.started does not overwrite :completed", %{
+      run_id: run_id,
+      state_pid: state_pid
+    } do
+      State.set_status(run_id, :completed)
+      Process.sleep(20)
+
+      send(
+        state_pid,
+        {:executor_notification, run_id, %{"method" => "run.started", "params" => %{}}}
+      )
+
+      Process.sleep(20)
+
+      assert {:ok, state} = Manager.get_run(run_id)
+      assert state.status == :completed
+    end
+
+    test "stale executor_notification run.started does not overwrite :failed", %{
+      run_id: run_id,
+      state_pid: state_pid
+    } do
+      State.set_status(run_id, :failed, "test_failure")
+      Process.sleep(20)
+
+      send(
+        state_pid,
+        {:executor_notification, run_id, %{"method" => "run.started", "params" => %{}}}
+      )
+
+      Process.sleep(20)
+
+      assert {:ok, state} = Manager.get_run(run_id)
+      assert state.status == :failed
+    end
+
+    test "stale executor_notification run.started does not overwrite :cancelled", %{
+      run_id: run_id,
+      state_pid: state_pid
+    } do
+      State.set_status(run_id, :cancelled, "test_cancel")
+      Process.sleep(20)
+
+      send(
+        state_pid,
+        {:executor_notification, run_id, %{"method" => "run.started", "params" => %{}}}
+      )
+
+      Process.sleep(20)
+
+      assert {:ok, state} = Manager.get_run(run_id)
+      assert state.status == :cancelled
+    end
+
+    test "normal run.started transitions :starting to :running", %{
+      run_id: run_id,
+      state_pid: state_pid
+    } do
+      # Status should be :starting or :running initially
+      assert {:ok, state_before} = Manager.get_run(run_id)
+      assert state_before.status in [:starting, :running]
+      refute state_before.status in [:completed, :failed, :cancelled]
+
+      send(
+        state_pid,
+        {:executor_notification, run_id, %{"method" => "run.started", "params" => %{}}}
+      )
+
+      Process.sleep(20)
+
+      assert {:ok, state_after} = Manager.get_run(run_id)
+      assert state_after.status == :running
+    end
+
+    test "stale run_event status does not overwrite :completed", %{
+      run_id: run_id,
+      state_pid: state_pid
+    } do
+      State.set_status(run_id, :completed)
+      Process.sleep(20)
+
+      send(state_pid, {:run_event, %{"type" => "status", "status" => "running"}})
+      Process.sleep(20)
+
+      assert {:ok, state} = Manager.get_run(run_id)
+      assert state.status == :completed
+    end
+
+    test "stale run_event completed does not overwrite :failed", %{
+      run_id: run_id,
+      state_pid: state_pid
+    } do
+      State.set_status(run_id, :failed, "original_error")
+      Process.sleep(20)
+
+      send(state_pid, {:run_event, %{"type" => "completed"}})
+      Process.sleep(20)
+
+      assert {:ok, state} = Manager.get_run(run_id)
+      assert state.status == :failed
+    end
+
+    test "stale run_event failed does not overwrite :cancelled", %{
+      run_id: run_id,
+      state_pid: state_pid
+    } do
+      State.set_status(run_id, :cancelled, "user_cancelled")
+      Process.sleep(20)
+
+      send(state_pid, {:run_event, %{"type" => "failed", "error" => "late_error"}})
+      Process.sleep(20)
+
+      assert {:ok, state} = Manager.get_run(run_id)
+      assert state.status == :cancelled
+    end
+
+    test "normal run_event transitions :starting to :running", %{
+      run_id: run_id,
+      state_pid: state_pid
+    } do
+      assert {:ok, state_before} = Manager.get_run(run_id)
+      assert state_before.status in [:starting, :running]
+
+      send(state_pid, {:run_event, %{"type" => "status", "status" => "running"}})
+      Process.sleep(20)
+
+      assert {:ok, state_after} = Manager.get_run(run_id)
+      assert state_after.status == :running
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Executor supervisor split: capacity semantics (code-puppy-6sj)
+  # ---------------------------------------------------------------------------
+
+  describe "Run.Executor.Supervisor executor_count/0" do
+    test "returns a non-negative integer" do
+      count = ExecutorSupervisor.executor_count()
+      assert is_integer(count) and count >= 0
+    end
+  end
+
+  describe "Elixir run increments both supervisors by 1" do
+    setup do
+      saved_app =
+        Application.get_env(:code_puppy_control, :run_executor_module)
+
+      Application.delete_env(:code_puppy_control, :run_executor_module)
+
+      on_exit(fn ->
+        case saved_app do
+          nil -> Application.delete_env(:code_puppy_control, :run_executor_module)
+          v -> Application.put_env(:code_puppy_control, :run_executor_module, v)
+        end
+      end)
+
+      :ok
+    end
+
+    test "Manager.start_run/3 increments Run.Supervisor.run_count/0 and Executor.Supervisor.executor_count/0 by 1" do
+      runs_before = Supervisor.run_count()
+      execs_before = ExecutorSupervisor.executor_count()
+
+      assert {:ok, run_id} = Manager.start_run("cap-session", "cap-agent")
+      Process.sleep(50)
+
+      assert Supervisor.run_count() == runs_before + 1
+      assert ExecutorSupervisor.executor_count() == execs_before + 1
+
+      Manager.delete_run(run_id)
+    end
+
+    test "Manager.delete_run/1 decrements both supervisor counts" do
+      assert {:ok, run_id} = Manager.start_run("cap-del-session", "cap-del-agent")
+      Process.sleep(50)
+
+      runs_after_start = Supervisor.run_count()
+      execs_after_start = ExecutorSupervisor.executor_count()
+
+      assert :ok = Manager.delete_run(run_id)
+      Process.sleep(50)
+
+      assert Supervisor.run_count() == runs_after_start - 1
+      assert ExecutorSupervisor.executor_count() == execs_after_start - 1
+    end
+  end
+
+  describe "Run.Executor.Supervisor max_children is wired to max_runs" do
+    test "executor supervisor max_children equals Limits.max_runs" do
+      expected = CodePuppyControl.Runtime.Limits.max_runs()
+
+      actual =
+        case :sys.get_state(ExecutorSupervisor) do
+          %DynamicSupervisor{max_children: n} when is_integer(n) -> n
+          %DynamicSupervisor{max_children: :infinity} -> 1_000_000
+          other -> raise "Unexpected supervisor state: #{inspect(other)}"
+        end
+
+      assert actual == expected,
+             "Executor supervisor max_children (#{actual}) should equal Limits.max_runs() (#{expected})"
+    end
+  end
+end

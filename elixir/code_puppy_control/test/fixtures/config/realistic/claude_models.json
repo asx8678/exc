@@ -1,0 +1,16 @@
+{
+  "fixture-realistic-claude": {
+    "type": "custom_anthropic",
+    "name": "fixture-claude-custom",
+    "provider": "custom-anthropic",
+    "context_length": 200000,
+    "api_key_env": "ANTHROPIC_API_KEY",
+    "base_url": "https://api.anthropic.example.com/v1"
+  },
+  "fixture-realistic-claude-code": {
+    "type": "claude_code",
+    "name": "fixture-claude-code",
+    "provider": "anthropic",
+    "context_length": 200000
+  }
+}

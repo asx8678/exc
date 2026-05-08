@@ -1,0 +1,406 @@
+"""HTTP client interceptor for the ChatGPT Codex backend.
+
+ChatGPTCodexAsyncClient: httpx client that injects required fields into
+request bodies for the **ChatGPT Codex OAuth backend** (hosted at
+chatgpt.com/backend-api/codex) and handles stream-to-non-stream conversion.
+
+This is *not* the public OpenAI Responses API (api.openai.com).  The Codex
+backend is a thin internal façade that shares the Responses-style wire format
+but has stricter constraints.
+
+The Codex backend requires:
+- ``"store": false`` – disables conversation storage
+- ``"stream": true`` – streaming is mandatory
+
+Removes unsupported top-level parameters:
+- ``max_output_tokens`` / ``max_tokens`` – the backend does not honour token
+  limits; use ``reasoning.effort`` to control output length.
+- ``verbosity`` – top-level verbosity is ignored.  Responses-style verbosity
+  belongs under the ``text`` object as ``text.verbosity`` (handled by
+  pydantic-ai's ``OpenAIResponsesModelSettings.openai_text_verbosity``).
+"""
+
+import json
+import logging
+import time
+from typing import Any
+
+import httpx
+
+from .request_cache import RequestCacheMixin
+
+logger = logging.getLogger(__name__)
+
+
+def _is_reasoning_model(model_name: str) -> bool:
+    """Check if a model supports reasoning parameters."""
+    reasoning_models = [
+        "gpt-5",  # All GPT-5 variants
+        "o1",  # o1 series
+        "o3",  # o3 series
+        "o4",  # o4 series
+    ]
+    model_lower = model_name.lower()
+    return any(model_lower.startswith(prefix) for prefix in reasoning_models)
+
+
+class ChatGPTCodexAsyncClient(RequestCacheMixin, httpx.AsyncClient):
+    """Async HTTP client that handles ChatGPT Codex API requirements.
+
+    This client:
+    1. Injects required fields (store=false, stream=true)
+    2. Strips unsupported parameters
+    3. Converts streaming responses to non-streaming format
+    4. Uses request caching to avoid rebuilding for header-only changes
+    """
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        # Initialize request cache with 128 entry capacity
+        self._init_request_cache(max_size=128, ttl_seconds=300)
+        # Performance tracking
+        self._request_build_time_saved_ms = 0.0
+        self._requests_optimized = 0
+
+    async def send(
+        self, request: httpx.Request, *args: Any, **kwargs: Any
+    ) -> httpx.Response:
+        """Intercept requests and inject required Codex fields."""
+        force_stream_conversion = False
+        rebuild_start = time.perf_counter()
+        used_cache = False
+
+        try:
+            # Only modify POST requests to the Codex API
+            if request.method == "POST":
+                body_bytes = self._extract_body_bytes(request)
+                if body_bytes:
+                    updated, force_stream_conversion = self._inject_codex_fields(
+                        body_bytes
+                    )
+                    if updated is not None:
+                        try:
+                            # Use cached request building for header-only changes
+                            # This is a major optimization when only auth tokens change
+                            optimized_request = self.cached_or_build_request(
+                                method=request.method,
+                                url=request.url,
+                                headers=dict(request.headers),
+                                content=updated,
+                            )
+                            used_cache = True
+
+                            # Copy core internals so httpx uses the modified body/stream
+                            # OPTIMIZATION: Use local variable binding to reduce repeated
+                            # attribute lookups on optimized_request object
+                            _opt_req = optimized_request  # Local binding for speed
+                            if hasattr(_opt_req, "_content"):
+                                request._content = _opt_req._content  # type: ignore[attr-defined]
+                            if hasattr(_opt_req, "stream"):
+                                request.stream = _opt_req.stream  # type: ignore[attr-defined]
+                            if hasattr(_opt_req, "extensions"):
+                                request.extensions = _opt_req.extensions  # type: ignore[attr-defined]
+
+                            # Ensure Content-Length matches the new body
+                            request.headers["Content-Length"] = str(len(updated))
+
+                        except Exception as e:
+                            logger.debug(
+                                "Failed to rebuild request with Codex fields: %s", e
+                            )
+        except Exception as e:
+            logger.debug("Failed to inject Codex fields into request: %s", e)
+        finally:
+            # Track performance metrics
+            rebuild_time = (time.perf_counter() - rebuild_start) * 1000
+            if used_cache:
+                self._requests_optimized += 1
+                # Estimate saved time: full rebuild takes ~5-10ms typically
+                estimated_saved = max(0, 5.0 - rebuild_time)
+                self._request_build_time_saved_ms += estimated_saved
+                logger.debug(
+                    "Request optimized via cache (took %.2fms, saved ~%.2fms)",
+                    rebuild_time,
+                    estimated_saved,
+                )
+
+        # Make the actual request
+        response = await super().send(request, *args, **kwargs)
+
+        # If we forced streaming, convert the SSE stream to a regular response
+        if force_stream_conversion and response.status_code == 200:
+            try:
+                response = await self._convert_stream_to_response(response)
+            except Exception as e:
+                logger.warning(f"Failed to convert stream response: {e}")
+                await response.aclose()
+                raise
+
+        return response
+
+    @staticmethod
+    def _extract_body_bytes(request: httpx.Request) -> bytes | None:
+        """Extract the request body as bytes.
+
+        OPTIMIZATION: Use hasattr + direct access pattern to reduce getattr overhead.
+        """
+        try:
+            content = request.content
+            if content:
+                return content
+        except Exception as exc:
+            logger.debug("Could not read request.content: %s", exc)
+
+        # Fallback to private attr if necessary - use getattr with exception handling
+        # to gracefully handle property access failures (hasattr can raise if property raises)
+        try:
+            content = getattr(request, "_content", None)
+            if content is not None:
+                return content
+        except Exception as exc:
+            logger.debug("Fallback _content access failed: %s", exc)
+
+        return None
+
+    @staticmethod
+    def _inject_codex_fields(body: bytes) -> tuple[bytes | None, bool]:
+        """Inject required Codex fields and remove unsupported ones.
+
+        Returns:
+            Tuple of (modified body bytes or None, whether stream was forced)
+        """
+        try:
+            data = json.loads(body.decode("utf-8"))
+        except Exception as exc:
+            logger.debug("Body decode failed in codex injection: %s", exc)
+            return None, False
+
+        if not isinstance(data, dict):
+            return None, False
+
+        modified = False
+        forced_stream = False
+
+        # CRITICAL: ChatGPT Codex backend requires store=false
+        if "store" not in data or data.get("store") is not False:
+            data["store"] = False
+            modified = True
+
+        # CRITICAL: ChatGPT Codex backend requires stream=true
+        # If stream is already true (e.g., pydantic-ai with event_stream_handler),
+        # don't force conversion - let streaming events flow through naturally
+        if data.get("stream") is not True:
+            data["stream"] = True
+            forced_stream = True  # Only convert if WE forced streaming
+            modified = True
+
+        # Add reasoning settings for reasoning models (gpt-5.2, o-series, etc.)
+        model = data.get("model", "")
+        if "reasoning" not in data and _is_reasoning_model(model):
+            data["reasoning"] = {
+                "effort": "medium",
+                "summary": "auto",
+            }
+            modified = True
+
+        # When `store=false` (Codex requirement), the backend does NOT persist input items.
+        # That means any later request that tries to reference a previous item by id will 404.
+        # We defensively strip reference-style items (especially reasoning_content) to avoid:
+        #   "Item with id 'rs_...' not found. Items are not persisted when store is false."
+        input_items = data.get("input")
+        if data.get("store") is False and isinstance(input_items, list):
+            original_len = len(input_items)
+
+            def _looks_like_unpersisted_reference(it: dict) -> bool:
+                it_id = it.get("id")
+                if it_id in {"reasoning_content", "rs_reasoning_content"}:
+                    return True
+
+                # Common reference-ish shapes: {"type": "input_item_reference", "id": "..."}
+                it_type = it.get("type")
+                if it_type in {"input_item_reference", "item_reference", "reference"}:
+                    return True
+
+                # Ultra-conservative: if it's basically just an id (no actual content), drop it.
+                # A legit content item will typically have fields like `content`, `text`, `role`, etc.
+                non_id_keys = {k for k in it.keys() if k not in {"id", "type"}}
+                if not non_id_keys and isinstance(it_id, str) and it_id:
+                    return True
+
+                return False
+
+            filtered: list[object] = []
+            for item in input_items:
+                if isinstance(item, dict) and _looks_like_unpersisted_reference(item):
+                    modified = True
+                    continue
+                filtered.append(item)
+
+            if len(filtered) != original_len:
+                data["input"] = filtered
+
+        # Normalize invalid input IDs (Codex expects reasoning ids to start with "rs_")
+        # Note: this is only safe for actual content items, NOT references.
+        input_items = data.get("input")
+        if isinstance(input_items, list):
+            for item in input_items:
+                if not isinstance(item, dict):
+                    continue
+                item_id = item.get("id")
+                if (
+                    isinstance(item_id, str)
+                    and item_id
+                    and "reasoning" in item_id
+                    and not item_id.startswith("rs_")
+                ):
+                    item["id"] = f"rs_{item_id}"
+                    modified = True
+
+        unsupported_params = ["max_output_tokens", "max_tokens", "verbosity"]
+        for param in unsupported_params:
+            if param in data:
+                logger.warning(
+                    "Removing unsupported top-level parameter '%s' for the "
+                    "ChatGPT Codex backend (not the public OpenAI Responses API). "
+                    "Token limits are not supported here; use reasoning.effort "
+                    "to control output length.  Responses-style verbosity belongs "
+                    "under text.verbosity, not as a top-level key.",
+                    param,
+                )
+                del data[param]
+                modified = True
+
+        if not modified:
+            return None, False
+
+        return json.dumps(data).encode("utf-8"), forced_stream
+
+    async def _convert_stream_to_response(
+        self, response: httpx.Response
+    ) -> httpx.Response:
+        """Convert an SSE streaming response to a complete response.
+
+        Consumes the SSE stream and reconstructs the final response object.
+        """
+        logger.debug("Converting SSE stream to non-streaming response")
+        final_response_data = None
+        collected_text = []
+        collected_tool_calls = []
+
+        # Read the entire stream
+        async for line in response.aiter_lines():
+            if not line or not line.startswith("data:"):
+                continue
+
+            data_str = line[5:].strip()  # Remove "data:" prefix
+            if data_str == "[DONE]":
+                break
+
+            try:
+                event = json.loads(data_str)
+                event_type = event.get("type", "")
+
+                if event_type == "response.output_text.delta":
+                    # Collect text deltas
+                    delta = event.get("delta", "")
+                    if delta:
+                        collected_text.append(delta)
+
+                elif event_type == "response.completed":
+                    # This contains the final response object
+                    final_response_data = event.get("response", {})
+
+                elif event_type == "response.function_call_arguments.done":
+                    # Collect tool calls
+                    tool_call = {
+                        "name": event.get("name", ""),
+                        "arguments": event.get("arguments", ""),
+                        "call_id": event.get("call_id", ""),
+                    }
+                    collected_tool_calls.append(tool_call)
+
+            except json.JSONDecodeError:
+                continue
+
+        logger.debug(
+            f"Collected {len(collected_text)} text chunks, {len(collected_tool_calls)} tool calls"
+        )
+        if final_response_data:
+            logger.debug(
+                f"Got final response data with keys: {list(final_response_data.keys())}"
+            )
+
+        # Build the final response body
+        if final_response_data:
+            response_body = final_response_data
+        else:
+            # Fallback: construct a minimal response from collected data
+            response_body = {
+                "id": "reconstructed",
+                "object": "response",
+                "output": [],
+            }
+
+            if collected_text:
+                response_body["output"].append(
+                    {
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [
+                            {"type": "output_text", "text": "".join(collected_text)}
+                        ],
+                    }
+                )
+
+            for tool_call in collected_tool_calls:
+                response_body["output"].append(
+                    {
+                        "type": "function_call",
+                        "name": tool_call["name"],
+                        "arguments": tool_call["arguments"],
+                        "call_id": tool_call["call_id"],
+                    }
+                )
+
+        # Create a new response with the complete body
+        body_bytes = json.dumps(response_body).encode("utf-8")
+        logger.debug(f"Reconstructed response body: {len(body_bytes)} bytes")
+
+        # Close the original response before returning the new one
+        await response.aclose()
+
+        new_response = httpx.Response(
+            status_code=response.status_code,
+            headers=response.headers,
+            content=body_bytes,
+            request=response.request,
+        )
+        return new_response
+
+    def get_performance_stats(self) -> dict[str, Any]:
+        """Get performance statistics for this client.
+
+        Returns:
+            Dict with performance metrics including:
+            - requests_optimized: Number of requests that used cache
+            - time_saved_ms: Estimated time saved from avoiding rebuilds
+            - cache_stats: Detailed cache statistics
+        """
+        cache_stats = self.get_cache_stats()
+        return {
+            "requests_optimized": self._requests_optimized,
+            "estimated_time_saved_ms": self._request_build_time_saved_ms,
+            "cache": cache_stats,
+        }
+
+
+def create_codex_async_client(
+    headers: dict[str, str] | None = None, verify: str | bool = True, **kwargs: Any
+) -> ChatGPTCodexAsyncClient:
+    """Create a ChatGPT Codex async client with proper configuration."""
+    return ChatGPTCodexAsyncClient(
+        headers=headers,
+        verify=verify,
+        timeout=httpx.Timeout(300.0, connect=30.0),
+        **kwargs,
+    )

@@ -1,0 +1,45 @@
+{
+  "firepass-kimi-k2p5-turbo": {
+    "type": "custom_openai",
+    "provider": "firepass",
+    "name": "accounts/fireworks/routers/kimi-k2p5-turbo",
+    "custom_endpoint": {
+      "url": "https://api.fireworks.ai/inference/v1",
+      "api_key": "$FIREWORKS_API_KEY"
+    },
+    "context_length": 262144,
+    "supported_settings": [
+      "temperature",
+      "seed",
+      "top_p"
+    ]
+  },
+  "wafer-qwen3.5-397b": {
+    "type": "custom_openai",
+    "provider": "wafer",
+    "name": "Qwen3.5-397B-A17B",
+    "custom_endpoint": {
+      "url": "https://pass.wafer.ai/v1",
+      "api_key": "$WAFER_API_KEY"
+    },
+    "context_length": 262144,
+    "supported_settings": [
+      "temperature",
+      "top_p"
+    ]
+  },
+  "wafer-glm-5.1": {
+    "type": "custom_openai",
+    "provider": "wafer",
+    "name": "GLM-5.1",
+    "custom_endpoint": {
+      "url": "https://pass.wafer.ai/v1",
+      "api_key": "$WAFER_API_KEY"
+    },
+    "context_length": 200000,
+    "supported_settings": [
+      "temperature",
+      "top_p"
+    ]
+  }
+}

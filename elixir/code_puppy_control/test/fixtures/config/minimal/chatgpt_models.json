@@ -1,0 +1,7 @@
+{
+  "fixture-minimal-chatgpt": {
+    "type": "custom_openai",
+    "name": "fixture-chatgpt",
+    "context_length": 128000
+  }
+}

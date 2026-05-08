@@ -1,0 +1,78 @@
+# Rust build artifacts
+target/
+
+# Rust lockfile (workspace not actively built — Phase 6 retirement)
+Cargo.lock
+
+# User config directory — contains OAuth tokens, session keys, and local state
+# Must NEVER be committed (even if copied/symlinked into the repo)
+.code_puppy/
+
+# Mana Elixir subsystem (separate project)
+mana/
+
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+.coverage
+.coverage.*
+coverage.json
+
+# Session memory
+.puppy_session_memory.json
+
+# Pytest cache
+.pytest_cache/
+
+dummy_path
+
+.idea/
+
+.DS_Store
+.env
+.serena/
+main.dist/
+nuitka-crash-report.xml
+*.backup
+main.bin
+
+# Bundled skills removed — skills are now fetched from remote catalog
+code_puppy/bundled_skills/
+
+# Hook engine runtime artifacts (logs, compiled outputs)
+.claude/activity.jsonl
+.claude/hooks/audit.log
+
+# Compiled hook binaries (built from .go sources in .claude/hooks/go-hooks/)
+.claude/hooks/go-hooks/audit-bash
+.claude/hooks/go-hooks/file-policy
+
+# Compiled TypeScript hook output (built from .ts sources)
+.claude/hooks/ts-hooks/dist/
+
+.json
+
+# Eval log output
+evals/logs/
+
+*.db
+.hypothesis/
+MagicMock/
+htmlcov/
+
+# bd (beads) issue tracker - RE-INTRODUCED (supersedes b94b6222 removal)
+# .beads/ directory IS versioned — its internal .gitignore handles binary exclusions
+# - issues.jsonl (issue data) and config.yaml ARE tracked
+# - embedded Dolt database files are NOT tracked (runtime only)
+# Legacy ignore patterns (kept for safety):
+.bd/
+.dolt/
+.beads-credential-key

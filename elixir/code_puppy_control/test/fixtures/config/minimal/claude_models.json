@@ -1,0 +1,7 @@
+{
+  "fixture-minimal-claude": {
+    "type": "custom_anthropic",
+    "name": "fixture-claude",
+    "context_length": 200000
+  }
+}

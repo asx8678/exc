@@ -1,0 +1,7 @@
+{
+  "fixture-minimal-openai": {
+    "type": "custom_openai",
+    "name": "fixture-minimal",
+    "context_length": 8192
+  }
+}

@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="csrf-token" content={Phoenix.Controller.get_csrf_token()} />
+    <title>{assigns[:page_title] || "CodePuppy Admin"}</title>
+    <style nonce={assigns[:csp_nonce]}>
+      *, *::before, *::after { box-sizing: border-box; }
+      html, body {
+        margin: 0; padding: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "SF Pro", system-ui, sans-serif;
+        background: #0d1117; color: #c9d1d9;
+        font-size: 14px; line-height: 1.5;
+      }
+      a { color: #58a6ff; text-decoration: none; }
+      a:hover { text-decoration: underline; }
+      h1, h2, h3 { margin: 0 0 0.5em; color: #f0f6fc; font-weight: 600; }
+      h1 { font-size: 1.6rem; } h2 { font-size: 1.2rem; } h3 { font-size: 1rem; }
+      code, pre {
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        background: #161b22; border-radius: 4px;
+      }
+      code { padding: 0.1em 0.4em; }
+      pre { padding: 0.75em; overflow-x: auto; }
+      .admin-shell { display: flex; min-height: 100vh; }
+      .admin-sidebar {
+        width: 220px; background: #161b22; border-right: 1px solid #30363d;
+        padding: 1rem 0; flex-shrink: 0;
+      }
+      .admin-sidebar h2 {
+        padding: 0 1rem; margin: 0 0 1rem;
+        font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em;
+        color: #8b949e;
+      }
+      .admin-sidebar ul { list-style: none; padding: 0; margin: 0; }
+      .admin-sidebar li a {
+        display: block; padding: 0.5rem 1rem;
+        color: #c9d1d9; border-left: 3px solid transparent;
+      }
+      .admin-sidebar li a:hover { background: #1c2128; text-decoration: none; }
+      .admin-sidebar li a.active {
+        background: #1f2937; border-left-color: #58a6ff; color: #f0f6fc;
+        font-weight: 600;
+      }
+      .admin-main { flex: 1; padding: 1.5rem 2rem; min-width: 0; }
+      .admin-main > header {
+        display: flex; align-items: center; justify-content: space-between;
+        margin-bottom: 1.5rem; padding-bottom: 1rem;
+        border-bottom: 1px solid #30363d;
+      }
+      .admin-main > header .crumbs { font-size: 0.85rem; color: #8b949e; }
+      .stat-grid {
+        display: grid; gap: 1rem;
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        margin-bottom: 1.5rem;
+      }
+      .card {
+        background: #161b22; border: 1px solid #30363d; border-radius: 8px;
+        padding: 1rem;
+      }
+      .card .label {
+        font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;
+        color: #8b949e; margin-bottom: 0.25rem;
+      }
+      .card .value { font-size: 1.5rem; color: #f0f6fc; font-weight: 600; }
+      .card .sub { color: #8b949e; font-size: 0.85rem; margin-top: 0.25rem; }
+      table.admin-table {
+        width: 100%; border-collapse: collapse; margin-bottom: 1rem;
+        background: #161b22; border-radius: 6px; overflow: hidden;
+      }
+      table.admin-table th, table.admin-table td {
+        padding: 0.6rem 0.8rem; text-align: left;
+        border-bottom: 1px solid #30363d;
+      }
+      table.admin-table th {
+        background: #1c2128; color: #8b949e;
+        font-weight: 500; font-size: 0.8rem; text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+      table.admin-table tr:last-child td { border-bottom: 0; }
+      table.admin-table tr:hover { background: #1c2128; }
+      .pill {
+        display: inline-block; padding: 0.15em 0.6em;
+        border-radius: 999px; font-size: 0.75rem; font-weight: 600;
+        text-transform: uppercase; letter-spacing: 0.04em;
+      }
+      .pill.status-running, .pill.status-starting { background: #1f6feb; color: #fff; }
+      .pill.status-completed { background: #238636; color: #fff; }
+      .pill.status-failed { background: #da3633; color: #fff; }
+      .pill.status-cancelled { background: #6e7681; color: #fff; }
+      .pill.status-paused, .pill.status-pending { background: #d29922; color: #1c2128; }
+      .pill.status-unknown { background: #30363d; color: #c9d1d9; }
+      .empty {
+        padding: 2rem; text-align: center;
+        color: #8b949e; font-style: italic;
+        background: #161b22; border: 1px dashed #30363d; border-radius: 6px;
+      }
+      .flash {
+        padding: 0.75rem 1rem; margin-bottom: 1rem; border-radius: 6px;
+      }
+      .flash.flash-error { background: #491e1e; color: #ff7b72; border: 1px solid #da3633; }
+      .flash.flash-info { background: #1f3252; color: #79c0ff; border: 1px solid #1f6feb; }
+      .muted { color: #8b949e; }
+      .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 0.85em; }
+      .event-row { font-size: 0.85rem; padding: 0.4rem 0.6rem; border-bottom: 1px solid #30363d; }
+      .event-row .ts { color: #8b949e; margin-right: 0.5rem; }
+      .event-row .type { color: #79c0ff; font-weight: 600; margin-right: 0.5rem; }
+      .btn-primary, .btn-danger {
+        padding: 0.4rem 0.8rem; border: none; border-radius: 4px;
+        cursor: pointer; font-size: 0.85rem; font-weight: 600;
+      }
+      .btn-primary { background: #1f6feb; color: #fff; }
+      .btn-primary:hover { background: #388bfd; }
+      .btn-danger { background: #da3633; color: #fff; }
+      .btn-danger:hover { background: #f85149; }
+      .btn-sm { padding: 0.2rem 0.5rem; font-size: 0.75rem; }
+    </style>
+  </head>
+  <body>
+    {@inner_content}
+  </body>
+</html>

@@ -1,0 +1,10 @@
+{
+  "rules": [
+    {"tool_name": "run_shell_command", "command_pattern": "^git\\b", "decision": "allow", "priority": 100},
+    {"tool_name": "run_shell_command", "command_pattern": "^npm\\b", "decision": "allow", "priority": 100},
+    {"tool_name": "run_shell_command", "command_pattern": "^(rm|del)\\b.*-rf", "decision": "deny", "priority": 200},
+    {"tool_name": "run_shell_command", "command_pattern": "^sudo\\b", "decision": "deny", "priority": 200},
+    {"tool_name": "file_permission", "decision": "allow", "priority": 50},
+    {"tool_name": "*", "decision": "ask_user", "priority": 0}
+  ]
+}

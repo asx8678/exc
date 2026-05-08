@@ -1,0 +1,62 @@
+{
+  "daily_driver": {
+    "description": "Daily driver pack with specialized roles",
+    "default_role": "coder",
+    "roles": {
+      "default": {
+        "primary": "fixture-realistic-openai"
+      },
+      "coding": {
+        "primary": "fixture-realistic-anthropic",
+        "fallbacks": [
+          "fixture-realistic-openai"
+        ],
+        "trigger": "provider_failure"
+      },
+      "reviewer": {
+        "primary": "fixture-realistic-openrouter",
+        "trigger": "always"
+      }
+    }
+  },
+  "cheap": {
+    "description": "Cost-effective single model",
+    "default_role": "coder",
+    "roles": {
+      "default": {
+        "primary": "fixture-realistic-openai"
+      }
+    }
+  },
+  "premium": {
+    "description": "Premium pack with full fallback chains",
+    "default_role": "coder",
+    "roles": {
+      "default": {
+        "primary": "fixture-realistic-anthropic"
+      },
+      "coding": {
+        "primary": "fixture-realistic-anthropic",
+        "fallbacks": [
+          "fixture-realistic-openai",
+          "fixture-realistic-openrouter"
+        ],
+        "trigger": "provider_failure"
+      },
+      "reviewer": {
+        "primary": "fixture-realistic-openrouter",
+        "fallbacks": [
+          "fixture-realistic-openai"
+        ],
+        "trigger": "always"
+      },
+      "fallback": {
+        "primary": "fixture-realistic-openai",
+        "fallbacks": [
+          "fixture-realistic-openrouter"
+        ],
+        "trigger": "context_overflow"
+      }
+    }
+  }
+}

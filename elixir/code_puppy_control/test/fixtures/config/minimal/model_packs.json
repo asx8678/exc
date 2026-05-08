@@ -1,0 +1,11 @@
+{
+  "solo": {
+    "description": "Single model for all tasks",
+    "default_role": "coder",
+    "roles": {
+      "coder": {
+        "primary": "fixture-minimal-openai"
+      }
+    }
+  }
+}

@@ -1,0 +1,279 @@
+name: Burrito Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+concurrency:
+  group: burrito-release-${{ github.ref }}
+  cancel-in-progress: true
+
+# ── Build ──────────────────────────────────────────────────────────────────
+#
+# Builds a host-native Burrito binary on each of three platforms.
+# On tag pushes, a subsequent `release` job creates a GitHub Release
+# with all binaries and a SHA256SUMS.txt checksum file.
+# On workflow_dispatch, only the build artifacts are uploaded (no release).
+#
+# Windows note: GitHub Actions windows-latest includes Git Bash, so the
+# build-burrito.sh script can run under `shell: bash`.  However, Zig
+# cross-compilation for Windows NIFs may fail if any NIF dependency lacks
+# a compatible cross-compile path.  The `--host-only` flag builds for the
+# runner's native platform only (windows_x86_64 on windows-latest), which
+# avoids most cross-compile issues.
+
+jobs:
+  build:
+    name: Build ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-arm64
+            runner: macos-latest
+          - platform: linux-x86_64
+            runner: ubuntu-latest
+          - platform: windows-x86_64
+            runner: windows-latest
+
+    defaults:
+      run:
+        working-directory: elixir/code_puppy_control
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Elixir
+        uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.17"
+          otp-version: "27"
+
+      # ── Install Zig ────────────────────────────────────────────────────
+      # Burrito 1.5.0 requires EXACTLY Zig 0.15.2.
+      # Ubuntu apt often ships an older or missing version, and
+      # Windows choco may lag.  We use official binary releases on
+      # all platforms for deterministic versions.
+
+      - name: Install Zig (macOS)
+        if: runner.os == 'macOS'
+        run: brew install zig
+
+      - name: Install Zig (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          ZIG_VERSION="0.15.2"
+          ZIG_TARBALL="zig-linux-x86_64-${ZIG_VERSION}.tar.xz"
+          curl -fsSL "https://ziglang.org/download/${ZIG_VERSION}/${ZIG_TARBALL}" -o /tmp/${ZIG_TARBALL}
+          tar -xJf /tmp/${ZIG_TARBALL} -C /tmp/
+          echo "/tmp/zig-linux-x86_64-${ZIG_VERSION}" >> "$GITHUB_PATH"
+
+      - name: Install Zig (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ZigVersion = "0.15.2"
+          $ZigZip = "zig-windows-x86_64-$ZigVersion.zip"
+          $Url = "https://ziglang.org/download/$ZigVersion/$ZigZip"
+          Invoke-WebRequest -Uri $Url -OutFile "$env:TEMP\$ZigZip" -UseBasicParsing
+          Expand-Archive -Path "$env:TEMP\$ZigZip" -DestinationPath "$env:TEMP" -Force
+          "$env:TEMP\zig-windows-x86_64-$ZigVersion" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      # ── Install system dependencies ──────────────────────────────────
+
+      - name: Install XZ (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq xz-utils
+
+      - name: Install XZ (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: choco install xz -y --no-progress
+
+      # ── Cache ────────────────────────────────────────────────────────
+
+      - name: Restore dependencies cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            elixir/code_puppy_control/deps
+            elixir/code_puppy_control/_build
+          key: beam-release-${{ runner.os }}-${{ hashFiles('elixir/code_puppy_control/mix.lock') }}
+          restore-keys: |
+            beam-release-${{ runner.os }}-
+
+      # ── Build ───────────────────────────────────────────────────────
+
+      - name: Build Burrito binary (macOS/Linux)
+        if: runner.os != 'Windows'
+        # --host-only detects the current OS/arch and builds one native target.
+        run: ./scripts/build-burrito.sh --host-only
+
+      - name: Build Burrito binary (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        # Windows runners include Git Bash.  build-burrito.sh is a
+        # bash script that runs under Git Bash.  Limitation: if the
+        # script uses GNU coreutils flags not available in the
+        # Windows Git Bash environment, it may need patching.  The
+        # current script uses only portable POSIX constructs.
+        run: ./scripts/build-burrito.sh --host-only
+
+      # ── No-Python smoke gate ────────────────────────────────────────
+      # Validates that the packaged Burrito binary starts, shows
+      # help/version, and works without Python installed.
+      # This is the release gate for the Python-free runtime guarantee.
+      # Refs: code-puppy-osy
+
+      - name: Install Mix and compile for smoke (macOS/Linux)
+        if: runner.os != 'Windows'
+        run: |
+          mix deps.get
+          mix compile
+
+      - name: Install Mix and compile for smoke (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          mix deps.get
+          mix compile
+
+      - name: No-Python Burrito smoke (macOS/Linux)
+        if: runner.os != 'Windows'
+        run: mix pup_ex.smoke --burrito --no-python --phase burrito
+
+      - name: No-Python Burrito smoke (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: mix pup_ex.smoke --burrito --no-python --phase burrito
+
+      # ── Windows Authenticode signing ────────────────────────────────
+      # Skipped silently if secrets are absent; the workflow still
+      # succeeds with an unsigned binary.
+
+      - name: Windows Authenticode signing
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          CODESIGN_CERT_BASE64: ${{ secrets.WINDOWS_CODESIGN_CERT_BASE64 }}
+          CODESIGN_PASSWORD: ${{ secrets.WINDOWS_CODESIGN_PASSWORD }}
+        run: |
+          if (-not $env:CODESIGN_CERT_BASE64 -or -not $env:CODESIGN_PASSWORD) {
+            Write-Host "Skipping Windows code signing: secrets not configured."
+            exit 0
+          }
+
+          $ErrorActionPreference = "Stop"
+
+          # Find the built exe
+          $ExePath = Get-ChildItem -Path "burrito_out" -Filter "*.exe" | Select-Object -First 1
+          if (-not $ExePath) {
+            Write-Error "No .exe found in burrito_out/"
+            exit 1
+          }
+
+          # Decode PFX to temp file
+          $PfxBytes = [Convert]::FromBase64String($env:CODESIGN_CERT_BASE64)
+          $PfxPath = [System.IO.Path]::GetTempFileName()
+          [System.IO.File]::WriteAllBytes($PfxPath, $PfxBytes)
+
+          $Thumbprint = ""
+
+          try {
+            # Import certificate
+            $SecurePwd = ConvertTo-SecureString $env:CODESIGN_PASSWORD -AsPlainText -Force
+            $Cert = Import-PfxCertificate -FilePath $PfxPath `
+              -CertStoreLocation Cert:\CurrentUser\My `
+              -Password $SecurePwd -Exportable
+            $Thumbprint = $Cert.Thumbprint
+
+            # Locate signtool
+            $Signtool = Get-ChildItem -Path "C:\Program Files (x86)\Windows Kits\10\bin" `
+              -Recurse -Filter signtool.exe |
+              Where-Object { $_.FullName -match '\\x64\\' } |
+              Sort-Object FullName -Descending |
+              Select-Object -First 1 -ExpandProperty FullName
+
+            if (-not $Signtool) {
+              Write-Error "signtool.exe not found - is Windows SDK installed?"
+              exit 1
+            }
+
+            # Sign
+            & $Signtool sign /sha1 $Thumbprint /fd SHA256 `
+              /tr http://timestamp.digicert.com /td SHA256 /a $ExePath.FullName
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+            # Verify
+            & $Signtool verify /pa $ExePath.FullName
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+            Write-Host "Windows binary signed and verified."
+          }
+          finally {
+            # Clean up certificate from store
+            if ($Thumbprint) {
+              Get-ChildItem Cert:\CurrentUser\My |
+                Where-Object { $_.Thumbprint -eq $Thumbprint } |
+                Remove-Item -ErrorAction SilentlyContinue
+            }
+            Remove-Item $PfxPath -Force -ErrorAction SilentlyContinue
+          }
+
+      # ── Upload artifact ─────────────────────────────────────────────
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: burrito-${{ matrix.platform }}
+          path: elixir/code_puppy_control/burrito_out/*
+          retention-days: 30
+          if-no-files-found: error
+
+  # ── Release ────────────────────────────────────────────────────────────
+  #
+  # Only runs on tag pushes (not workflow_dispatch).
+  # Downloads all platform artifacts, computes SHA256SUMS.txt,
+  # and creates a GitHub Release with all binaries attached.
+
+  release:
+    name: Create GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+          merge-multiple: false
+
+      - name: Prepare release files
+        run: |
+          mkdir -p release-staging
+          # Flatten all platform artifacts into a single directory
+          find release-artifacts -type f \( -name "code_puppy_control_*" -o -name "*.exe" \) \
+            -exec cp {} release-staging/ \;
+
+          # Compute SHA-256 checksums
+          cd release-staging
+          sha256sum * > ../SHA256SUMS.txt
+          cp ../SHA256SUMS.txt .
+          echo "=== Release files ==="
+          ls -lh
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            release-staging/*
+            SHA256SUMS.txt

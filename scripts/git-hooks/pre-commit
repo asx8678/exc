@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+# pre-commit — tracked native hook
+# Python: isort, ruff-format, ruff-lint on staged files
+# Last sync: 2025-05-12
+#
+# Uses NUL-delimited git output + bash arrays to avoid unsafe filename handling.
+# Compatible with Bash 3.2 (macOS default).
+
+set -euo pipefail
+
+# --- helpers ----------------------------------------------------------------
+
+info() {
+  printf '==> %s\n' "$*"
+}
+
+# --- gather staged Python files --------------------------------------------
+
+staged_python=()
+while IFS= read -r -d '' f; do
+  staged_python+=( "$f" )
+done < <(git diff --cached --name-only -z --diff-filter=ACMR -- '*.py') || true
+
+if [[ ${#staged_python[@]} -eq 0 ]]; then
+  info 'no staged Python files — skipping pre-commit checks'
+  exit 0
+fi
+
+info "staged Python files: ${staged_python[*]}"
+
+# --- detect tooling --------------------------------------------------------
+
+# Detect ruff independently
+if command -v uv >/dev/null 2>&1 && uv run ruff --version >/dev/null 2>&1; then
+  ruff_cmd=(uv run ruff)
+elif command -v ruff >/dev/null 2>&1; then
+  ruff_cmd=(ruff)
+else
+  printf >&2 'ERROR: ruff not found. Install dev dependencies.\n'
+  exit 1
+fi
+
+# Detect isort separately (may not be in uv deps)
+if command -v uv >/dev/null 2>&1 && uv run isort --version >/dev/null 2>&1; then
+  isort_cmd=(uv run isort --profile black)
+elif command -v isort >/dev/null 2>&1; then
+  isort_cmd=(isort --profile black)
+else
+  isort_cmd=()
+fi
+
+# --- isort (import sort) ---------------------------------------------------
+
+if [[ ${#isort_cmd[@]} -gt 0 ]]; then
+  info 'running isort ...'
+  "${isort_cmd[@]}" -- "${staged_python[@]}"
+else
+  info 'isort not found; using ruff import sorter'
+  "${ruff_cmd[@]}" check --select I --fix -- "${staged_python[@]}"
+fi
+
+# re-stage any fixes
+git add -- "${staged_python[@]}" 2>/dev/null || true
+
+# --- ruff format -----------------------------------------------------------
+
+info 'running ruff format ...'
+"${ruff_cmd[@]}" format -- "${staged_python[@]}"
+git add -- "${staged_python[@]}" 2>/dev/null || true
+
+# --- ruff lint -------------------------------------------------------------
+
+info 'running ruff check ...'
+"${ruff_cmd[@]}" check --fix -- "${staged_python[@]}"
+git add -- "${staged_python[@]}" 2>/dev/null || true

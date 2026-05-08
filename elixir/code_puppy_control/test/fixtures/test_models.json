@@ -1,0 +1,15 @@
+{
+  "test-model": {
+    "type": "openai",
+    "provider": "openai",
+    "name": "gpt-4",
+    "context_length": 8192
+  },
+  "disabled-test-model": {
+    "type": "openai",
+    "provider": "openai",
+    "name": "gpt-4",
+    "context_length": 8192,
+    "enabled": false
+  }
+}

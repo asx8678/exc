@@ -1,0 +1,33 @@
+#!/bin/sh
+# pup - Code Puppy CLI wrapper
+# Delegates to the Elixir escript in the release. Legacy Python fallback is
+# disabled unless PUP_ALLOW_LEGACY_PYTHON_CLI=1 is set for debug/rollback.
+set -eu
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+RELEASE_DIR="${SCRIPT_DIR}/.."
+
+# Try the release escript first (installed via overlay)
+for escript in "${RELEASE_DIR}"/lib/code_puppy_control-*/priv/bin/code_puppy_control; do
+    if [ -f "${escript}" ] && command -v elixir >/dev/null 2>&1; then
+        exec elixir "${escript}" "$@"
+    fi
+done
+
+# Legacy Python fallback is an explicit debug/rollback opt-in only.
+if [ "${PUP_ALLOW_LEGACY_PYTHON_CLI:-0}" = "1" ]; then
+    LEGACY_PUP="$(command -v pup || true)"
+    if [ -n "${LEGACY_PUP}" ]; then
+        if [ "${LEGACY_PUP}" = "${SCRIPT_DIR}/pup" ]; then
+            echo "Error: PUP_ALLOW_LEGACY_PYTHON_CLI=1 was set, but 'pup' resolves to this release wrapper; refusing recursive fallback." >&2
+            exit 1
+        fi
+        exec "${LEGACY_PUP}" "$@"
+    fi
+
+    echo "Error: Elixir escript is unavailable and no legacy Python 'pup' command was found." >&2
+    exit 1
+fi
+
+echo "Error: Elixir escript is unavailable; Python 'pup' fallback is disabled by default. Set PUP_ALLOW_LEGACY_PYTHON_CLI=1 to opt in to legacy/debug fallback." >&2
+exit 1

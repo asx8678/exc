@@ -1,0 +1,16 @@
+{
+  "fixture-realistic-chatgpt": {
+    "type": "custom_openai",
+    "name": "fixture-chatgpt",
+    "provider": "openai",
+    "context_length": 128000,
+    "base_url": "https://api.openai.example.com/v1"
+  },
+  "fixture-realistic-gpt5": {
+    "type": "custom_openai",
+    "name": "fixture-gpt5",
+    "provider": "openai",
+    "context_length": 256000,
+    "api_key_env": "OPENAI_API_KEY"
+  }
+}
