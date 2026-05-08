@@ -11,7 +11,7 @@
 ### Rationale
 
 Code Puppy now treats the Elixir `pup` CLI and `CodePuppyControl` runtime as the default daily-driver path:
-- The Elixir codebase (`elixir/code_puppy_control/`) is where **new runtime development happens**.
+- The repository-root Elixir app (`mix.exs`, `lib/`, `config/`, `test/`, `src/`) is where **new runtime development happens**.
 - **New plugin development should target the Elixir `PluginBehaviour` API** (see `docs/PLUGIN_MIGRATION.md`).
 - The Python codebase (`code_puppy/`) is maintained for PyPI compatibility, Python plugins/agents, and explicit bridge mode (`PUP_RUNTIME=python` / `--bridge-mode`).
 - `pup_ex` is a Mix task namespace; there is no separate `pup-ex` executable. Avoid new docs or UX that imply otherwise.
@@ -103,10 +103,10 @@ All new and modified test files must pass automated review before merge. This en
 
 ```bash
 # Review specific test files or directories
-./scripts/review-tests.sh elixir/code_puppy_control/test/llm/
+./scripts/review-tests.sh test/llm/
 
 # Multiple paths
-./scripts/review-tests.sh elixir/code_puppy_control/test/ tests/plugins/
+./scripts/review-tests.sh test/ tests/plugins/
 
 # Treat findings as blocking (for CI gates)
 
@@ -132,7 +132,7 @@ To make reviews blocking in CI, set `REVIEW_BLOCKING=1` in the environment or ad
 
 - Add tests for bug fixes
 - Ensure existing tests pass
-- For Elixir code, run `mix test` in `elixir/code_puppy_control/`
+- For Elixir code, run `mix test` from the repository root (`test/` is Elixir; `tests/` is Python compatibility)
 
 ### Questions?
 

@@ -31,7 +31,7 @@
          │                    │                                    │
 ┌────────▼────────┐  ┌────────▼────────┐  ┌───────────────────────▼────┐
 │ CONFIG SYSTEM   │  │ CALLBACK SYSTEM │  │  PLUGIN LOADER (Elixir)    │
-│ (pup-ex.ini)    │  │  (CodePuppy     │  │  (Auto-discover Elixir &   │
+│ (puppy.cfg)     │  │  (CodePuppy     │  │  (Auto-discover Elixir &   │
 │                 │  │   Control.      │  │   legacy Python plugins)   │
 │                 │  │   Callbacks)    │  │                            │
 └────────┬────────┘  └────────┬────────┘  └────────────────────────────┘

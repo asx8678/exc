@@ -134,11 +134,47 @@ chmod +x pup
 The escript is useful for local development and smoke testing, but is a **degraded runtime** — it lacks Repo/Oban/Phoenix Endpoint (no database, scheduler, or admin UI). For real work, prefer the Burrito binary above.
 
 ```bash
-cd elixir/code_puppy_control
 mix deps.get
 MIX_ENV=prod mix escript.build
 ./pup --help
 ```
+
+### Elixir App Development (Repository Root)
+
+The Elixir-native app now lives at the repository root. Normal Mix commands run from root, while the Python/PyPI compatibility package remains in `code_puppy/` with tests under `tests/`.
+
+```bash
+# Install dependencies
+mix deps.get
+
+# Run no-network dogfood smoke
+mix pup_ex.smoke
+
+# Setup the SQLite database
+mix ecto.setup
+
+# Run the Elixir test suite
+mix test
+
+# Start Phoenix/admin UI services for development
+mix phx.server
+```
+
+Path split after the root migration:
+
+- `test/` — Elixir `CodePuppyControl` tests.
+- `tests/` — Python compatibility / PyPI tests.
+
+The Elixir test suite uses SQLite and supports laptop-friendly concurrency profiles:
+
+```bash
+mix test                         # balanced default
+PUP_TEST_PROFILE=gentle mix test  # lower parallelism / cooler laptops
+PUP_TEST_PROFILE=burst mix test   # higher parallelism / CI-style
+PUP_TEST_MAX_CASES=2 mix test     # exact override
+```
+
+The root Elixir control plane includes the Phoenix API, process registry, PubSub, Oban scheduler, and Elixir-native tool runner. For the detailed daily-driver guide, see [docs/ELIXIR_CLI_QUICKSTART.md](docs/ELIXIR_CLI_QUICKSTART.md).
 
 ### UV / PyPI (Compatibility / Legacy Python Bridge)
 
@@ -892,7 +928,7 @@ The agent system supports future expansion:
 - **Core Implementation (Python compatibility path)**: `code_puppy/agents/json_agent.py`
 - **Agent Discovery (Python compatibility path)**: Integrated in `code_puppy/agents/agent_manager.py`
 - **Command Interface**: Works through existing `/agent` command
-- **Testing**: Elixir test suite (see `elixir/code_puppy_control/test/`)
+- **Testing**: Elixir test suite under `test/`; Python compatibility tests under `tests/`
 
 ### JSON Agent Loading Process
 1. System scans `~/.code_puppy/agents/` for `*-agent.json` files

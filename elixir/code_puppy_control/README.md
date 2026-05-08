@@ -238,9 +238,9 @@ workflow itself (see `.github/workflows/elixir-isolation-gates.yml`).
 ## Building a Single-Binary Release (Burrito)
 
 For self-contained distribution without requiring Erlang/Elixir on the target
-machine, use Burrito via `scripts/build-burrito.sh`. Requires Zig on PATH.
+machine, run Burrito from the repository root via `./scripts/build-burrito.sh`. Requires Zig on PATH.
 
-See [docs/burrito-release.md](docs/burrito-release.md) for prerequisites,
+See [docs/release/burrito-release.md](../../docs/release/burrito-release.md) for prerequisites,
 platform matrix, and troubleshooting.
 
 ## License

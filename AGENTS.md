@@ -1,7 +1,7 @@
 # Contributing to Code Puppy
 
 > **Golden rule:** nearly all new functionality should be a **plugin**. Prefer
-> Elixir plugins under `elixir/code_puppy_control/lib/code_puppy_control/plugins/`
+> Elixir plugins under `lib/code_puppy_control/plugins/`
 > for the default runtime; use `code_puppy/plugins/` only for legacy Python/PyPI
 > compatibility. Don't edit `code_puppy/command_line/` unless you're deliberately
 > touching the legacy Python CLI.

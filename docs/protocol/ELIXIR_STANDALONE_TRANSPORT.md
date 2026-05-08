@@ -269,7 +269,6 @@ Detailed health status.
 
 Start the service interactively:
 ```bash
-cd elixir/code_puppy_control
 mix code_puppy.stdio_service
 ```
 
@@ -369,7 +368,6 @@ config :code_puppy_control, :stdio_service,
 ### Run Elixir Tests
 
 ```bash
-cd elixir/code_puppy_control
 mix test test/code_puppy_control/transport/stdio_service_test.exs
 ```
 

@@ -102,7 +102,6 @@ Use these current controls instead:
 ## Validation Commands
 
 ```bash
-cd elixir/code_puppy_control
 mix pup_ex.smoke --no-python
 MIX_ENV=prod mix escript.build
 ./pup --version
@@ -111,8 +110,7 @@ MIX_ENV=prod mix escript.build
 For Burrito packaging:
 
 ```bash
-cd elixir/code_puppy_control
-scripts/build-burrito.sh --host-only
+./scripts/build-burrito.sh --host-only
 ```
 
 The default path should not require `python`, `python3`, or a Python worker

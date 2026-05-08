@@ -32,7 +32,7 @@ The naming hierarchy is intentionally layered:
 2. **Renaming cost exceeds benefit** — Changing the OTP app name would require:
    - Updating 50+ `config :code_puppy_control` entries
    - Renaming 100+ `CodePuppyControl.*` modules
-   - Changing file paths under `elixir/code_puppy_control/`
+   - Changing root Elixir paths under `mix.exs`, `config/`, `lib/`, `test/`, `src/`, `priv/`, and `rel/`
    - Updating all references in documentation, Python transport code, and CI
    - Zero functional improvement for users
 
@@ -64,7 +64,7 @@ Revisit this decision if:
 
 - ROADMAP.md Phase 0: "Choose final naming for the Elixir umbrella app"
 - ADR-003: Dual-Home Config Isolation for Elixir pup-ex (establishes `pup_ex` user terminology)
-- `elixir/code_puppy_control/mix.exs` — OTP app definition
+- `mix.exs` — OTP app definition
 - `docs/ELIXIR_CLI_QUICKSTART.md` — `pup_ex` CLI naming
 
 ## Related

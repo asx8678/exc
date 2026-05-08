@@ -24,7 +24,6 @@ See [GitHub Releases](https://github.com/mpfaffenberger/code_puppy/releases) for
 ### Escript (dev / smoke testing)
 
 ```bash
-cd elixir/code_puppy_control
 mix deps.get
 mix escript.build
 ./pup --help
@@ -64,4 +63,4 @@ code-puppy --bridge-mode
 | Hook system | [HOOKS.md](HOOKS.md) |
 | Config specification | [config_spec.md](config_spec.md) |
 | Python `pup` alias deprecation | [release/python-pup-alias-deprecation-plan.md](release/python-pup-alias-deprecation-plan.md) |
-| Elixir README | [../elixir/code_puppy_control/README.md](../elixir/code_puppy_control/README.md) |
+| Project README / full overview | [../README.md](../README.md) |
