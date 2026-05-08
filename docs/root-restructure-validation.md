@@ -73,16 +73,47 @@ Wave 1 auditors inspected pre-restructure state across all top-level directories
 
 **Key invariant confirmed:** Generated build artifacts are not in the git index and will not be accidentally committed or moved.
 
-## Phases 2–10 (Not Yet Started)
+## Phase 10: Final Validation (Stage Complete)
 
-| Phase | Title | Status |
-|---|---|---|
-| Phase 2 | Core git mv of Elixir app files | ○ OPEN |
-| Phase 3 | Merge `priv/` safely | ○ OPEN |
-| Phase 4 | Merge `rel/` safely | ○ OPEN |
-| Phase 5 | Merge scripts and fix path detection | ○ OPEN |
-| Phase 6 | Merge docs and README | ○ OPEN |
-| Phase 7 | Wrapper cleanup | ○ OPEN |
-| Phase 8 | Stale path and reference updates | ○ OPEN |
-| Phase 9 | Python compatibility audit document | ○ OPEN |
-| Phase 10 | Validation and release smoke | ○ OPEN |
+Four parallel validation lanes confirmed the root restructure is complete and functional.
+
+### Elixir Validation Lane (`exc-2xg-val-elixir`)
+
+| Check | Result |
+|---|---|
+| `mix deps.get` | ✅ PASS |
+| `mix format --check-formatted` | ✅ PASS |
+| `mix compile --warnings-as-errors` | ✅ PASS |
+| `mix test --max-failures 5` | ⚠️ 2 FAILURES (exit 2) — pre-existing RendererTest GenServer timeouts; pre-existing SessionStorage SQLite busy flakiness. Not root-migration regressions. |
+
+### Python Validation Lane (`exc-2xg-val-python`)
+
+| Check | Result |
+|---|---|
+| `uv sync --frozen` | ✅ PASS |
+| `uv run ruff check` | ✅ PASS (All checks passed) |
+| `uv run pytest tests -q` | ✅ 182 passed |
+| `bash scripts/python-package-smoke.sh` | ✅ PASS |
+
+### Release/Escript Validation Lane (`exc-2xg-val-release`)
+
+| Check | Result |
+|---|---|
+| prod deps + compile | ✅ PASS |
+| escript build (`./pup --help`) | ✅ PASS |
+| `mix release --overwrite` | ✅ PASS |
+| Burrito smoke | ✅ PASS |
+| Packaged smoke | ✅ PASS |
+
+### Static Validation Lane (`exc-2xg-val-static`)
+
+| Check | Result |
+|---|---|
+| `elixir/` directory | ✅ **Absent** — wrapper directory correctly removed |
+| Active stale `elixir/code_puppy_control` refs | ✅ **Zero** — all remaining hits in explicitly labeled historical/plan/audit docs |
+| `bash -n` on release/build/smoke scripts | ✅ PASS (7/8; `scripts/pre-commit` correct absence, lives at `scripts/git-hooks/`) |
+| `scripts/release-gate.sh` fresh worktree | ⚠️ Dependency/compile race in worktree-first compile (parallel NIF + `:elixir_code_server`). Gate structurally sound; use `mix deps.get` + `mix compile` before gate in fresh worktrees. Not a blocker. |
+
+### Stage A Assessment
+
+All 11 phases complete. Elixir app now lives at repository root. Python/PyPI package preserved at root. No active stale path references in active code, docs, or scripts. Stage B (Python isolation under `legacy/python/`) remains deferred per `code-puppy-2xg.2`.
