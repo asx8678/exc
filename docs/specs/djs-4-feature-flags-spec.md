@@ -15,7 +15,9 @@
 > CLI and unknown capabilities, while `PUP_RUNTIME=python` / `--bridge-mode`
 > explicitly opts into the legacy Python bridge. Keep this document for audit
 > history; do not treat its default-to-Python rollout language as current
-> architecture guidance.
+> architecture guidance. Path examples using `elixir/code_puppy_control` are
+> also pre-root-migration historical references; current Elixir paths are rooted
+> at `lib/`, `test/`, `config/`, and related repository-root directories.
 
 ---
 

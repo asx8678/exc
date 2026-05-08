@@ -19,6 +19,8 @@
 
 ## Phase 0: Baseline Validation
 
+> **Historical baseline note:** nested `elixir/code_puppy_control` paths in this section intentionally record the pre-root-migration validation environment.
+
 ### Elixir Baseline (from `elixir-expert` audit)
 
 Ran in `elixir/code_puppy_control/` against the baseline snapshot.

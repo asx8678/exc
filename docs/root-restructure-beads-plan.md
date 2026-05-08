@@ -3,6 +3,8 @@
 Derived from `ultimate_root_restructure_plan.md`. This document maps the
 two-stage migration into Beads-tracked epics and child tasks.
 
+> **Plan-only note:** old `elixir/code_puppy_control` paths below identify the migration source tree, not current post-migration developer instructions.
+
 ---
 
 ## Epic: Root Restructure — Elixir to Repository Root, Python Preserved

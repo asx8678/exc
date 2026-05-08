@@ -1,5 +1,7 @@
 # Ultimate Plan — Code Puppy Root Restructure + Python Compatibility Audit
 
+> **Plan-only historical note:** references to `elixir/code_puppy_control` are migration-source paths for Stage A. After Stage A, active Elixir commands run from the repository root.
+
 ## Executive Decision
 
 Use a **two-stage migration**:
