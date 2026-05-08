@@ -1,4 +1,4 @@
-# Temp and dev files - Root cleanup
+# exc final root cleanup
 .beads/
 .claude/
 *.jsonl
@@ -6,4 +6,14 @@ preview_*.txt
 commit_*.txt
 .pack_resume.md
 
-# Previous ignores... (keep existing content)
+# Ignore common temp files
+.DS_Store
+Thumbs.db
+
+# Elixir
+/_build/
+deps/
+*.ez
+
+# Docs
+/doc/
