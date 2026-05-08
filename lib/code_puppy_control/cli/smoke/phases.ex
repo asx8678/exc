@@ -292,7 +292,8 @@ defmodule CodePuppyControl.CLI.Smoke.Phases do
 
     candidates = [
       Path.join(File.cwd!(), "pup"),
-      Path.expand("../../../pup", __DIR__),
+      # After root migration, pup escript lives at the repository root.
+      # __DIR__ = lib/code_puppy_control/cli/smoke/ → up 4 = repo root.
       Path.expand("../../../../pup", __DIR__)
     ]
 

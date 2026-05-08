@@ -52,7 +52,7 @@ defmodule Mix.Tasks.PupEx.SmokeSubprocessTest do
 
       unless File.exists?(Path.join(project_root, "mix.exs")) do
         flunk(
-          "could not locate code_puppy_control mix.exs from #{__DIR__} " <>
+          "could not locate mix.exs from #{__DIR__} " <>
             "(resolved project_root=#{project_root})"
         )
       end
