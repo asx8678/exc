@@ -39,10 +39,6 @@ jobs:
           - platform: windows-x86_64
             runner: windows-latest
 
-    defaults:
-      run:
-        working-directory: elixir/code_puppy_control
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -100,9 +96,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            elixir/code_puppy_control/deps
-            elixir/code_puppy_control/_build
-          key: beam-release-${{ runner.os }}-${{ hashFiles('elixir/code_puppy_control/mix.lock') }}
+            deps
+            _build
+          key: beam-release-${{ runner.os }}-${{ hashFiles('mix.lock') }}
           restore-keys: |
             beam-release-${{ runner.os }}-
 
@@ -230,7 +226,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: burrito-${{ matrix.platform }}
-          path: elixir/code_puppy_control/burrito_out/*
+          path: burrito_out/*
           retention-days: 30
           if-no-files-found: error
 

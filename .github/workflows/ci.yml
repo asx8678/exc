@@ -59,10 +59,6 @@ jobs:
   elixir-quality:
     name: Elixir format, compile & test
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: elixir/code_puppy_control
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -77,9 +73,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            elixir/code_puppy_control/deps
-            elixir/code_puppy_control/_build
-          key: beam-${{ runner.os }}-${{ hashFiles('elixir/code_puppy_control/mix.lock') }}
+            deps
+            _build
+          key: beam-${{ runner.os }}-${{ hashFiles('mix.lock') }}
           restore-keys: |
             beam-${{ runner.os }}-
 
@@ -100,9 +96,6 @@ jobs:
   elixir-smoke:
     name: Elixir smoke & packaged CLI
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: elixir/code_puppy_control
 
     steps:
       - name: Checkout repository
@@ -118,9 +111,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            elixir/code_puppy_control/deps
-            elixir/code_puppy_control/_build
-          key: beam-${{ runner.os }}-${{ hashFiles('elixir/code_puppy_control/mix.lock') }}
+            deps
+            _build
+          key: beam-${{ runner.os }}-${{ hashFiles('mix.lock') }}
           restore-keys: |
             beam-${{ runner.os }}-
 
@@ -148,10 +141,6 @@ jobs:
   burrito-native-smoke:
     name: Burrito native smoke
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: elixir/code_puppy_control
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -186,9 +175,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            elixir/code_puppy_control/deps
-            elixir/code_puppy_control/_build
-          key: beam-burrito-${{ runner.os }}-${{ hashFiles('elixir/code_puppy_control/mix.lock') }}
+            deps
+            _build
+          key: beam-burrito-${{ runner.os }}-${{ hashFiles('mix.lock') }}
           restore-keys: |
             beam-burrito-${{ runner.os }}-
 
