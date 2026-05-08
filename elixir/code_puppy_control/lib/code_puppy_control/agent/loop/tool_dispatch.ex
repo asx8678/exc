@@ -45,6 +45,18 @@ defmodule CodePuppyControl.Agent.Loop.ToolDispatch do
           "Agent.Loop: tool #{inspect(resolved_name)} not in allowed_tools for #{inspect(state.agent_module)}"
         )
 
+        # Emit tool_call_start so downstream consumers (TUI renderer) see
+        # a balanced start/end pair for every tool call, even disallowed ones.
+        Events.publish(
+          Events.tool_call_start(
+            state.run_id,
+            state.session_id,
+            resolved_name,
+            tool_call.arguments,
+            safe_id
+          )
+        )
+
         result_msg = %{
           role: "tool",
           tool_call_id: safe_id,
