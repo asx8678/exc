@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "codepp"
 # Python/PyPI compatibility version stream. The Elixir-native CLI has its own
-# release stream in elixir/code_puppy_control/mix.exs; do not assume these match.
+# release stream in mix.exs (repo root); do not assume these match.
 version = "0.0.456"
 description = "Code generation agent"
 readme = "README.md"

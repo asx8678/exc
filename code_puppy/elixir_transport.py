@@ -127,16 +127,19 @@ class ElixirTransport:
 
     def _detect_project_path(self) -> str:
         """Auto-detect the path to the Elixir project."""
-        # Look for the elixir directory relative to this file
-        # code_puppy/elixir_transport.py -> elixir/code_puppy_control
+        # Look for the Elixir project relative to this file.
+        # After root restructure, mix.exs lives at repo root alongside
+        # the Python compatibility package; old nested paths are kept
+        # as transitional fallbacks for pre-restructure checkouts.
         current_file = Path(__file__).resolve()
         project_root = current_file.parent.parent
 
-        # Try several possible locations
+        # Try several possible locations (root-first)
         possible_paths = [
-            project_root / "elixir" / "code_puppy_control",
+            project_root,  # root restructure: mix.exs at repo root
+            project_root / "elixir" / "code_puppy_control",  # legacy nested
             project_root / ".." / "elixir" / "code_puppy_control",
-            project_root / ".." / ".." / "elixir" / "code_puppy_control",
+            project_root / ".." / "." / "elixir" / "code_puppy_control",
         ]
 
         for path in possible_paths:
@@ -144,7 +147,7 @@ class ElixirTransport:
                 return str(path.resolve())
 
         raise ElixirTransportError(
-            f"Could not find code_puppy_control Elixir project. "
+            f"Could not find Elixir project (mix.exs). "
             f"Searched: {[str(p) for p in possible_paths]}"
         )
 

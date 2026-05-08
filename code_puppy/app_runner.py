@@ -452,7 +452,7 @@ class AppRunner:
                     "Elixir control-plane failed to start:\n"
                     f" {type(_transport_err).__name__}: {_transport_err}\n"
                     "Remediation:\n"
-                    " * Run manually: cd elixir/code_puppy_control && mix code_puppy.stdio_service\n"
+                    " * Run manually: mix code_puppy.stdio_service\n"
                     " * Check elixir is installed: which elixir\n"
                     " * To boot anyway in degraded mode: export PUP_ALLOW_ELIXIR_DEGRADED=1"
                 )
