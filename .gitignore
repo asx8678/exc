@@ -1,9 +1,9 @@
-# Add these lines to ignore temp files
-commit_file.txt
-preview_file.txt
-issues.jsonl
-.pack_resume.md
+# Temp and dev files - Root cleanup
 .beads/
 .claude/
+*.jsonl
+preview_*.txt
+commit_*.txt
+.pack_resume.md
 
-# Existing content...
+# Previous ignores... (keep existing content)
