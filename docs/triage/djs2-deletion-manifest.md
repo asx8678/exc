@@ -4,6 +4,8 @@
 **Date:** 2026-07-12
 **Status:** CATEGORIES A, B, D COMPLETE — ~10,726 LoC deleted ✅
 
+> **Historical/pre-root-migration note:** any `elixir/code_puppy_control` path or `cd elixir/code_puppy_control` command in this manifest records the old nested app layout. Current Elixir commands run from the repository root.
+
 ## Context
 
 The Python-to-Elixir migration (Phases A–G) is complete. Phase H infrastructure

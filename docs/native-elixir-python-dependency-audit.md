@@ -6,6 +6,8 @@
 **Auditor:** Max the Code Puppy (`code-puppy-68a5f1`)
 **Status:** Complete
 
+> **Pre-root-migration path note:** table entries using `elixir/...` shorthand reflect the old nested Elixir app layout. In the root-migrated tree, read those as root Elixir paths under `lib/`, `test/`, and related root directories when the referenced modules still exist.
+
 ---
 
 ## 1. Executive Summary

@@ -6,6 +6,8 @@
 **Historical mapping:** code_puppy-3f9.4
 **Status:** ✅ COMPLETE
 
+> **Historical/pre-root-migration note:** this audit records the 2026-04-29 state. Path examples using `elixir/code_puppy_control` predate the root migration, and some runtime findings were superseded by later Phase H/J work.
+
 ## Executive Summary
 
 **Key Finding:** Phases A–G are **complete and merged**. Elixir has comprehensive coverage across all capability domains — 79K LoC in 868+ source files with 362 test files. However, **Phase H (cutover) has three blocking gaps** before rollout can begin:

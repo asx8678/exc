@@ -5,6 +5,8 @@
 **Cleanup branch:** `fix/elixir-triage-quarantine-cleanup`
 **Fast-suite command:** `mix test --include triage_pending --exclude slow --exclude integration --max-failures 20`
 
+> **Historical/pre-root-migration note:** this dated triage plan preserves old nested `elixir/code_puppy_control` paths and commands as audit context. For current work, run Mix commands from the repository root.
+
 ## Current validation status
 
 **Refreshed on 2026-04-25** on base branch `fix/security-regression-and-test-triage`.
