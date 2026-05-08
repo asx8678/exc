@@ -12,6 +12,17 @@
 
 set -euo pipefail
 
+# ── Locate project root ───────────────────────────────────────────────────
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+
+if [[ ! -f "${PROJECT_ROOT}/mix.exs" ]]; then
+  echo "ERROR: could not find mix.exs at ${PROJECT_ROOT}" >&2
+  exit 2
+fi
+
+cd "${PROJECT_ROOT}"
+
 # ── Color helpers ──────────────────────────────────────────────────────────
 RED='\033[0;31m'
 GREEN='\033[0;32m'

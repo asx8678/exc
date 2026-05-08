@@ -163,8 +163,8 @@ fi
 # --- Elixir checks (BLOCKING) ----------------------------------------------
 
 if [[ ${#elixir_files[@]} -gt 0 ]]; then
-  elixir_dir="$PROJECT_ROOT/elixir/code_puppy_control"
-  if [[ -d "$elixir_dir" ]]; then
+  elixir_dir="$PROJECT_ROOT"
+  if [[ -f "$elixir_dir/mix.exs" ]]; then
     echo '--- elixir-compile ---'
     info 'Elixir compile (warnings-as-errors) ...'
     if ! (cd "$elixir_dir" && mix compile --warnings-as-errors); then

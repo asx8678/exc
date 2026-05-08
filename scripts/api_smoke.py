@@ -22,7 +22,6 @@ longer has a valid app to import.
 
 Use the supported local smoke commands instead:
 
-  cd elixir/code_puppy_control
   mix pup_ex.smoke
   ./scripts/smoke-packaged.sh
 
