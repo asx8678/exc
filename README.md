@@ -1,4 +1,3 @@
-# exc — 1024 Angry Puppies 🐕⚡
 
 **Elixir-native multi-agent AI coding system**
 
